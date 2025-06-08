@@ -42,26 +42,21 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
   };
 
   const validateApiKey = async (apiKeyValue: string) => {
-    const auth = Buffer.from(`${apiKeyValue}:api_token`).toString("base64");
+    const response = await fetch("/api/validate-api-key", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ apiKey: apiKeyValue }),
+    });
 
-    const response = await fetch(
-      "https://api.track.toggl.com/api/v9/workspaces",
-      {
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const data = await response.json();
 
     if (!response.ok) {
-      throw new Error("Invalid API key or unable to connect to Toggl");
+      throw new Error(data.error || "Failed to validate API key");
     }
 
-    const workspaces = await response.json();
-    if (!workspaces || workspaces.length === 0) {
-      throw new Error("No workspaces found for this account");
-    }
+    return data;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,7 +80,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
 
       onCredentialsSubmit(apiKey.trim());
     } catch (error) {
-      console.error("Error fetching workspace:", error);
+      console.error("Error validating API key:", error);
       setErrors({
         apiKey:
           error instanceof Error
