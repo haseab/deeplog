@@ -103,7 +103,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
           <div className="flex justify-center animate-in zoom-in-50 duration-1000 delay-200">
             <div className="relative">
               <Image
-                src="/deeplogo.svg"
+                src="/deeplog.svg"
                 alt="DeepLog Logo"
                 width={64}
                 height={64}

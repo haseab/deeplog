@@ -65,7 +65,7 @@ export default function Home() {
           <div>
             <div className="flex items-center space-x-2">
               <Image
-                src="/deeplogo.svg"
+                src="/deeplog.svg"
                 alt="DeepLog Logo"
                 width={28}
                 height={28}
