@@ -98,10 +98,12 @@ export function TimeTrackerTable() {
         },
         onAutoClose: () => {
           // If not undone, make the API call (without showing success toast)
+          const apiKey = localStorage.getItem("toggl_api_key");
           fetch(`/api/time-entries/${entryId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
+              "x-toggl-api-key": apiKey || "",
             },
             body: JSON.stringify({ description: newDescription }),
           }).catch(() => {
@@ -143,10 +145,12 @@ export function TimeTrackerTable() {
       },
       onAutoClose: () => {
         // If not undone, make the API call
+        const apiKey = localStorage.getItem("toggl_api_key");
         fetch(`/api/time-entries/${entryId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
+            "x-toggl-api-key": apiKey || "",
           },
           body: JSON.stringify({ project_name: newProject }),
         }).catch(() => {
@@ -172,8 +176,12 @@ export function TimeTrackerTable() {
       },
       onAutoClose: () => {
         // If not undone, make the API call
+        const apiKey = localStorage.getItem("toggl_api_key");
         fetch(`/api/time-entries/${entryToDelete.id}`, {
           method: "DELETE",
+          headers: {
+            "x-toggl-api-key": apiKey || "",
+          },
         }).catch(() => {
           // If API fails, revert the change and show error
           toast.error("Failed to delete entry. Please try again.");
