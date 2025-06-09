@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
     const projectMap = new Map(projects.map((p) => [p.id, p]));
 
     // Add some debug logging to see what we're getting
-    console.log("Sample time entry:", timeEntries[0]);
-    console.log("Available projects:", projects.length);
+    // console.log("Sample time entry:", timeEntries[0]);
+    // console.log("Available projects:", projects.length);
 
     // Enrich time entries with project information
     const enrichedEntries = timeEntries.map((entry) => {

@@ -1,23 +1,13 @@
 "use client";
 
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import {
-  Calendar as CalendarIcon,
-  MoreVertical,
-  RefreshCw,
-} from "lucide-react";
+import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import * as React from "react";
 import { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -39,30 +29,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import type { Project, SelectedCell, TimeEntry } from "../types";
+import { ActionsMenu } from "./actions-menu";
 import { ExpandableDescription } from "./expandable-description";
 import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
-
-type TimeEntry = {
-  id: number;
-  description: string;
-  project_name: string;
-  project_color: string;
-  start: string;
-  stop: string;
-  duration: number;
-};
-
-type Project = {
-  id: number;
-  name: string;
-  color: string;
-};
-
-type SelectedCell = {
-  rowIndex: number;
-  cellIndex: number;
-} | null;
 
 export function TimeTrackerTable() {
   const getDefaultDateRange = (): DateRange => {
@@ -86,6 +57,7 @@ export function TimeTrackerTable() {
   const [isEditingCell, setIsEditingCell] = React.useState(false);
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
     React.useState(false);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
   const tableRef = React.useRef<HTMLDivElement>(null);
 
   const handleDescriptionSave =
@@ -201,11 +173,11 @@ export function TimeTrackerTable() {
     });
   };
 
-  const startNewTimeEntry = () => {
+  const startNewTimeEntry = React.useCallback(() => {
     toast("New time entry would start here", {
       description: "This feature will be implemented when the API is ready",
     });
-  };
+  }, []);
 
   const fetchData = React.useCallback(
     async (showLoadingState = true) => {
@@ -254,42 +226,46 @@ export function TimeTrackerTable() {
     page * rowsPerPage + rowsPerPage
   );
 
-  const activateCell = (rowIndex: number, cellIndex: number) => {
-    const entry = paginatedEntries[rowIndex];
-    if (!entry) return;
+  // Optimized activateCell using React.useCallback to prevent recreation
+  const activateCell = React.useCallback(
+    (rowIndex: number, cellIndex: number) => {
+      const entry = paginatedEntries[rowIndex];
+      if (!entry) return;
 
-    switch (cellIndex) {
-      case 0: // Description
-        // Find the description component and focus it
-        const descriptionElement = document.querySelector(
-          `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
-        ) as HTMLElement;
-        if (descriptionElement) {
-          descriptionElement.click();
+      // Use requestAnimationFrame to defer DOM queries to next tick
+      requestAnimationFrame(() => {
+        switch (cellIndex) {
+          case 0: // Description
+            const descriptionElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+            ) as HTMLElement;
+            if (descriptionElement) {
+              descriptionElement.click();
+            }
+            break;
+          case 1: // Project
+            const projectElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+            ) as HTMLElement;
+            if (projectElement) {
+              projectElement.click();
+            }
+            break;
+          case 4: // Actions menu
+            const menuElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+            ) as HTMLElement;
+            if (menuElement) {
+              menuElement.click();
+            }
+            break;
         }
-        break;
-      case 1: // Project
-        // Find the project selector and focus it
-        const projectElement = document.querySelector(
-          `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
-        ) as HTMLElement;
-        if (projectElement) {
-          projectElement.click();
-        }
-        break;
-      case 4: // Actions menu
-        // Find the dropdown trigger and click it
-        const menuElement = document.querySelector(
-          `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
-        ) as HTMLElement;
-        if (menuElement) {
-          menuElement.click();
-        }
-        break;
-    }
-  };
+      });
+    },
+    [paginatedEntries]
+  );
 
-  const navigateToNextCell = () => {
+  const navigateToNextCell = React.useCallback(() => {
     if (!selectedCell) return;
 
     const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
@@ -303,7 +279,7 @@ export function TimeTrackerTable() {
     } else if (selectedCell.rowIndex < currentEntries.length - 1) {
       setSelectedCell({ rowIndex: selectedCell.rowIndex + 1, cellIndex: 0 });
     }
-  };
+  }, [selectedCell, paginatedEntries]);
 
   React.useEffect(() => {
     fetchData();
@@ -325,6 +301,17 @@ export function TimeTrackerTable() {
     };
   }, [fetchData, date]);
 
+  // Memoize expensive calculations
+  const keyboardNavigationData = React.useMemo(
+    () => ({
+      currentPage: page,
+      totalPages: Math.ceil(timeEntries.length / rowsPerPage),
+      currentEntries: paginatedEntries,
+      maxCellIndex: 4, // 5 columns: description, project, time, duration, actions
+    }),
+    [page, timeEntries.length, rowsPerPage, paginatedEntries]
+  );
+
   // Keyboard navigation
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -336,8 +323,8 @@ export function TimeTrackerTable() {
         (activeElement as HTMLElement)?.contentEditable === "true" ||
         activeElement?.getAttribute("role") === "textbox";
 
-      // If we're editing a cell or project selector is open, don't handle global navigation
-      if (isEditingCell || isProjectSelectorOpen) return;
+      // If we're editing a cell, project selector is open, or actions menu is open, don't handle global navigation
+      if (isEditingCell || isProjectSelectorOpen || isActionsMenuOpen) return;
 
       // Global shortcuts (work even when focused on inputs)
       if (e.key === "n" && !isInInput) {
@@ -355,21 +342,21 @@ export function TimeTrackerTable() {
       // Navigation shortcuts (only when not in input)
       if (isInInput) return;
 
-      const currentPage = page;
-      const totalPages = Math.ceil(timeEntries.length / rowsPerPage);
-      const currentEntries = paginatedEntries;
-
       switch (e.key) {
         case "Escape":
           e.preventDefault();
-          setSelectedCell(null);
+          e.stopPropagation();
+          // Only clear selection if no menus are open
+          // if (!isActionsMenuOpen && !isProjectSelectorOpen) {
+          //   setSelectedCell(null);
+          // }
           break;
 
         case "Enter":
           e.preventDefault();
           if (selectedCell) {
             activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
-          } else if (currentEntries.length > 0) {
+          } else if (keyboardNavigationData.currentEntries.length > 0) {
             // If no cell selected, select first cell of first row
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           }
@@ -377,10 +364,12 @@ export function TimeTrackerTable() {
 
         case "Tab":
           e.preventDefault();
-          if (!selectedCell && currentEntries.length > 0) {
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntries.length > 0
+          ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (selectedCell) {
-            const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
             if (e.shiftKey) {
               // Shift+Tab: Move backward
               if (selectedCell.cellIndex > 0) {
@@ -391,7 +380,7 @@ export function TimeTrackerTable() {
               } else if (selectedCell.rowIndex > 0) {
                 setSelectedCell({
                   rowIndex: selectedCell.rowIndex - 1,
-                  cellIndex: maxCellIndex,
+                  cellIndex: keyboardNavigationData.maxCellIndex,
                 });
               }
             } else {
@@ -404,11 +393,15 @@ export function TimeTrackerTable() {
         case "ArrowDown":
         case "j":
           e.preventDefault();
-          if (!selectedCell && currentEntries.length > 0) {
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntries.length > 0
+          ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (
             selectedCell &&
-            selectedCell.rowIndex < currentEntries.length - 1
+            selectedCell.rowIndex <
+              keyboardNavigationData.currentEntries.length - 1
           ) {
             setSelectedCell({
               ...selectedCell,
@@ -420,9 +413,12 @@ export function TimeTrackerTable() {
         case "ArrowUp":
         case "k":
           e.preventDefault();
-          if (!selectedCell && currentEntries.length > 0) {
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntries.length > 0
+          ) {
             setSelectedCell({
-              rowIndex: currentEntries.length - 1,
+              rowIndex: keyboardNavigationData.currentEntries.length - 1,
               cellIndex: 0,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
@@ -447,9 +443,15 @@ export function TimeTrackerTable() {
         case "ArrowRight":
         case "l":
           e.preventDefault();
-          if (!selectedCell && currentEntries.length > 0) {
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntries.length > 0
+          ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
-          } else if (selectedCell && selectedCell.cellIndex < 4) {
+          } else if (
+            selectedCell &&
+            selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
+          ) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex + 1,
@@ -459,16 +461,19 @@ export function TimeTrackerTable() {
 
         case "PageDown":
           e.preventDefault();
-          if (currentPage < totalPages - 1) {
-            setPage(currentPage + 1);
+          if (
+            keyboardNavigationData.currentPage <
+            keyboardNavigationData.totalPages - 1
+          ) {
+            setPage(keyboardNavigationData.currentPage + 1);
             setSelectedCell(null);
           }
           break;
 
         case "PageUp":
           e.preventDefault();
-          if (currentPage > 0) {
-            setPage(currentPage - 1);
+          if (keyboardNavigationData.currentPage > 0) {
+            setPage(keyboardNavigationData.currentPage - 1);
             setSelectedCell(null);
           }
           break;
@@ -486,17 +491,21 @@ export function TimeTrackerTable() {
         case "End":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            setPage(totalPages - 1);
+            setPage(keyboardNavigationData.totalPages - 1);
             setSelectedCell(null);
           } else if (selectedCell) {
-            setSelectedCell({ ...selectedCell, cellIndex: 4 });
+            setSelectedCell({
+              ...selectedCell,
+              cellIndex: keyboardNavigationData.maxCellIndex,
+            });
           }
           break;
 
         case "d":
           e.preventDefault();
           if (selectedCell) {
-            const entry = currentEntries[selectedCell.rowIndex];
+            const entry =
+              keyboardNavigationData.currentEntries[selectedCell.rowIndex];
             if (entry) {
               handleDelete(entry);
             }
@@ -508,38 +517,35 @@ export function TimeTrackerTable() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [
+    // Reduced dependencies - only include what's actually needed
     selectedCell,
-    page,
-    timeEntries.length,
-    rowsPerPage,
-    paginatedEntries,
+    keyboardNavigationData,
+    activateCell,
+    navigateToNextCell,
     fetchData,
     handleDelete,
+    startNewTimeEntry,
+    setPage,
     isEditingCell,
     isProjectSelectorOpen,
+    isActionsMenuOpen,
   ]);
 
   // Clear selection when data changes
   React.useEffect(() => {
+    console.log(
+      "🔴 CLEARING SELECTION - timeEntries length:",
+      timeEntries.length,
+      "page:",
+      page,
+      "rowsPerPage:",
+      rowsPerPage
+    );
     setSelectedCell(null);
   }, [timeEntries, page, rowsPerPage]);
 
   return (
     <div className="space-y-6" ref={tableRef}>
-      {/* Help text for keyboard shortcuts */}
-      <div className="text-xs text-muted-foreground bg-muted/30 rounded-md p-3">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <strong>Navigation:</strong> Arrow keys or hjkl • Tab/Shift+Tab to
-            move between cells
-          </div>
-          <div>
-            <strong>Actions:</strong> Enter to edit • Tab to save & move next •
-            Esc to cancel/clear • N for new entry • D to delete
-          </div>
-        </div>
-      </div>
-
       <div className="flex items-center space-x-3">
         <Popover>
           <PopoverTrigger asChild>
@@ -640,11 +646,12 @@ export function TimeTrackerTable() {
                 >
                   <TableCell
                     className={cn(
-                      "px-4 py-2 max-w-0 w-full",
+                      "px-4 py-2 max-w-0 w-full cursor-pointer",
                       selectedCell?.rowIndex === rowIndex &&
                         selectedCell?.cellIndex === 0 &&
                         "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
                     )}
+                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 0 })}
                   >
                     <ExpandableDescription
                       description={entry.description || ""}
@@ -658,11 +665,12 @@ export function TimeTrackerTable() {
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "px-4 py-2",
+                      "px-4 py-2 cursor-pointer",
                       selectedCell?.rowIndex === rowIndex &&
                         selectedCell?.cellIndex === 1 &&
                         "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
                     )}
+                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 1 })}
                   >
                     <ProjectSelector
                       currentProject={entry.project_name || ""}
@@ -672,16 +680,18 @@ export function TimeTrackerTable() {
                       }
                       projects={projects}
                       onOpenChange={setIsProjectSelectorOpen}
+                      onNavigateNext={navigateToNextCell}
                       data-testid="project-selector"
                     />
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "px-4 py-2 font-mono text-sm text-muted-foreground",
+                      "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer",
                       selectedCell?.rowIndex === rowIndex &&
                         selectedCell?.cellIndex === 2 &&
                         "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
                     )}
+                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 2 })}
                   >
                     {format(new Date(entry.start), "h:mm a")} -{" "}
                     {entry.stop
@@ -690,11 +700,12 @@ export function TimeTrackerTable() {
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "px-4 py-2 font-mono text-sm",
+                      "px-4 py-2 font-mono text-sm cursor-pointer",
                       selectedCell?.rowIndex === rowIndex &&
                         selectedCell?.cellIndex === 3 &&
                         "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
                     )}
+                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 3 })}
                   >
                     <LiveDuration
                       startTime={entry.start}
@@ -705,67 +716,35 @@ export function TimeTrackerTable() {
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "px-4 py-2",
+                      "px-4 py-2 cursor-pointer",
                       selectedCell?.rowIndex === rowIndex &&
                         selectedCell?.cellIndex === 4 &&
                         "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
                     )}
+                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 4 })}
                   >
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95"
-                          data-testid="actions-menu"
-                        >
-                          <span className="sr-only">Open menu</span>
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="w-40 border-border/60"
-                      >
-                        <DropdownMenuItem
-                          onClick={() => {
-                            // Implement duplicate logic
-                          }}
-                          className="cursor-pointer hover:bg-accent/60 transition-colors duration-150"
-                        >
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            // Implement split logic
-                          }}
-                          className="cursor-pointer hover:bg-accent/60 transition-colors duration-150"
-                        >
-                          Split
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            // Implement start entry logic
-                          }}
-                          className="cursor-pointer hover:bg-accent/60 transition-colors duration-150"
-                        >
-                          Start entry
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            // Implement copy ID logic
-                          }}
-                          className="cursor-pointer hover:bg-accent/60 transition-colors duration-150"
-                        >
-                          Copy ID
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(entry)}
-                          className="cursor-pointer text-destructive focus:text-destructive hover:bg-destructive/10 transition-colors duration-150"
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <ActionsMenu
+                      onDuplicate={() => {
+                        // Implement duplicate logic
+                      }}
+                      onSplit={() => {
+                        // Implement split logic
+                      }}
+                      onStartEntry={() => {
+                        // Implement start entry logic
+                      }}
+                      onCopyId={() => {
+                        // Implement copy ID logic
+                      }}
+                      onDelete={() => handleDelete(entry)}
+                      onOpenChange={setIsActionsMenuOpen}
+                      onNavigateNext={navigateToNextCell}
+                      isSelected={
+                        selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 4
+                      }
+                      data-testid="actions-menu"
+                    />
                   </TableCell>
                 </TableRow>
               ))}

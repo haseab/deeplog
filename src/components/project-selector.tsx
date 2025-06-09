@@ -10,12 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Check, ChevronDown, Search } from "lucide-react";
 import * as React from "react";
-
-interface Project {
-  id: number;
-  name: string;
-  color: string;
-}
+import type { Project } from "../types";
 
 interface ProjectSelectorProps {
   currentProject: string;
@@ -23,6 +18,7 @@ interface ProjectSelectorProps {
   onProjectChange?: (newProject: string) => void;
   projects: Project[];
   onOpenChange?: (isOpen: boolean) => void;
+  onNavigateNext?: () => void;
   "data-testid"?: string;
 }
 
@@ -32,6 +28,7 @@ export function ProjectSelector({
   onProjectChange,
   projects,
   onOpenChange,
+  onNavigateNext,
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -108,6 +105,17 @@ export function ProjectSelector({
         if (allOptions[highlightedIndex]) {
           handleSelect(allOptions[highlightedIndex].name);
         }
+        break;
+      case "Tab":
+        e.preventDefault();
+        e.stopPropagation();
+        // Close dropdown and move to next cell
+        setIsOpen(false);
+        setSearchTerm("");
+        setHighlightedIndex(0);
+        setTimeout(() => {
+          onNavigateNext?.();
+        }, 100);
         break;
       case "Escape":
         e.preventDefault();
