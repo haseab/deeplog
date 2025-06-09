@@ -8,14 +8,25 @@ import * as React from "react";
 interface ExpandableDescriptionProps {
   description: string;
   onSave?: (newDescription: string) => void;
+  onEditingChange?: (isEditing: boolean) => void;
+  onNavigateNext?: () => void;
+  "data-testid"?: string;
 }
 
 export function ExpandableDescription({
   description,
   onSave,
+  onEditingChange,
+  onNavigateNext,
+  "data-testid": dataTestId,
 }: ExpandableDescriptionProps) {
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+
+  // Notify parent of editing state changes
+  React.useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -70,34 +81,58 @@ export function ExpandableDescription({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+  const saveAndExit = async () => {
+    if (editor) {
+      const currentContent = editor.getText();
+
+      // Only save if content has actually changed
+      if (currentContent !== description) {
+        setIsSaving(true);
+        onSave?.(currentContent);
+        setTimeout(() => setIsSaving(false), 300);
+      }
       setIsEditing(false);
-      editor?.commands.setContent(description);
     }
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    editor?.commands.setContent(description);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isEditing) return;
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelEditing();
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      // Save current content and move to next cell
+      saveAndExit();
+      setTimeout(() => {
+        onNavigateNext?.();
+      }, 100); // Small delay to ensure editing state is updated
+      return;
+    }
+
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault(); // Prevent the line break from being added
       e.stopPropagation(); // Stop event propagation
 
-      // Capture content immediately before any potential line break
-      if (editor) {
-        const currentContent = editor.getText();
+      saveAndExit();
 
-        // Only save if content has actually changed
-        if (currentContent !== description) {
-          setIsSaving(true);
-          onSave?.(currentContent);
-          setTimeout(() => setIsSaving(false), 300);
-        }
-        setIsEditing(false);
-
-        // Add a subtle flash effect for the keyboard shortcut
-        const editorElement = e.currentTarget.closest(".editor-container");
-        editorElement?.classList.add("flash-success");
-        setTimeout(() => {
-          editorElement?.classList.remove("flash-success");
-        }, 300);
-      }
+      // Add a subtle flash effect for the keyboard shortcut
+      const editorElement = e.currentTarget.closest(".editor-container");
+      editorElement?.classList.add("flash-success");
+      setTimeout(() => {
+        editorElement?.classList.remove("flash-success");
+      }, 300);
     }
   };
 
@@ -105,6 +140,7 @@ export function ExpandableDescription({
     return (
       <div
         onClick={handleClick}
+        data-testid={dataTestId}
         className="text-muted-foreground italic cursor-pointer p-2 hover:bg-accent/50 rounded-md transition-all duration-200 hover:text-accent-foreground group"
       >
         <span className="group-hover:translate-x-0.5 transition-transform duration-200 inline-block">
@@ -116,7 +152,11 @@ export function ExpandableDescription({
 
   if (isEditing && editor) {
     return (
-      <div className="w-full editor-container" onKeyDown={handleKeyDown}>
+      <div
+        className="w-full editor-container"
+        onKeyDown={handleKeyDown}
+        data-testid={dataTestId}
+      >
         <EditorContent
           editor={editor}
           className={`w-full transition-all duration-200 ${
@@ -138,6 +178,7 @@ export function ExpandableDescription({
   return (
     <div
       onClick={handleClick}
+      data-testid={dataTestId}
       className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-all duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0"
     >
       <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0">

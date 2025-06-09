@@ -22,6 +22,8 @@ interface ProjectSelectorProps {
   currentProjectColor?: string;
   onProjectChange?: (newProject: string) => void;
   projects: Project[];
+  onOpenChange?: (isOpen: boolean) => void;
+  "data-testid"?: string;
 }
 
 export function ProjectSelector({
@@ -29,12 +31,19 @@ export function ProjectSelector({
   currentProjectColor,
   onProjectChange,
   projects,
+  onOpenChange,
+  "data-testid": dataTestId,
 }: ProjectSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [isOpen, setIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const [isChanging, setIsChanging] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Notify parent of open state changes
+  React.useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   // Create options array (No Project + filtered projects)
   const allOptions = React.useMemo(() => {
@@ -128,8 +137,9 @@ export function ProjectSelector({
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
+          data-testid={dataTestId}
           className={cn(
-            "w-full justify-start border-none shadow-none hover:bg-accent/40 focus:ring-0 focus:ring-offset-0 h-auto p-2 rounded-md transition-all duration-200 group",
+            "w-full justify-start border-none shadow-none hover:bg-accent/40 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 h-auto p-2 rounded-md transition-all duration-200 group",
             "hover:scale-[1.01] active:scale-[0.99]",
             isChanging && "opacity-60 scale-[0.99]"
           )}

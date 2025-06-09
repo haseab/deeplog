@@ -59,6 +59,11 @@ type Project = {
   color: string;
 };
 
+type SelectedCell = {
+  rowIndex: number;
+  cellIndex: number;
+} | null;
+
 export function TimeTrackerTable() {
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
@@ -77,6 +82,11 @@ export function TimeTrackerTable() {
   const [loading, setLoading] = React.useState(false);
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
+  const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  const [isEditingCell, setIsEditingCell] = React.useState(false);
+  const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
+    React.useState(false);
+  const tableRef = React.useRef<HTMLDivElement>(null);
 
   const handleDescriptionSave =
     (entryId: number) => (newDescription: string) => {
@@ -191,6 +201,12 @@ export function TimeTrackerTable() {
     });
   };
 
+  const startNewTimeEntry = () => {
+    toast("New time entry would start here", {
+      description: "This feature will be implemented when the API is ready",
+    });
+  };
+
   const fetchData = React.useCallback(
     async (showLoadingState = true) => {
       if (!date?.from || !date?.to) return;
@@ -233,6 +249,62 @@ export function TimeTrackerTable() {
     [date]
   );
 
+  const paginatedEntries = timeEntries.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const activateCell = (rowIndex: number, cellIndex: number) => {
+    const entry = paginatedEntries[rowIndex];
+    if (!entry) return;
+
+    switch (cellIndex) {
+      case 0: // Description
+        // Find the description component and focus it
+        const descriptionElement = document.querySelector(
+          `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+        ) as HTMLElement;
+        if (descriptionElement) {
+          descriptionElement.click();
+        }
+        break;
+      case 1: // Project
+        // Find the project selector and focus it
+        const projectElement = document.querySelector(
+          `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+        ) as HTMLElement;
+        if (projectElement) {
+          projectElement.click();
+        }
+        break;
+      case 4: // Actions menu
+        // Find the dropdown trigger and click it
+        const menuElement = document.querySelector(
+          `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+        ) as HTMLElement;
+        if (menuElement) {
+          menuElement.click();
+        }
+        break;
+    }
+  };
+
+  const navigateToNextCell = () => {
+    if (!selectedCell) return;
+
+    const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
+    const currentEntries = paginatedEntries;
+
+    if (selectedCell.cellIndex < maxCellIndex) {
+      setSelectedCell({
+        ...selectedCell,
+        cellIndex: selectedCell.cellIndex + 1,
+      });
+    } else if (selectedCell.rowIndex < currentEntries.length - 1) {
+      setSelectedCell({ rowIndex: selectedCell.rowIndex + 1, cellIndex: 0 });
+    }
+  };
+
   React.useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -253,13 +325,221 @@ export function TimeTrackerTable() {
     };
   }, [fetchData, date]);
 
-  const paginatedEntries = timeEntries.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
+  // Keyboard navigation
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
+      const activeElement = document.activeElement;
+      const isInInput =
+        activeElement?.tagName === "INPUT" ||
+        activeElement?.tagName === "TEXTAREA" ||
+        (activeElement as HTMLElement)?.contentEditable === "true" ||
+        activeElement?.getAttribute("role") === "textbox";
+
+      // If we're editing a cell or project selector is open, don't handle global navigation
+      if (isEditingCell || isProjectSelectorOpen) return;
+
+      // Global shortcuts (work even when focused on inputs)
+      if (e.key === "n" && !isInInput) {
+        e.preventDefault();
+        startNewTimeEntry();
+        return;
+      }
+
+      if (e.key === "r" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        fetchData();
+        return;
+      }
+
+      // Navigation shortcuts (only when not in input)
+      if (isInInput) return;
+
+      const currentPage = page;
+      const totalPages = Math.ceil(timeEntries.length / rowsPerPage);
+      const currentEntries = paginatedEntries;
+
+      switch (e.key) {
+        case "Escape":
+          e.preventDefault();
+          setSelectedCell(null);
+          break;
+
+        case "Enter":
+          e.preventDefault();
+          if (selectedCell) {
+            activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
+          } else if (currentEntries.length > 0) {
+            // If no cell selected, select first cell of first row
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+          }
+          break;
+
+        case "Tab":
+          e.preventDefault();
+          if (!selectedCell && currentEntries.length > 0) {
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+          } else if (selectedCell) {
+            const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
+            if (e.shiftKey) {
+              // Shift+Tab: Move backward
+              if (selectedCell.cellIndex > 0) {
+                setSelectedCell({
+                  ...selectedCell,
+                  cellIndex: selectedCell.cellIndex - 1,
+                });
+              } else if (selectedCell.rowIndex > 0) {
+                setSelectedCell({
+                  rowIndex: selectedCell.rowIndex - 1,
+                  cellIndex: maxCellIndex,
+                });
+              }
+            } else {
+              // Tab: Move forward
+              navigateToNextCell();
+            }
+          }
+          break;
+
+        case "ArrowDown":
+        case "j":
+          e.preventDefault();
+          if (!selectedCell && currentEntries.length > 0) {
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+          } else if (
+            selectedCell &&
+            selectedCell.rowIndex < currentEntries.length - 1
+          ) {
+            setSelectedCell({
+              ...selectedCell,
+              rowIndex: selectedCell.rowIndex + 1,
+            });
+          }
+          break;
+
+        case "ArrowUp":
+        case "k":
+          e.preventDefault();
+          if (!selectedCell && currentEntries.length > 0) {
+            setSelectedCell({
+              rowIndex: currentEntries.length - 1,
+              cellIndex: 0,
+            });
+          } else if (selectedCell && selectedCell.rowIndex > 0) {
+            setSelectedCell({
+              ...selectedCell,
+              rowIndex: selectedCell.rowIndex - 1,
+            });
+          }
+          break;
+
+        case "ArrowLeft":
+        case "h":
+          e.preventDefault();
+          if (selectedCell && selectedCell.cellIndex > 0) {
+            setSelectedCell({
+              ...selectedCell,
+              cellIndex: selectedCell.cellIndex - 1,
+            });
+          }
+          break;
+
+        case "ArrowRight":
+        case "l":
+          e.preventDefault();
+          if (!selectedCell && currentEntries.length > 0) {
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+          } else if (selectedCell && selectedCell.cellIndex < 4) {
+            setSelectedCell({
+              ...selectedCell,
+              cellIndex: selectedCell.cellIndex + 1,
+            });
+          }
+          break;
+
+        case "PageDown":
+          e.preventDefault();
+          if (currentPage < totalPages - 1) {
+            setPage(currentPage + 1);
+            setSelectedCell(null);
+          }
+          break;
+
+        case "PageUp":
+          e.preventDefault();
+          if (currentPage > 0) {
+            setPage(currentPage - 1);
+            setSelectedCell(null);
+          }
+          break;
+
+        case "Home":
+          e.preventDefault();
+          if (e.ctrlKey || e.metaKey) {
+            setPage(0);
+            setSelectedCell(null);
+          } else if (selectedCell) {
+            setSelectedCell({ ...selectedCell, cellIndex: 0 });
+          }
+          break;
+
+        case "End":
+          e.preventDefault();
+          if (e.ctrlKey || e.metaKey) {
+            setPage(totalPages - 1);
+            setSelectedCell(null);
+          } else if (selectedCell) {
+            setSelectedCell({ ...selectedCell, cellIndex: 4 });
+          }
+          break;
+
+        case "d":
+          e.preventDefault();
+          if (selectedCell) {
+            const entry = currentEntries[selectedCell.rowIndex];
+            if (entry) {
+              handleDelete(entry);
+            }
+          }
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedCell,
+    page,
+    timeEntries.length,
+    rowsPerPage,
+    paginatedEntries,
+    fetchData,
+    handleDelete,
+    isEditingCell,
+    isProjectSelectorOpen,
+  ]);
+
+  // Clear selection when data changes
+  React.useEffect(() => {
+    setSelectedCell(null);
+  }, [timeEntries, page, rowsPerPage]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" ref={tableRef}>
+      {/* Help text for keyboard shortcuts */}
+      <div className="text-xs text-muted-foreground bg-muted/30 rounded-md p-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <strong>Navigation:</strong> Arrow keys or hjkl • Tab/Shift+Tab to
+            move between cells
+          </div>
+          <div>
+            <strong>Actions:</strong> Enter to edit • Tab to save & move next •
+            Esc to cancel/clear • N for new entry • D to delete
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center space-x-3">
         <Popover>
           <PopoverTrigger asChild>
@@ -352,20 +632,38 @@ export function TimeTrackerTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginatedEntries.map((entry) => (
+              {paginatedEntries.map((entry, rowIndex) => (
                 <TableRow
                   key={entry.id}
+                  data-entry-id={entry.id}
                   className="hover:bg-accent/20 transition-all duration-200 border-border/40 group hover:shadow-sm"
                 >
-                  <TableCell className="px-4 py-2 max-w-0 w-full">
+                  <TableCell
+                    className={cn(
+                      "px-4 py-2 max-w-0 w-full",
+                      selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 0 &&
+                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+                    )}
+                  >
                     <ExpandableDescription
                       description={entry.description || ""}
                       onSave={(newDescription) =>
                         handleDescriptionSave(entry.id)(newDescription)
                       }
+                      onEditingChange={setIsEditingCell}
+                      onNavigateNext={navigateToNextCell}
+                      data-testid="expandable-description"
                     />
                   </TableCell>
-                  <TableCell className="px-4 py-2">
+                  <TableCell
+                    className={cn(
+                      "px-4 py-2",
+                      selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 1 &&
+                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+                    )}
+                  >
                     <ProjectSelector
                       currentProject={entry.project_name || ""}
                       currentProjectColor={entry.project_color}
@@ -373,15 +671,31 @@ export function TimeTrackerTable() {
                         handleProjectChange(entry.id)(newProject)
                       }
                       projects={projects}
+                      onOpenChange={setIsProjectSelectorOpen}
+                      data-testid="project-selector"
                     />
                   </TableCell>
-                  <TableCell className="px-4 py-2 font-mono text-sm text-muted-foreground">
+                  <TableCell
+                    className={cn(
+                      "px-4 py-2 font-mono text-sm text-muted-foreground",
+                      selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 2 &&
+                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+                    )}
+                  >
                     {format(new Date(entry.start), "h:mm a")} -{" "}
                     {entry.stop
                       ? format(new Date(entry.stop), "h:mm a")
                       : "Now"}
                   </TableCell>
-                  <TableCell className="px-4 py-2 font-mono text-sm">
+                  <TableCell
+                    className={cn(
+                      "px-4 py-2 font-mono text-sm",
+                      selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 3 &&
+                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+                    )}
+                  >
                     <LiveDuration
                       startTime={entry.start}
                       stopTime={entry.stop}
@@ -389,12 +703,20 @@ export function TimeTrackerTable() {
                       className="group-hover:text-accent-foreground transition-colors duration-200"
                     />
                   </TableCell>
-                  <TableCell className="px-4 py-2">
+                  <TableCell
+                    className={cn(
+                      "px-4 py-2",
+                      selectedCell?.rowIndex === rowIndex &&
+                        selectedCell?.cellIndex === 4 &&
+                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+                    )}
+                  >
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
                           className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95"
+                          data-testid="actions-menu"
                         >
                           <span className="sr-only">Open menu</span>
                           <MoreVertical className="h-4 w-4" />
