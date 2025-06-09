@@ -1,9 +1,19 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import Link from "@tiptap/extension-link";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import TurndownService from "turndown";
 
 interface ExpandableDescriptionProps {
   description: string;
@@ -21,12 +31,86 @@ export function ExpandableDescription({
   "data-testid": dataTestId,
 }: ExpandableDescriptionProps) {
   const [isEditing, setIsEditing] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [showLinkDialog, setShowLinkDialog] = React.useState(false);
+  const [linkUrl, setLinkUrl] = React.useState("");
+  const [linkText, setLinkText] = React.useState("");
+  const [triggerPosition, setTriggerPosition] = React.useState({ x: 0, y: 0 });
+
+  // Initialize Turndown service for HTML to markdown conversion
+  const turndownService = React.useMemo(() => {
+    const service = new TurndownService({
+      headingStyle: "atx",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+    });
+
+    // Keep link formatting as markdown
+    service.addRule("links", {
+      filter: "a",
+      replacement: function (content: string, node: Node) {
+        const href = (node as HTMLAnchorElement).getAttribute("href") || "";
+        const title = (node as HTMLAnchorElement).getAttribute("title");
+        return title
+          ? `[${content}](${href} "${title}")`
+          : `[${content}](${href})`;
+      },
+    });
+
+    return service;
+  }, []);
+
+  // Convert markdown to HTML for TipTap
+  const markdownToHtml = React.useCallback((markdown: string): string => {
+    if (!markdown) return "";
+
+    // Simple markdown to HTML conversion
+    const html = markdown
+      // Convert links: [text](url) or [text](url "title")
+      .replace(
+        /\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g,
+        (match, text, url, title) => {
+          const titleAttr = title ? ` title="${title}"` : "";
+          return `<a href="${url}"${titleAttr}>${text}</a>`;
+        }
+      )
+      // Convert bold: **text** or __text__
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/__(.*?)__/g, "<strong>$1</strong>")
+      // Convert italic: *text* or _text_
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/_(.*?)_/g, "<em>$1</em>")
+      // Convert line breaks
+      .replace(/\n/g, "<br>");
+
+    return html;
+  }, []);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
+
+  // Create a ref for the editor to avoid dependency issues
+  const editorRef = React.useRef<Editor>(null);
+
+  const getMarkdownContent = React.useCallback(() => {
+    if (!editorRef.current) return "";
+    const html = editorRef.current.getHTML();
+    return turndownService.turndown(html);
+  }, [turndownService]);
+
+  const getSelectionPosition = React.useCallback(() => {
+    if (!editorRef.current || !editorRef.current.view.dom)
+      return { x: 0, y: 0 };
+
+    const rect = editorRef.current.view.dom.getBoundingClientRect();
+
+    // Get approximate cursor position
+    return {
+      x: rect.left + 20, // Offset from editor start
+      y: rect.top - 10, // Position above the editor
+    };
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -43,7 +127,7 @@ export function ExpandableDescription({
         },
       }),
     ],
-    content: description,
+    content: markdownToHtml(description),
     editorProps: {
       attributes: {
         class:
@@ -51,14 +135,11 @@ export function ExpandableDescription({
       },
     },
     onBlur: async () => {
-      if (isEditing && editor) {
-        const newContent = editor.getText();
+      if (isEditing && editorRef.current && !showLinkDialog) {
+        const newContent = getMarkdownContent();
         // Only save if content has actually changed
         if (newContent !== description) {
-          setIsSaving(true);
-          await new Promise((resolve) => setTimeout(resolve, 300)); // Brief delay for smooth animation
           onSave?.(newContent);
-          setIsSaving(false);
         }
         setIsEditing(false);
       }
@@ -66,10 +147,14 @@ export function ExpandableDescription({
   });
 
   React.useEffect(() => {
-    if (editor && description !== editor.getText()) {
-      editor.commands.setContent(description);
+    // Set the editor ref for markdown conversion
+    editorRef.current = editor;
+
+    if (editor && description !== getMarkdownContent()) {
+      // Convert markdown to HTML before setting content
+      editor.commands.setContent(markdownToHtml(description));
     }
-  }, [description, editor]);
+  }, [description, editor, getMarkdownContent, markdownToHtml]);
 
   const handleClick = () => {
     if (!isEditing) {
@@ -83,13 +168,11 @@ export function ExpandableDescription({
 
   const saveAndExit = async () => {
     if (editor) {
-      const currentContent = editor.getText();
+      const currentContent = getMarkdownContent();
 
       // Only save if content has actually changed
       if (currentContent !== description) {
-        setIsSaving(true);
         onSave?.(currentContent);
-        setTimeout(() => setIsSaving(false), 300);
       }
       setIsEditing(false);
     }
@@ -97,16 +180,86 @@ export function ExpandableDescription({
 
   const cancelEditing = () => {
     setIsEditing(false);
-    editor?.commands.setContent(description);
+    // Reset to original content
+    editor?.commands.setContent(markdownToHtml(description));
+  };
+
+  const handleInsertLink = () => {
+    if (!editor || !linkUrl.trim()) return;
+
+    let url = linkUrl.trim();
+
+    // Convert relative URLs to absolute URLs
+    if (!url.match(/^https?:\/\//)) {
+      url = `https://${url}`;
+    }
+
+    const text = linkText.trim() || linkUrl.trim(); // Use original input for display text
+
+    // Get current selection or insert at cursor
+    const { from, to } = editor.state.selection;
+    const selectedText = editor.state.doc.textBetween(from, to);
+
+    if (selectedText) {
+      // Replace selected text with link
+      editor
+        .chain()
+        .focus()
+        .deleteSelection()
+        .insertContent(`<a href="${url}">${text || selectedText}</a>`)
+        .run();
+    } else {
+      // Insert link at cursor position
+      editor
+        .chain()
+        .focus()
+        .insertContent(`<a href="${url}">${text}</a>`)
+        .run();
+    }
+
+    // Reset dialog state
+    setLinkUrl("");
+    setLinkText("");
+    setShowLinkDialog(false);
+
+    // Focus back to editor
+    setTimeout(() => {
+      editor.commands.focus();
+    }, 100);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isEditing) return;
 
+    // Command/Ctrl + K for link dialog
+    if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Get selected text to pre-fill link text
+      const { from, to } = editor!.state.selection;
+      const selectedText = editor!.state.doc.textBetween(from, to);
+      if (selectedText) {
+        setLinkText(selectedText);
+      }
+
+      // Set position for the dialog trigger
+      const position = getSelectionPosition();
+      setTriggerPosition(position);
+      setShowLinkDialog(true);
+      return;
+    }
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      cancelEditing();
+      if (showLinkDialog) {
+        setShowLinkDialog(false);
+        setLinkUrl("");
+        setLinkText("");
+      } else {
+        cancelEditing();
+      }
       return;
     }
 
@@ -157,20 +310,94 @@ export function ExpandableDescription({
         onKeyDown={handleKeyDown}
         data-testid={dataTestId}
       >
-        <EditorContent
-          editor={editor}
-          className={`w-full transition-all duration-200 ${
-            isSaving ? "opacity-60 scale-[0.99]" : ""
-          }`}
-        />
-        {/* <div className="text-xs text-muted-foreground mt-1">
-          Press Cmd/Ctrl+Enter to save, Esc to cancel
-        </div> */}
-        {isSaving && (
-          <div className="text-xs text-primary/70 mt-1 animate-pulse">
-            Saving...
-          </div>
-        )}
+        <div className="relative">
+          <EditorContent editor={editor} className="w-full" />
+
+          {/* Link Dialog */}
+          <Popover open={showLinkDialog} onOpenChange={setShowLinkDialog}>
+            <PopoverTrigger asChild>
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  left: triggerPosition.x,
+                  top: triggerPosition.y,
+                  width: 1,
+                  height: 1,
+                }}
+              />
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-4" side="top" align="start">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="link-url">URL</Label>
+                  <Input
+                    id="link-url"
+                    placeholder="https://example.com"
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleInsertLink();
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setShowLinkDialog(false);
+                        setLinkUrl("");
+                        setLinkText("");
+                      }
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="link-text">Link Text (optional)</Label>
+                  <Input
+                    id="link-text"
+                    placeholder="Link text"
+                    value={linkText}
+                    onChange={(e) => setLinkText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleInsertLink();
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setShowLinkDialog(false);
+                        setLinkUrl("");
+                        setLinkText("");
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleInsertLink}
+                    disabled={!linkUrl.trim()}
+                  >
+                    Insert Link
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setShowLinkDialog(false);
+                      setLinkUrl("");
+                      setLinkText("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Press Enter to insert, Esc to cancel
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
     );
   }
@@ -182,7 +409,28 @@ export function ExpandableDescription({
       className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-all duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0"
     >
       <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0">
-        {description.split("\n")[0]}
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <span>{children}</span>,
+            a: ({ href, children }) => (
+              <a
+                href={href}
+                className="text-blue-500 hover:underline transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {children}
+              </a>
+            ),
+            strong: ({ children }) => (
+              <strong className="font-semibold">{children}</strong>
+            ),
+            em: ({ children }) => <em className="italic">{children}</em>,
+          }}
+        >
+          {description.split("\n")[0]}
+        </ReactMarkdown>
       </div>
     </div>
   );

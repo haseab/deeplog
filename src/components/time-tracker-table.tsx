@@ -174,10 +174,124 @@ export function TimeTrackerTable() {
   };
 
   const startNewTimeEntry = React.useCallback(() => {
-    toast("New time entry would start here", {
-      description: "This feature will be implemented when the API is ready",
+    const originalEntries = [...timeEntries];
+
+    // Create new time entry starting now
+    const now = new Date().toISOString();
+    const tempId = -Date.now(); // Temporary negative ID
+
+    // Find currently running entry (no stop time) for UI feedback
+    const runningEntry = timeEntries.find((entry) => !entry.stop);
+
+    const newEntry: TimeEntry = {
+      id: tempId,
+      description: "",
+      project_name: "No Project",
+      project_color: "#6b7280",
+      start: now,
+      stop: "", // Empty stop means it's running
+      duration: 0,
+    };
+
+    // Optimistically add the new entry to the beginning
+    // Backend will handle stopping any running timer
+    setTimeEntries([newEntry, ...timeEntries]);
+
+    // Select the new entry's description field for immediate editing
+    setTimeout(() => {
+      setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+      // Auto-activate the description field for editing
+      setTimeout(() => {
+        const descriptionElement = document.querySelector(
+          `[data-entry-id="${tempId}"] [data-testid="expandable-description"]`
+        ) as HTMLElement;
+        if (descriptionElement) {
+          descriptionElement.click();
+        }
+      }, 100);
+    }, 50);
+
+    // Make the API call immediately to ensure precise timing
+    const apiKey = localStorage.getItem("toggl_api_key");
+    let createdEntryId: number | null = null;
+
+    fetch("/api/time-entries", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-toggl-api-key": apiKey || "",
+      },
+      body: JSON.stringify({
+        description: "",
+        start: now,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API Error:", response.status, errorText);
+          throw new Error("Failed to create entry");
+        }
+        return response.json();
+      })
+      .then((createdEntry) => {
+        createdEntryId = createdEntry.id;
+
+        // Replace the temporary entry with the real one from the server
+        setTimeEntries((prev) =>
+          prev.map((entry) =>
+            entry.id === tempId ? { ...newEntry, id: createdEntry.id } : entry
+          )
+        );
+
+        // Refresh data to get the updated state (including stopped timer)
+        setTimeout(() => {
+          fetchData(false);
+        }, 500);
+      })
+      .catch((error) => {
+        console.error("Failed to create time entry:", error);
+        toast.error("Failed to create time entry. Please try again.");
+        setTimeEntries(originalEntries);
+      });
+
+    toast("New time entry started", {
+      description: runningEntry
+        ? `Stopped previous timer and started new one at ${new Date().toLocaleTimeString()}`
+        : `Started tracking time at ${new Date().toLocaleTimeString()}`,
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          // Revert UI immediately
+          setTimeEntries(originalEntries);
+
+          // If the API call succeeded, delete the created entry
+          if (createdEntryId) {
+            try {
+              await fetch(`/api/time-entries/${createdEntryId}`, {
+                method: "DELETE",
+                headers: {
+                  "x-toggl-api-key": apiKey || "",
+                },
+              });
+
+              // Refresh data to restore any stopped timer
+              setTimeout(() => {
+                fetchData(false);
+              }, 500);
+            } catch (error) {
+              console.error("Failed to undo time entry creation:", error);
+              // UI is already reverted, just refresh to get accurate state
+              fetchData(false);
+            }
+          } else {
+            // API call hasn't completed yet or failed, just refresh
+            fetchData(false);
+          }
+        },
+      },
     });
-  }, []);
+  }, [timeEntries]);
 
   const fetchData = React.useCallback(
     async (showLoadingState = true) => {
@@ -347,9 +461,9 @@ export function TimeTrackerTable() {
           e.preventDefault();
           e.stopPropagation();
           // Only clear selection if no menus are open
-          // if (!isActionsMenuOpen && !isProjectSelectorOpen) {
-          //   setSelectedCell(null);
-          // }
+          if (!isActionsMenuOpen && !isProjectSelectorOpen) {
+            setSelectedCell(null);
+          }
           break;
 
         case "Enter":

@@ -115,3 +115,104 @@ export async function GET(request: NextRequest) {
     return createErrorResponse("Internal server error");
   }
 }
+
+export async function POST(request: NextRequest) {
+  try {
+    const { auth, workspaceId } = await setupTogglApi(request);
+    const body = await request.json();
+    const { description, start } = body;
+
+    // First, get the current running time entry
+    const currentEntryResponse = await fetch(
+      "https://api.track.toggl.com/api/v9/me/time_entries/current",
+      {
+        headers: {
+          Authorization: `Basic ${auth}`,
+        },
+      }
+    );
+
+    if (!currentEntryResponse.ok) {
+      const errorText = await currentEntryResponse.text();
+      console.error(
+        "Get current entry error:",
+        currentEntryResponse.status,
+        errorText
+      );
+      throw new Error("Failed to fetch current time entry from Toggl");
+    }
+
+    const currentEntry = await currentEntryResponse.json();
+
+    // If there's a current entry, stop it using the dedicated stop endpoint
+    if (currentEntry) {
+      const stopResponse = await fetch(
+        `https://api.track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${currentEntry.id}/stop`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Basic ${auth}`,
+          },
+        }
+      );
+
+      if (!stopResponse.ok) {
+        const errorText = await stopResponse.text();
+        console.error("Stop entry error:", stopResponse.status, errorText);
+        throw new Error("Failed to stop current time entry");
+      }
+    }
+
+    // Create new time entry data for Toggl API
+    const timeEntryData = {
+      description: description || "",
+      start: start,
+      wid: workspaceId, // Use 'wid' instead of 'workspace_id'
+      duration: -1, // Negative duration indicates running timer
+      created_with: "DeepLog",
+    };
+
+    // Create the new time entry using Toggl API
+    const createResponse = await fetch(
+      `https://api.track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${auth}`,
+        },
+        body: JSON.stringify(timeEntryData),
+      }
+    );
+
+    if (!createResponse.ok) {
+      const errorText = await createResponse.text();
+      console.error("Create API error:", createResponse.status, errorText);
+      throw new Error("Failed to create time entry in Toggl");
+    }
+
+    const createdEntry = await createResponse.json();
+
+    return new Response(JSON.stringify(createdEntry), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("Error creating time entry:", error);
+
+    // Handle specific error cases
+    if (error instanceof Error) {
+      if (error.message === "Toggl API key is required") {
+        return createErrorResponse(error.message, 400);
+      }
+      if (error.message === "No workspaces found") {
+        return createErrorResponse(error.message, 404);
+      }
+      if (error.message.includes("Failed to fetch workspaces")) {
+        return createErrorResponse(error.message);
+      }
+    }
+
+    return createErrorResponse("Failed to create time entry");
+  }
+}
