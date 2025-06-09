@@ -2,7 +2,7 @@
 
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
-import * as React from "react";
+import React from "react";
 import { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 
@@ -35,6 +35,194 @@ import { ExpandableDescription } from "./expandable-description";
 import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
 
+const MemoizedTableRow = React.memo(
+  function TableRowComponent({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+    onDescriptionSave,
+    onProjectChange,
+    onDelete,
+    projects,
+    setIsEditingCell,
+    setIsProjectSelectorOpen,
+    setIsActionsMenuOpen,
+    navigateToNextCell,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onDescriptionSave: (entryId: number) => (newDescription: string) => void;
+    onProjectChange: (entryId: number) => (newProject: string) => void;
+    onDelete: (entry: TimeEntry) => void;
+    projects: Project[];
+    setIsEditingCell: (editing: boolean) => void;
+    setIsProjectSelectorOpen: (open: boolean) => void;
+    setIsActionsMenuOpen: (open: boolean) => void;
+    navigateToNextCell: () => void;
+  }) {
+    return (
+      <TableRow
+        key={entry.id}
+        data-entry-id={entry.id}
+        className="hover:bg-accent/20 transition-all duration-200 border-border/40 group hover:shadow-sm"
+      >
+        <TableCell
+          className={cn(
+            "px-4 py-2 max-w-0 w-full cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 0 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 0)}
+        >
+          <ExpandableDescription
+            description={entry.description || ""}
+            onSave={(newDescription) =>
+              onDescriptionSave(entry.id)(newDescription)
+            }
+            onEditingChange={setIsEditingCell}
+            onNavigateNext={navigateToNextCell}
+            data-testid="expandable-description"
+          />
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 1 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 1)}
+        >
+          <ProjectSelector
+            currentProject={entry.project_name || ""}
+            currentProjectColor={entry.project_color}
+            onProjectChange={(newProject) =>
+              onProjectChange(entry.id)(newProject)
+            }
+            projects={projects}
+            onOpenChange={setIsProjectSelectorOpen}
+            onNavigateNext={navigateToNextCell}
+            data-testid="project-selector"
+          />
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 2 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 2)}
+        >
+          {format(new Date(entry.start), "h:mm a")} -{" "}
+          {entry.stop ? format(new Date(entry.stop), "h:mm a") : "Now"}
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 font-mono text-sm cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 3 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 3)}
+        >
+          <div className="flex items-center gap-2">
+            <LiveDuration
+              startTime={entry.start}
+              stopTime={entry.stop}
+              staticDuration={entry.duration}
+              className="group-hover:text-accent-foreground transition-colors duration-200"
+            />
+            {!entry.stop && (
+              <div className="relative">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75"></div>
+              </div>
+            )}
+          </div>
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 4 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 4)}
+        >
+          <ActionsMenu
+            onDuplicate={() => {
+              // Implement duplicate logic
+            }}
+            onSplit={() => {
+              // Implement split logic
+            }}
+            onStartEntry={() => {
+              // Implement start entry logic
+            }}
+            onCopyId={() => {
+              // Implement copy ID logic
+            }}
+            onDelete={() => onDelete(entry)}
+            onOpenChange={setIsActionsMenuOpen}
+            onNavigateNext={navigateToNextCell}
+            isSelected={
+              selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 4
+            }
+            data-testid="actions-menu"
+          />
+        </TableCell>
+      </TableRow>
+    );
+  },
+  (prevProps, nextProps) => {
+    // Optimized comparison function - rerender if this row's selection state changed
+
+    const prevSelectedInThisRow =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex;
+    const nextSelectedInThisRow =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex;
+
+    // If this row's selection state changed (selected/unselected), we need to rerender
+    if (prevSelectedInThisRow !== nextSelectedInThisRow) {
+      return false; // Rerender
+    }
+
+    // If this row is currently selected, check if the selected cell within the row changed
+    if (nextSelectedInThisRow) {
+      const prevCellIndex = prevProps.selectedCell?.cellIndex;
+      const nextCellIndex = nextProps.selectedCell?.cellIndex;
+
+      // If the selected cell within this row changed, we need to rerender
+      if (prevCellIndex !== nextCellIndex) {
+        return false; // Rerender
+      }
+    }
+
+    // Return true if props are equal (should NOT rerender)
+    const shouldNotRerender =
+      prevProps.entry === nextProps.entry &&
+      prevProps.rowIndex === nextProps.rowIndex &&
+      prevProps.onSelectCell === nextProps.onSelectCell &&
+      prevProps.onDescriptionSave === nextProps.onDescriptionSave &&
+      prevProps.onProjectChange === nextProps.onProjectChange &&
+      prevProps.onDelete === nextProps.onDelete &&
+      prevProps.projects === nextProps.projects &&
+      prevProps.setIsEditingCell === nextProps.setIsEditingCell &&
+      prevProps.setIsProjectSelectorOpen ===
+        nextProps.setIsProjectSelectorOpen &&
+      prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen &&
+      prevProps.navigateToNextCell === nextProps.navigateToNextCell;
+
+    return shouldNotRerender;
+  }
+);
+
 export function TimeTrackerTable() {
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
@@ -54,124 +242,151 @@ export function TimeTrackerTable() {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+
   const [isEditingCell, setIsEditingCell] = React.useState(false);
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
     React.useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
   const tableRef = React.useRef<HTMLDivElement>(null);
 
-  const handleDescriptionSave =
-    (entryId: number) => (newDescription: string) => {
-      const originalEntries = [...timeEntries];
+  // Track the current toast ID to avoid duplicate toasts
+  const updateToastId = React.useRef<string | number | null>(null);
 
-      // Optimistically update UI
-      setTimeEntries((prev) =>
-        prev.map((entry) =>
-          entry.id === entryId
-            ? { ...entry, description: newDescription }
-            : entry
-        )
-      );
+  const showUpdateToast = React.useCallback(
+    (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
+      if (updateToastId.current) {
+        // Dismiss existing toast
+        toast.dismiss(updateToastId.current);
+      }
 
-      toast("Description updated.", {
+      updateToastId.current = toast(message, {
         action: {
           label: "Undo",
-          onClick: () => setTimeEntries(originalEntries),
+          onClick: undoAction,
         },
+        duration: 4000, // Keep toast visible longer for potential batched updates
         onAutoClose: () => {
-          // If not undone, make the API call (without showing success toast)
-          const apiKey = localStorage.getItem("toggl_api_key");
-          fetch(`/api/time-entries/${entryId}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              "x-toggl-api-key": apiKey || "",
-            },
-            body: JSON.stringify({ description: newDescription }),
-          }).catch(() => {
-            // If API fails, revert the change and show error
-            toast.error("Failed to update description. Please try again.");
-            setTimeEntries(originalEntries);
+          // Make the API call when toast auto-closes (not undone)
+          apiCall().catch(() => {
+            toast.error("Failed to update entry. Please try again.");
+            undoAction(); // Revert on API failure
           });
         },
       });
-    };
+    },
+    []
+  );
 
-  const handleProjectChange = (entryId: number) => (newProject: string) => {
-    const originalEntries = [...timeEntries];
+  const handleDescriptionSave = React.useCallback(
+    (entryId: number) => (newDescription: string) => {
+      // Use functional update to avoid dependency on timeEntries
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
 
-    // Find the project color for optimistic update
-    const selectedProject = projects.find((p) => p.name === newProject);
-    const newProjectColor =
-      newProject === "No Project" || newProject === ""
-        ? "#6b7280"
-        : selectedProject?.color || "#6b7280";
+        // Create updated entries
+        const updatedEntries = currentEntries.map((entry) =>
+          entry.id === entryId
+            ? { ...entry, description: newDescription }
+            : entry
+        );
 
-    // Optimistically update UI with both project name and color
-    setTimeEntries((prev) =>
-      prev.map((entry) =>
-        entry.id === entryId
-          ? {
-              ...entry,
-              project_name: newProject || "No Project",
-              project_color: newProjectColor,
-            }
-          : entry
-      )
-    );
+        showUpdateToast(
+          "Description updated.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const apiKey = localStorage.getItem("toggl_api_key");
+            await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-api-key": apiKey || "",
+              },
+              body: JSON.stringify({ description: newDescription }),
+            });
+          }
+        );
 
-    toast("Project updated.", {
-      action: {
-        label: "Undo",
-        onClick: () => setTimeEntries(originalEntries),
-      },
-      onAutoClose: () => {
-        // If not undone, make the API call
-        const apiKey = localStorage.getItem("toggl_api_key");
-        fetch(`/api/time-entries/${entryId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-toggl-api-key": apiKey || "",
-          },
-          body: JSON.stringify({ project_name: newProject }),
-        }).catch(() => {
-          // If API fails, revert the change and show error
-          toast.error("Failed to update project. Please try again.");
-          setTimeEntries(originalEntries);
-        });
-      },
-    });
-  };
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast]
+  );
 
-  const handleDelete = (entryToDelete: TimeEntry) => {
-    const originalEntries = [...timeEntries];
-    // Optimistically update UI
-    setTimeEntries(
-      timeEntries.filter((entry) => entry.id !== entryToDelete.id)
-    );
+  const handleProjectChange = React.useCallback(
+    (entryId: number) => (newProject: string) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
 
-    toast("Time entry deleted.", {
-      action: {
-        label: "Undo",
-        onClick: () => setTimeEntries(originalEntries),
-      },
-      onAutoClose: () => {
-        // If not undone, make the API call
-        const apiKey = localStorage.getItem("toggl_api_key");
-        fetch(`/api/time-entries/${entryToDelete.id}`, {
-          method: "DELETE",
-          headers: {
-            "x-toggl-api-key": apiKey || "",
-          },
-        }).catch(() => {
-          // If API fails, revert the change and show error
-          toast.error("Failed to delete entry. Please try again.");
-          setTimeEntries(originalEntries);
-        });
-      },
-    });
-  };
+        // Find the project color for optimistic update
+        // We need to access projects from current scope, not dependency
+        const selectedProject = projects.find((p) => p.name === newProject);
+        const newProjectColor =
+          newProject === "No Project" || newProject === ""
+            ? "#6b7280"
+            : selectedProject?.color || "#6b7280";
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                project_name: newProject || "No Project",
+                project_color: newProjectColor,
+              }
+            : entry
+        );
+
+        showUpdateToast(
+          "Project updated.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const apiKey = localStorage.getItem("toggl_api_key");
+            await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-api-key": apiKey || "",
+              },
+              body: JSON.stringify({ project_name: newProject }),
+            });
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [projects, showUpdateToast]
+  );
+
+  const handleDelete = React.useCallback(
+    (entryToDelete: TimeEntry) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Create filtered entries
+        const filteredEntries = currentEntries.filter(
+          (entry) => entry.id !== entryToDelete.id
+        );
+
+        showUpdateToast(
+          "Time entry deleted.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const apiKey = localStorage.getItem("toggl_api_key");
+            await fetch(`/api/time-entries/${entryToDelete.id}`, {
+              method: "DELETE",
+              headers: {
+                "x-toggl-api-key": apiKey || "",
+              },
+            });
+          }
+        );
+
+        return filteredEntries;
+      });
+    },
+    [showUpdateToast]
+  );
 
   const startNewTimeEntry = React.useCallback(() => {
     const originalEntries = [...timeEntries];
@@ -200,15 +415,6 @@ export function TimeTrackerTable() {
     // Select the new entry's description field for immediate editing
     setTimeout(() => {
       setSelectedCell({ rowIndex: 0, cellIndex: 0 });
-      // Auto-activate the description field for editing
-      setTimeout(() => {
-        const descriptionElement = document.querySelector(
-          `[data-entry-id="${tempId}"] [data-testid="expandable-description"]`
-        ) as HTMLElement;
-        if (descriptionElement) {
-          descriptionElement.click();
-        }
-      }, 100);
     }, 50);
 
     // Make the API call immediately to ensure precise timing
@@ -335,10 +541,13 @@ export function TimeTrackerTable() {
     [date]
   );
 
-  const paginatedEntries = timeEntries.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
+  // Memoize paginatedEntries to prevent unnecessary re-renders
+  const paginatedEntries = React.useMemo(() => {
+    return timeEntries.slice(
+      page * rowsPerPage,
+      page * rowsPerPage + rowsPerPage
+    );
+  }, [timeEntries, page, rowsPerPage]);
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
@@ -380,20 +589,29 @@ export function TimeTrackerTable() {
   );
 
   const navigateToNextCell = React.useCallback(() => {
-    if (!selectedCell) return;
+    setSelectedCell((currentSelectedCell) => {
+      if (!currentSelectedCell) return null;
 
-    const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
-    const currentEntries = paginatedEntries;
+      const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
 
-    if (selectedCell.cellIndex < maxCellIndex) {
-      setSelectedCell({
-        ...selectedCell,
-        cellIndex: selectedCell.cellIndex + 1,
-      });
-    } else if (selectedCell.rowIndex < currentEntries.length - 1) {
-      setSelectedCell({ rowIndex: selectedCell.rowIndex + 1, cellIndex: 0 });
-    }
-  }, [selectedCell, paginatedEntries]);
+      // Calculate current entries length inside the state update to avoid dependencies
+      const currentEntriesLength = Math.min(
+        timeEntries.length - page * rowsPerPage,
+        rowsPerPage
+      );
+
+      if (currentSelectedCell.cellIndex < maxCellIndex) {
+        return {
+          ...currentSelectedCell,
+          cellIndex: currentSelectedCell.cellIndex + 1,
+        };
+      } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
+        return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 0 };
+      }
+
+      return currentSelectedCell; // No change if at the end
+    });
+  }, []); // No dependencies!
 
   React.useEffect(() => {
     fetchData();
@@ -420,10 +638,64 @@ export function TimeTrackerTable() {
     () => ({
       currentPage: page,
       totalPages: Math.ceil(timeEntries.length / rowsPerPage),
-      currentEntries: paginatedEntries,
+      currentEntriesLength: paginatedEntries.length,
       maxCellIndex: 4, // 5 columns: description, project, time, duration, actions
     }),
-    [page, timeEntries.length, rowsPerPage, paginatedEntries]
+    [page, timeEntries.length, rowsPerPage, paginatedEntries.length]
+  );
+
+  // Stable functions for keyboard navigation
+  const handleNewEntry = React.useCallback(() => {
+    startNewTimeEntry();
+  }, [startNewTimeEntry]);
+
+  const handleRefreshData = React.useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleDeleteSelected = React.useCallback(() => {
+    if (selectedCell) {
+      const entry = paginatedEntries[selectedCell.rowIndex];
+      if (entry) {
+        handleDelete(entry);
+      }
+    }
+  }, [selectedCell, paginatedEntries, handleDelete]);
+
+  const handleDeleteSelectedWithConfirmation = React.useCallback(() => {
+    if (selectedCell) {
+      const entry = paginatedEntries[selectedCell.rowIndex];
+      if (entry) {
+        // Show confirmation dialog
+        const confirmed = window.confirm(
+          `Are you sure you want to delete this time entry?\n\nDescription: ${
+            entry.description || "(no description)"
+          }\nProject: ${
+            entry.project_name || "No Project"
+          }\nDuration: ${Math.floor(entry.duration / 3600)}h ${Math.floor(
+            (entry.duration % 3600) / 60
+          )}m`
+        );
+
+        if (confirmed) {
+          handleDelete(entry);
+          // Clear selection after deletion
+          setSelectedCell(null);
+        }
+      }
+    }
+  }, [selectedCell, paginatedEntries, handleDelete]);
+
+  const handlePageChange = React.useCallback((newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  // Stable cell selection callback
+  const handleSelectCell = React.useCallback(
+    (rowIndex: number, cellIndex: number) => {
+      setSelectedCell({ rowIndex, cellIndex });
+    },
+    []
   );
 
   // Keyboard navigation
@@ -443,13 +715,25 @@ export function TimeTrackerTable() {
       // Global shortcuts (work even when focused on inputs)
       if (e.key === "n" && !isInInput) {
         e.preventDefault();
-        startNewTimeEntry();
+        handleNewEntry();
         return;
       }
 
       if (e.key === "r" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        fetchData();
+        handleRefreshData();
+        return;
+      }
+
+      if (e.key === "r" && !isInInput) {
+        e.preventDefault();
+        handleRefreshData();
+        return;
+      }
+
+      if (e.key === "Backspace" && (e.metaKey || e.ctrlKey) && !isInInput) {
+        e.preventDefault();
+        handleDeleteSelectedWithConfirmation();
         return;
       }
 
@@ -470,7 +754,7 @@ export function TimeTrackerTable() {
           e.preventDefault();
           if (selectedCell) {
             activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
-          } else if (keyboardNavigationData.currentEntries.length > 0) {
+          } else if (keyboardNavigationData.currentEntriesLength > 0) {
             // If no cell selected, select first cell of first row
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           }
@@ -480,7 +764,7 @@ export function TimeTrackerTable() {
           e.preventDefault();
           if (
             !selectedCell &&
-            keyboardNavigationData.currentEntries.length > 0
+            keyboardNavigationData.currentEntriesLength > 0
           ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (selectedCell) {
@@ -509,13 +793,13 @@ export function TimeTrackerTable() {
           e.preventDefault();
           if (
             !selectedCell &&
-            keyboardNavigationData.currentEntries.length > 0
+            keyboardNavigationData.currentEntriesLength > 0
           ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (
             selectedCell &&
             selectedCell.rowIndex <
-              keyboardNavigationData.currentEntries.length - 1
+              keyboardNavigationData.currentEntriesLength - 1
           ) {
             setSelectedCell({
               ...selectedCell,
@@ -529,10 +813,10 @@ export function TimeTrackerTable() {
           e.preventDefault();
           if (
             !selectedCell &&
-            keyboardNavigationData.currentEntries.length > 0
+            keyboardNavigationData.currentEntriesLength > 0
           ) {
             setSelectedCell({
-              rowIndex: keyboardNavigationData.currentEntries.length - 1,
+              rowIndex: keyboardNavigationData.currentEntriesLength - 1,
               cellIndex: 0,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
@@ -559,7 +843,7 @@ export function TimeTrackerTable() {
           e.preventDefault();
           if (
             !selectedCell &&
-            keyboardNavigationData.currentEntries.length > 0
+            keyboardNavigationData.currentEntriesLength > 0
           ) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (
@@ -579,7 +863,7 @@ export function TimeTrackerTable() {
             keyboardNavigationData.currentPage <
             keyboardNavigationData.totalPages - 1
           ) {
-            setPage(keyboardNavigationData.currentPage + 1);
+            handlePageChange(keyboardNavigationData.currentPage + 1);
             setSelectedCell(null);
           }
           break;
@@ -587,7 +871,7 @@ export function TimeTrackerTable() {
         case "PageUp":
           e.preventDefault();
           if (keyboardNavigationData.currentPage > 0) {
-            setPage(keyboardNavigationData.currentPage - 1);
+            handlePageChange(keyboardNavigationData.currentPage - 1);
             setSelectedCell(null);
           }
           break;
@@ -595,7 +879,7 @@ export function TimeTrackerTable() {
         case "Home":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            setPage(0);
+            handlePageChange(0);
             setSelectedCell(null);
           } else if (selectedCell) {
             setSelectedCell({ ...selectedCell, cellIndex: 0 });
@@ -605,7 +889,7 @@ export function TimeTrackerTable() {
         case "End":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            setPage(keyboardNavigationData.totalPages - 1);
+            handlePageChange(keyboardNavigationData.totalPages - 1);
             setSelectedCell(null);
           } else if (selectedCell) {
             setSelectedCell({
@@ -617,13 +901,7 @@ export function TimeTrackerTable() {
 
         case "d":
           e.preventDefault();
-          if (selectedCell) {
-            const entry =
-              keyboardNavigationData.currentEntries[selectedCell.rowIndex];
-            if (entry) {
-              handleDelete(entry);
-            }
-          }
+          handleDeleteSelected();
           break;
       }
     };
@@ -631,32 +909,36 @@ export function TimeTrackerTable() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [
-    // Reduced dependencies - only include what's actually needed
+    // Essential dependencies only - remove functions that don't need to be in deps
     selectedCell,
-    keyboardNavigationData,
-    activateCell,
-    navigateToNextCell,
-    fetchData,
-    handleDelete,
-    startNewTimeEntry,
-    setPage,
+    keyboardNavigationData.currentPage,
+    keyboardNavigationData.totalPages,
+    keyboardNavigationData.currentEntriesLength,
+    keyboardNavigationData.maxCellIndex,
     isEditingCell,
     isProjectSelectorOpen,
     isActionsMenuOpen,
+    // Stable callback functions
+    activateCell,
+    navigateToNextCell,
+    handleNewEntry,
+    handleRefreshData,
+    handleDeleteSelected,
+    handleDeleteSelectedWithConfirmation,
+    handlePageChange,
   ]);
 
-  // Clear selection when data changes
+  // Clear selection when pagination changes (but not when timeEntries updates)
   React.useEffect(() => {
-    console.log(
-      "🔴 CLEARING SELECTION - timeEntries length:",
-      timeEntries.length,
-      "page:",
-      page,
-      "rowsPerPage:",
-      rowsPerPage
-    );
     setSelectedCell(null);
-  }, [timeEntries, page, rowsPerPage]);
+  }, [page, rowsPerPage]);
+
+  // Clear selection if selected cell is out of bounds after data changes
+  React.useEffect(() => {
+    if (selectedCell && selectedCell.rowIndex >= paginatedEntries.length) {
+      setSelectedCell(null);
+    }
+  }, [selectedCell, paginatedEntries.length]);
 
   return (
     <div className="space-y-6" ref={tableRef}>
@@ -753,114 +1035,21 @@ export function TimeTrackerTable() {
             </TableHeader>
             <TableBody>
               {paginatedEntries.map((entry, rowIndex) => (
-                <TableRow
+                <MemoizedTableRow
                   key={entry.id}
-                  data-entry-id={entry.id}
-                  className="hover:bg-accent/20 transition-all duration-200 border-border/40 group hover:shadow-sm"
-                >
-                  <TableCell
-                    className={cn(
-                      "px-4 py-2 max-w-0 w-full cursor-pointer",
-                      selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 0 &&
-                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
-                    )}
-                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 0 })}
-                  >
-                    <ExpandableDescription
-                      description={entry.description || ""}
-                      onSave={(newDescription) =>
-                        handleDescriptionSave(entry.id)(newDescription)
-                      }
-                      onEditingChange={setIsEditingCell}
-                      onNavigateNext={navigateToNextCell}
-                      data-testid="expandable-description"
-                    />
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "px-4 py-2 cursor-pointer",
-                      selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 1 &&
-                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
-                    )}
-                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 1 })}
-                  >
-                    <ProjectSelector
-                      currentProject={entry.project_name || ""}
-                      currentProjectColor={entry.project_color}
-                      onProjectChange={(newProject) =>
-                        handleProjectChange(entry.id)(newProject)
-                      }
-                      projects={projects}
-                      onOpenChange={setIsProjectSelectorOpen}
-                      onNavigateNext={navigateToNextCell}
-                      data-testid="project-selector"
-                    />
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer",
-                      selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 2 &&
-                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
-                    )}
-                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 2 })}
-                  >
-                    {format(new Date(entry.start), "h:mm a")} -{" "}
-                    {entry.stop
-                      ? format(new Date(entry.stop), "h:mm a")
-                      : "Now"}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "px-4 py-2 font-mono text-sm cursor-pointer",
-                      selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 3 &&
-                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
-                    )}
-                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 3 })}
-                  >
-                    <LiveDuration
-                      startTime={entry.start}
-                      stopTime={entry.stop}
-                      staticDuration={entry.duration}
-                      className="group-hover:text-accent-foreground transition-colors duration-200"
-                    />
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "px-4 py-2 cursor-pointer",
-                      selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 4 &&
-                        "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
-                    )}
-                    onClick={() => setSelectedCell({ rowIndex, cellIndex: 4 })}
-                  >
-                    <ActionsMenu
-                      onDuplicate={() => {
-                        // Implement duplicate logic
-                      }}
-                      onSplit={() => {
-                        // Implement split logic
-                      }}
-                      onStartEntry={() => {
-                        // Implement start entry logic
-                      }}
-                      onCopyId={() => {
-                        // Implement copy ID logic
-                      }}
-                      onDelete={() => handleDelete(entry)}
-                      onOpenChange={setIsActionsMenuOpen}
-                      onNavigateNext={navigateToNextCell}
-                      isSelected={
-                        selectedCell?.rowIndex === rowIndex &&
-                        selectedCell?.cellIndex === 4
-                      }
-                      data-testid="actions-menu"
-                    />
-                  </TableCell>
-                </TableRow>
+                  entry={entry}
+                  rowIndex={rowIndex}
+                  selectedCell={selectedCell}
+                  onSelectCell={handleSelectCell}
+                  onDescriptionSave={handleDescriptionSave}
+                  onProjectChange={handleProjectChange}
+                  onDelete={handleDelete}
+                  projects={projects}
+                  setIsEditingCell={setIsEditingCell}
+                  setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                  setIsActionsMenuOpen={setIsActionsMenuOpen}
+                  navigateToNextCell={navigateToNextCell}
+                />
               ))}
             </TableBody>
           </Table>

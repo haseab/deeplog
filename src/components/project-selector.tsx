@@ -176,7 +176,7 @@ export function ProjectSelector({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0 border-border/60"
+        className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-80 p-0 border-border/60"
         align="start"
       >
         <div className="flex items-center border-b border-border/40 px-3 py-2">
@@ -214,7 +214,7 @@ export function ProjectSelector({
                     />
                   )}
                   <span
-                    className="truncate transition-colors duration-200"
+                    className="transition-colors duration-200"
                     style={{ color: option.color || "inherit" }}
                   >
                     {option.name}

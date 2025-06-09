@@ -99,19 +99,6 @@ export function ExpandableDescription({
     return turndownService.turndown(html);
   }, [turndownService]);
 
-  const getSelectionPosition = React.useCallback(() => {
-    if (!editorRef.current || !editorRef.current.view.dom)
-      return { x: 0, y: 0 };
-
-    const rect = editorRef.current.view.dom.getBoundingClientRect();
-
-    // Get approximate cursor position
-    return {
-      x: rect.left + 20, // Offset from editor start
-      y: rect.top - 10, // Position above the editor
-    };
-  }, []);
-
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -132,6 +119,78 @@ export function ExpandableDescription({
       attributes: {
         class:
           "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border border-border/60 rounded-md resize-none leading-tight transition-all duration-200 focus:border-primary/50 focus:ring-2 focus:ring-primary/10",
+      },
+      handleKeyDown: (view, event) => {
+        // Handle Command/Ctrl + Enter to save and exit
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          saveAndExit();
+
+          // Add a subtle flash effect for the keyboard shortcut
+          const editorElement = view.dom.closest(".editor-container");
+          editorElement?.classList.add("flash-success");
+          setTimeout(() => {
+            editorElement?.classList.remove("flash-success");
+          }, 300);
+
+          return true; // Handled
+        }
+
+        // Handle Command/Ctrl + K for link dialog
+        if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          // Get selected text to pre-fill link text
+          const { from, to } = view.state.selection;
+          const selectedText = view.state.doc.textBetween(from, to);
+          if (selectedText) {
+            setLinkText(selectedText);
+          }
+
+          // Set position for the dialog trigger
+          const rect = view.dom.getBoundingClientRect();
+          setTriggerPosition({
+            x: rect.left + 20,
+            y: rect.top - 10,
+          });
+          setShowLinkDialog(true);
+
+          return true; // Handled
+        }
+
+        // Handle Escape key
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+
+          if (showLinkDialog) {
+            setShowLinkDialog(false);
+            setLinkUrl("");
+            setLinkText("");
+          } else {
+            cancelEditing();
+          }
+
+          return true; // Handled
+        }
+
+        // Handle Tab to navigate to next cell
+        if (event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+
+          saveAndExit();
+          setTimeout(() => {
+            onNavigateNext?.();
+          }, 100);
+
+          return true; // Handled
+        }
+
+        return false; // Not handled, let editor process normally
       },
     },
     onBlur: async () => {
@@ -228,67 +287,6 @@ export function ExpandableDescription({
     }, 100);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isEditing) return;
-
-    // Command/Ctrl + K for link dialog
-    if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Get selected text to pre-fill link text
-      const { from, to } = editor!.state.selection;
-      const selectedText = editor!.state.doc.textBetween(from, to);
-      if (selectedText) {
-        setLinkText(selectedText);
-      }
-
-      // Set position for the dialog trigger
-      const position = getSelectionPosition();
-      setTriggerPosition(position);
-      setShowLinkDialog(true);
-      return;
-    }
-
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (showLinkDialog) {
-        setShowLinkDialog(false);
-        setLinkUrl("");
-        setLinkText("");
-      } else {
-        cancelEditing();
-      }
-      return;
-    }
-
-    if (e.key === "Tab") {
-      e.preventDefault();
-      e.stopPropagation();
-      // Save current content and move to next cell
-      saveAndExit();
-      setTimeout(() => {
-        onNavigateNext?.();
-      }, 100); // Small delay to ensure editing state is updated
-      return;
-    }
-
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault(); // Prevent the line break from being added
-      e.stopPropagation(); // Stop event propagation
-
-      saveAndExit();
-
-      // Add a subtle flash effect for the keyboard shortcut
-      const editorElement = e.currentTarget.closest(".editor-container");
-      editorElement?.classList.add("flash-success");
-      setTimeout(() => {
-        editorElement?.classList.remove("flash-success");
-      }, 300);
-    }
-  };
-
   if (!description && !isEditing) {
     return (
       <div
@@ -305,11 +303,7 @@ export function ExpandableDescription({
 
   if (isEditing && editor) {
     return (
-      <div
-        className="w-full editor-container"
-        onKeyDown={handleKeyDown}
-        data-testid={dataTestId}
-      >
+      <div className="w-full editor-container" data-testid={dataTestId}>
         <div className="relative">
           <EditorContent editor={editor} className="w-full" />
 
@@ -406,7 +400,7 @@ export function ExpandableDescription({
     <div
       onClick={handleClick}
       data-testid={dataTestId}
-      className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-all duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0"
+      className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-transform duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0"
     >
       <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0">
         <ReactMarkdown
