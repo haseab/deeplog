@@ -81,7 +81,7 @@ export async function PATCH(
     if (!updateResponse.ok) {
       const errorText = await updateResponse.text();
       console.error("Update API error:", updateResponse.status, errorText);
-      throw new Error("Failed to update time entry in Toggl");
+      throw new Error(errorText);
     }
 
     const updatedEntry = await updateResponse.json();
@@ -105,7 +105,9 @@ export async function PATCH(
       }
     }
 
-    return createErrorResponse("Failed to update time entry");
+    return createErrorResponse(
+      error instanceof Error ? error.message : "Failed to update time entry"
+    );
   }
 }
 

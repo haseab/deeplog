@@ -1,10 +1,10 @@
 "use client";
 
+import { toast } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -249,27 +249,23 @@ export function TimeTrackerTable() {
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
   const tableRef = React.useRef<HTMLDivElement>(null);
 
-  // Track the current toast ID to avoid duplicate toasts
-  const updateToastId = React.useRef<string | number | null>(null);
-
   const showUpdateToast = React.useCallback(
     (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
-      if (updateToastId.current) {
-        // Dismiss existing toast
-        toast.dismiss(updateToastId.current);
-      }
-
-      updateToastId.current = toast(message, {
+      toast(message, {
         action: {
           label: "Undo",
           onClick: undoAction,
         },
-        duration: 4000, // Keep toast visible longer for potential batched updates
+        duration: 4000,
         onAutoClose: () => {
-          // Make the API call when toast auto-closes (not undone)
-          apiCall().catch(() => {
-            toast.error("Failed to update entry. Please try again.");
-            undoAction(); // Revert on API failure
+          apiCall().catch((error) => {
+            console.error("API call failed:", error);
+            const errorMessage =
+              error instanceof Error && error.message
+                ? error.message
+                : "Failed to update entry. Please try again.";
+            toast.error(errorMessage);
+            undoAction();
           });
         },
       });
@@ -295,7 +291,7 @@ export function TimeTrackerTable() {
           () => setTimeEntries(originalEntries),
           async () => {
             const apiKey = localStorage.getItem("toggl_api_key");
-            await fetch(`/api/time-entries/${entryId}`, {
+            const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -303,6 +299,26 @@ export function TimeTrackerTable() {
               },
               body: JSON.stringify({ description: newDescription }),
             });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              // Create a more descriptive error message
+              let errorMessage = `Failed to update description (${response.status})`;
+              if (errorText.includes("Maximum length for description")) {
+                errorMessage = "Description is too long (max 3000 characters)";
+              } else if (errorText.includes("exceeded")) {
+                errorMessage = "Description exceeds maximum length";
+              } else if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              }
+
+              throw new Error(errorMessage);
+            }
           }
         );
 
@@ -341,7 +357,7 @@ export function TimeTrackerTable() {
           () => setTimeEntries(originalEntries),
           async () => {
             const apiKey = localStorage.getItem("toggl_api_key");
-            await fetch(`/api/time-entries/${entryId}`, {
+            const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -349,6 +365,23 @@ export function TimeTrackerTable() {
               },
               body: JSON.stringify({ project_name: newProject }),
             });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              let errorMessage = `Failed to update project (${response.status})`;
+              if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              } else if (response.status === 400) {
+                errorMessage = "Invalid project selection";
+              }
+
+              throw new Error(errorMessage);
+            }
           }
         );
 
@@ -373,12 +406,32 @@ export function TimeTrackerTable() {
           () => setTimeEntries(originalEntries),
           async () => {
             const apiKey = localStorage.getItem("toggl_api_key");
-            await fetch(`/api/time-entries/${entryToDelete.id}`, {
-              method: "DELETE",
-              headers: {
-                "x-toggl-api-key": apiKey || "",
-              },
-            });
+            const response = await fetch(
+              `/api/time-entries/${entryToDelete.id}`,
+              {
+                method: "DELETE",
+                headers: {
+                  "x-toggl-api-key": apiKey || "",
+                },
+              }
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              let errorMessage = `Failed to delete entry (${response.status})`;
+              if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              } else if (response.status === 404) {
+                errorMessage = "Entry not found";
+              }
+
+              throw new Error(errorMessage);
+            }
           }
         );
 

@@ -161,4 +161,45 @@
       background-color: transparent;
     }
   }
+
+  /* Toast styles */
+  .error-toast {
+    background-color: var(--destructive) !important;
+    color: var(--destructive-foreground) !important;
+    border-color: var(--destructive) !important;
+  }
+
+  .error-toast [data-icon] {
+    color: var(--destructive-foreground) !important;
+  }
+
+  .success-toast {
+    background-color: hsl(142 76% 36%) !important;
+    color: white !important;
+    border-color: hsl(142 76% 36%) !important;
+  }
+
+  .success-toast [data-icon] {
+    color: white !important;
+  }
+
+  .warning-toast {
+    background-color: hsl(38 92% 50%) !important;
+    color: white !important;
+    border-color: hsl(38 92% 50%) !important;
+  }
+
+  .warning-toast [data-icon] {
+    color: white !important;
+  }
+
+  .info-toast {
+    background-color: hsl(221 83% 53%) !important;
+    color: white !important;
+    border-color: hsl(221 83% 53%) !important;
+  }
+
+  .info-toast [data-icon] {
+    color: white !important;
+  }
 }
