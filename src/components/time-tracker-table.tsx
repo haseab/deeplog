@@ -670,21 +670,22 @@ export function TimeTrackerTable() {
     fetchData();
   }, [fetchData]);
 
-  // Refresh data when tab becomes visible
-  React.useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && date?.from && date?.to) {
-        // Silently refresh data without showing loading state
-        fetchData(false);
-      }
-    };
+  // DO NOT REMOVE THIS COMMENT
+  // Refresh data when tab becomes visible - TEMPORARILY DISABLED
+  // React.useEffect(() => {
+  //   const handleVisibilityChange = () => {
+  //     if (document.visibilityState === "visible" && date?.from && date?.to) {
+  //       // Silently refresh data without showing loading state
+  //       fetchData(false);
+  //     }
+  //   };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+  //   document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [fetchData, date]);
+  //   return () => {
+  //     document.removeEventListener("visibilitychange", handleVisibilityChange);
+  //   };
+  // }, [fetchData, date]);
 
   // Memoize expensive calculations
   const keyboardNavigationData = React.useMemo(
