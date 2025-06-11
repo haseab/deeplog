@@ -220,7 +220,7 @@ export function ExpandableDescription({
       setIsEditing(true);
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {
-        editor?.commands.focus();
+        editor?.commands.focus("end");
       }, 100);
     }
   };
