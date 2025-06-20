@@ -292,9 +292,9 @@ export function ExpandableDescription({
       <div
         onClick={handleClick}
         data-testid={dataTestId}
-        className="text-muted-foreground italic cursor-pointer p-2 hover:bg-accent/50 rounded-md transition-all duration-200 hover:text-accent-foreground group"
+        className="text-muted-foreground italic cursor-pointer p-2 hover:bg-accent/50 rounded-md transition-all duration-200 hover:text-accent-foreground group min-w-0 max-w-full overflow-hidden"
       >
-        <span className="group-hover:translate-x-0.5 transition-transform duration-200 inline-block">
+        <span className="group-hover:translate-x-0.5 transition-transform duration-200 inline-block truncate text-ellipsis whitespace-nowrap w-full">
           Click to add description
         </span>
       </div>
@@ -400,9 +400,9 @@ export function ExpandableDescription({
     <div
       onClick={handleClick}
       data-testid={dataTestId}
-      className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-transform duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0"
+      className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-transform duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0 max-w-full overflow-hidden"
     >
-      <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0">
+      <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0 max-w-full">
         <ReactMarkdown
           components={{
             p: ({ children }) => <span>{children}</span>,

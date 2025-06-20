@@ -71,7 +71,7 @@ const MemoizedTableRow = React.memo(
       >
         <TableCell
           className={cn(
-            "px-4 py-2 max-w-0 w-full cursor-pointer",
+            "px-4 py-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 0 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -90,7 +90,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 cursor-pointer",
+            "px-4 py-2 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 1 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -111,7 +111,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer",
+            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 2 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -123,7 +123,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm cursor-pointer",
+            "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 3 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -147,7 +147,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 cursor-pointer",
+            "px-4 py-2 cursor-pointer sm:w-16 w-12",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 4 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -1075,16 +1075,16 @@ export function TimeTrackerTable() {
                 <TableHead className="px-4 py-3 font-medium text-muted-foreground">
                   Description
                 </TableHead>
-                <TableHead className="px-4 py-3 w-48 font-medium text-muted-foreground">
+                <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
                   Project
                 </TableHead>
-                <TableHead className="px-4 py-3 w-32 font-medium text-muted-foreground">
+                <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
                   Time
                 </TableHead>
-                <TableHead className="px-4 py-3 w-24 font-medium text-muted-foreground">
+                <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground">
                   Duration
                 </TableHead>
-                <TableHead className="px-4 py-3 w-16 font-medium text-muted-foreground"></TableHead>
+                <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1110,13 +1110,13 @@ export function TimeTrackerTable() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0">
+        <p className="text-sm text-muted-foreground text-center sm:text-left">
           Showing {page * rowsPerPage + 1} to{" "}
           {Math.min((page + 1) * rowsPerPage, timeEntries.length)} of{" "}
           {timeEntries.length} entries
         </p>
-        <div className="flex items-center space-x-6 lg:space-x-8">
+        <div className="flex flex-col sm:flex-row items-center sm:space-x-6 lg:space-x-8 space-y-4 sm:space-y-0">
           <div className="flex items-center space-x-2">
             <p className="text-sm font-medium">Rows per page</p>
             <Select
@@ -1138,7 +1138,7 @@ export function TimeTrackerTable() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex w-[100px] items-center justify-center text-sm font-medium">
+          <div className="flex items-center justify-center text-sm font-medium">
             Page {page + 1} of {Math.ceil(timeEntries.length / rowsPerPage)}
           </div>
           <div className="flex items-center space-x-2">
