@@ -5,6 +5,7 @@ import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -13,13 +14,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -239,9 +233,10 @@ export function TimeTrackerTable() {
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [page, setPage] = React.useState(0);
-  const [rowsPerPage, setRowsPerPage] = React.useState(10);
+  const currentPageRef = React.useRef(0);
+  const [hasMore, setHasMore] = React.useState(true);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  const lastErrorToastRef = React.useRef<number>(0);
 
   const [isEditingCell, setIsEditingCell] = React.useState(false);
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
@@ -553,19 +548,23 @@ export function TimeTrackerTable() {
   }, [timeEntries]);
 
   const fetchData = React.useCallback(
-    async (showLoadingState = true) => {
+    async (showLoadingState = true, resetData = true) => {
       if (!date?.from || !date?.to) return;
 
-      if (showLoadingState) setLoading(true);
+      // Only show main loading state for initial loads, not infinite scroll
+      if (showLoadingState && resetData) setLoading(true);
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
+      
+      const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
+      const limit = resetData ? 100 : 25;
 
       // Get credentials from localStorage
       const apiKey = localStorage.getItem("toggl_api_key");
 
       try {
         const response = await fetch(
-          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}`,
+          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}`,
           {
             headers: {
               "x-toggl-api-key": apiKey || "",
@@ -573,39 +572,80 @@ export function TimeTrackerTable() {
           }
         );
 
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
         const data = await response.json();
 
         // Handle the new response structure
-        if (data.timeEntries && data.projects) {
-          setTimeEntries(data.timeEntries);
+        if (data.timeEntries && data.projects && data.pagination) {
+          if (resetData) {
+            setTimeEntries(data.timeEntries);
+            currentPageRef.current = 0;
+          } else {
+            // Filter out duplicates by ID to prevent React key conflicts
+            setTimeEntries((prev) => {
+              const existingIds = new Set(prev.map((entry: TimeEntry) => entry.id));
+              const newEntries = data.timeEntries.filter((entry: TimeEntry) => !existingIds.has(entry.id));
+              return [...prev, ...newEntries];
+            });
+            currentPageRef.current = pageToFetch;
+          }
           setProjects(data.projects);
+          setHasMore(data.pagination.hasMore);
         } else {
           // Handle error or empty response
-          setTimeEntries([]);
-          setProjects([]);
+          if (resetData) {
+            setTimeEntries([]);
+            setProjects([]);
+            setHasMore(false);
+          }
         }
       } catch (error) {
         console.error("API Error:", error);
-        toast.error("Failed to fetch data.");
+        // Only show toast for initial load, not for infinite scroll loads
+        // And debounce error toasts to prevent spam
+        if (resetData) {
+          const now = Date.now();
+          if (now - lastErrorToastRef.current > 5000) { // Max one error toast per 5 seconds
+            toast.error("Failed to fetch data.");
+            lastErrorToastRef.current = now;
+          }
+        }
+        // For infinite scroll loads, just throw the error to be handled by the hook
+        if (!resetData) {
+          throw error;
+        }
       } finally {
-        if (showLoadingState) setLoading(false);
+        if (showLoadingState && resetData) setLoading(false);
       }
     },
     [date]
   );
 
-  // Memoize paginatedEntries to prevent unnecessary re-renders
-  const paginatedEntries = React.useMemo(() => {
-    return timeEntries.slice(
-      page * rowsPerPage,
-      page * rowsPerPage + rowsPerPage
-    );
-  }, [timeEntries, page, rowsPerPage]);
+  // Load more function for infinite scrolling
+  const loadMore = React.useCallback(async () => {
+    if (hasMore && !loading) {
+      // Use false for showLoadingState to prevent full table refresh
+      await fetchData(false, false);
+    }
+  }, [hasMore, loading, fetchData]);
+
+  // Infinite scroll hook
+  const { ref: loadMoreRef, isLoading: isLoadingMore, hasError: scrollError, clearError } = useInfiniteScroll(
+    loadMore,
+    {
+      threshold: 0.5,
+      rootMargin: "200px",
+      enabled: hasMore && !loading,
+    }
+  );
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
     (rowIndex: number, cellIndex: number) => {
-      const entry = paginatedEntries[rowIndex];
+      const entry = timeEntries[rowIndex];
       if (!entry) return;
 
       // Use requestAnimationFrame to defer DOM queries to next tick
@@ -638,7 +678,7 @@ export function TimeTrackerTable() {
         }
       });
     },
-    [paginatedEntries]
+    [timeEntries]
   );
 
   const navigateToNextCell = React.useCallback(() => {
@@ -646,12 +686,7 @@ export function TimeTrackerTable() {
       if (!currentSelectedCell) return null;
 
       const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
-
-      // Calculate current entries length inside the state update to avoid dependencies
-      const currentEntriesLength = Math.min(
-        timeEntries.length - page * rowsPerPage,
-        rowsPerPage
-      );
+      const currentEntriesLength = timeEntries.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
         return {
@@ -664,11 +699,43 @@ export function TimeTrackerTable() {
 
       return currentSelectedCell; // No change if at the end
     });
-  }, []); // No dependencies!
+  }, [timeEntries.length]);
 
   React.useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    currentPageRef.current = 0;
+    setHasMore(true);
+    clearError(); // Clear any infinite scroll errors when date changes
+    // Call fetchData directly without depending on the callback
+    if (date?.from && date?.to) {
+      const fromISO = date.from.toISOString();
+      const toISO = date.to.toISOString();
+      const apiKey = localStorage.getItem("toggl_api_key");
+      
+      setLoading(true);
+      fetch(`/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`, {
+        headers: { "x-toggl-api-key": apiKey || "" },
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (data.timeEntries && data.projects && data.pagination) {
+            setTimeEntries(data.timeEntries);
+            setProjects(data.projects);
+            setHasMore(data.pagination.hasMore);
+            currentPageRef.current = 0;
+          }
+        })
+        .catch((error) => {
+          console.error("Initial load error:", error);
+          const now = Date.now();
+          if (now - lastErrorToastRef.current > 5000) {
+            toast.error("Failed to fetch data.");
+            lastErrorToastRef.current = now;
+          }
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [date, clearError]);
 
   // DO NOT REMOVE THIS COMMENT
   // Refresh data when tab becomes visible - TEMPORARILY DISABLED
@@ -690,12 +757,10 @@ export function TimeTrackerTable() {
   // Memoize expensive calculations
   const keyboardNavigationData = React.useMemo(
     () => ({
-      currentPage: page,
-      totalPages: Math.ceil(timeEntries.length / rowsPerPage),
-      currentEntriesLength: paginatedEntries.length,
+      currentEntriesLength: timeEntries.length,
       maxCellIndex: 4, // 5 columns: description, project, time, duration, actions
     }),
-    [page, timeEntries.length, rowsPerPage, paginatedEntries.length]
+    [timeEntries.length]
   );
 
   // Stable functions for keyboard navigation
@@ -704,21 +769,26 @@ export function TimeTrackerTable() {
   }, [startNewTimeEntry]);
 
   const handleRefreshData = React.useCallback(() => {
-    fetchData();
-  }, [fetchData]);
+    if (date?.from && date?.to) {
+      currentPageRef.current = 0;
+      setHasMore(true);
+      clearError();
+      fetchData(true, true); // Explicitly reset data and show loading
+    }
+  }, [date, clearError, fetchData]);
 
   const handleDeleteSelected = React.useCallback(() => {
     if (selectedCell) {
-      const entry = paginatedEntries[selectedCell.rowIndex];
+      const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
         handleDelete(entry);
       }
     }
-  }, [selectedCell, paginatedEntries, handleDelete]);
+  }, [selectedCell, timeEntries, handleDelete]);
 
   const handleDeleteSelectedWithConfirmation = React.useCallback(() => {
     if (selectedCell) {
-      const entry = paginatedEntries[selectedCell.rowIndex];
+      const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
         // Show confirmation dialog
         const confirmed = window.confirm(
@@ -738,11 +808,8 @@ export function TimeTrackerTable() {
         }
       }
     }
-  }, [selectedCell, paginatedEntries, handleDelete]);
+  }, [selectedCell, timeEntries, handleDelete]);
 
-  const handlePageChange = React.useCallback((newPage: number) => {
-    setPage(newPage);
-  }, []);
 
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
@@ -911,30 +978,10 @@ export function TimeTrackerTable() {
           }
           break;
 
-        case "PageDown":
-          e.preventDefault();
-          if (
-            keyboardNavigationData.currentPage <
-            keyboardNavigationData.totalPages - 1
-          ) {
-            handlePageChange(keyboardNavigationData.currentPage + 1);
-            setSelectedCell(null);
-          }
-          break;
-
-        case "PageUp":
-          e.preventDefault();
-          if (keyboardNavigationData.currentPage > 0) {
-            handlePageChange(keyboardNavigationData.currentPage - 1);
-            setSelectedCell(null);
-          }
-          break;
-
         case "Home":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            handlePageChange(0);
-            setSelectedCell(null);
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (selectedCell) {
             setSelectedCell({ ...selectedCell, cellIndex: 0 });
           }
@@ -943,8 +990,10 @@ export function TimeTrackerTable() {
         case "End":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            handlePageChange(keyboardNavigationData.totalPages - 1);
-            setSelectedCell(null);
+            setSelectedCell({
+              rowIndex: keyboardNavigationData.currentEntriesLength - 1,
+              cellIndex: keyboardNavigationData.maxCellIndex,
+            });
           } else if (selectedCell) {
             setSelectedCell({
               ...selectedCell,
@@ -965,8 +1014,6 @@ export function TimeTrackerTable() {
   }, [
     // Essential dependencies only - remove functions that don't need to be in deps
     selectedCell,
-    keyboardNavigationData.currentPage,
-    keyboardNavigationData.totalPages,
     keyboardNavigationData.currentEntriesLength,
     keyboardNavigationData.maxCellIndex,
     isEditingCell,
@@ -979,25 +1026,19 @@ export function TimeTrackerTable() {
     handleRefreshData,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
-    handlePageChange,
   ]);
-
-  // Clear selection when pagination changes (but not when timeEntries updates)
-  React.useEffect(() => {
-    setSelectedCell(null);
-  }, [page, rowsPerPage]);
 
   // Clear selection if selected cell is out of bounds after data changes
   React.useEffect(() => {
-    if (selectedCell && selectedCell.rowIndex >= paginatedEntries.length) {
+    if (selectedCell && selectedCell.rowIndex >= timeEntries.length) {
       setSelectedCell(null);
     }
-  }, [selectedCell, paginatedEntries.length]);
+  }, [selectedCell, timeEntries.length]);
 
   // Scroll selected cell into view on mobile/small screens
   React.useEffect(() => {
-    if (selectedCell && paginatedEntries.length > 0) {
-      const entry = paginatedEntries[selectedCell.rowIndex];
+    if (selectedCell && timeEntries.length > 0) {
+      const entry = timeEntries[selectedCell.rowIndex];
       if (!entry) return;
 
       // Use requestAnimationFrame to ensure DOM is updated
@@ -1022,7 +1063,7 @@ export function TimeTrackerTable() {
         }
       });
     }
-  }, [selectedCell, paginatedEntries]);
+  }, [selectedCell, timeEntries]);
 
   return (
     <div className="space-y-6" ref={tableRef}>
@@ -1054,7 +1095,6 @@ export function TimeTrackerTable() {
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0 border-border/60" align="start">
             <Calendar
-              initialFocus
               mode="range"
               defaultMonth={date?.from}
               selected={date}
@@ -1118,7 +1158,7 @@ export function TimeTrackerTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginatedEntries.map((entry, rowIndex) => (
+              {timeEntries.map((entry, rowIndex) => (
                 <MemoizedTableRow
                   key={entry.id}
                   entry={entry}
@@ -1135,131 +1175,49 @@ export function TimeTrackerTable() {
                   navigateToNextCell={navigateToNextCell}
                 />
               ))}
+              {(hasMore || scrollError) && (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-20 text-center">
+                    <div ref={loadMoreRef}>
+                      {scrollError ? (
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <span className="text-destructive text-sm">Failed to load more entries</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              clearError();
+                              if (hasMore) {
+                                loadMore();
+                              }
+                            }}
+                            className="h-8"
+                          >
+                            Try Again
+                          </Button>
+                        </div>
+                      ) : isLoadingMore ? (
+                        <div className="flex items-center justify-center space-x-2">
+                          <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                          <span className="text-muted-foreground">Loading more entries...</span>
+                        </div>
+                      ) : hasMore ? (
+                        <span className="text-muted-foreground">Scroll to load more</span>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0">
-        <p className="text-sm text-muted-foreground text-center sm:text-left">
-          Showing {page * rowsPerPage + 1} to{" "}
-          {Math.min((page + 1) * rowsPerPage, timeEntries.length)} of{" "}
-          {timeEntries.length} entries
+      <div className="flex justify-center">
+        <p className="text-sm text-muted-foreground">
+          Showing {timeEntries.length} entries
+          {hasMore && " (scroll to load more)"}
         </p>
-        <div className="flex flex-col sm:flex-row items-center sm:space-x-6 lg:space-x-8 space-y-4 sm:space-y-0">
-          <div className="flex items-center space-x-2">
-            <p className="text-sm font-medium">Rows per page</p>
-            <Select
-              value={`${rowsPerPage}`}
-              onValueChange={(value) => {
-                setRowsPerPage(Number(value));
-                setPage(0);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[70px] border-border/60 hover:border-border transition-colors duration-200">
-                <SelectValue placeholder={rowsPerPage} />
-              </SelectTrigger>
-              <SelectContent side="top" className="border-border/60">
-                {[10, 20, 30, 40, 50].map((pageSize) => (
-                  <SelectItem key={pageSize} value={`${pageSize}`}>
-                    {pageSize}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-center text-sm font-medium">
-            Page {page + 1} of {Math.ceil(timeEntries.length / rowsPerPage)}
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0 border-border/60 hover:border-border transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
-              onClick={() => setPage(0)}
-              disabled={page === 0}
-            >
-              <span className="sr-only">Go to first page</span>
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 17l-5-5 5-5M18 17l-5-5 5-5"
-                />
-              </svg>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0 border-border/60 hover:border-border transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
-              onClick={() => setPage(page - 1)}
-              disabled={page === 0}
-            >
-              <span className="sr-only">Go to previous page</span>
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0 border-border/60 hover:border-border transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
-              onClick={() => setPage(page + 1)}
-              disabled={page >= Math.ceil(timeEntries.length / rowsPerPage) - 1}
-            >
-              <span className="sr-only">Go to next page</span>
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0 border-border/60 hover:border-border transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
-              onClick={() =>
-                setPage(Math.ceil(timeEntries.length / rowsPerPage) - 1)
-              }
-              disabled={page >= Math.ceil(timeEntries.length / rowsPerPage) - 1}
-            >
-              <span className="sr-only">Go to last page</span>
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 17l5-5-5-5M6 17l5-5-5-5"
-                />
-              </svg>
-            </Button>
-          </div>
-        </div>
       </div>
     </div>
   );

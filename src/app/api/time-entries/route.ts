@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const startDate = searchParams.get("start_date");
     const endDate = searchParams.get("end_date");
+    const page = parseInt(searchParams.get("page") || "0");
+    const limit = parseInt(searchParams.get("limit") || "100");
 
     if (!startDate || !endDate) {
       return createErrorResponse("start_date and end_date are required", 400);
@@ -86,10 +88,24 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Sort entries by start time (most recent first)
+    enrichedEntries.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
+
+    // Apply pagination
+    const startIndex = page * limit;
+    const endIndex = startIndex + limit;
+    const paginatedEntries = enrichedEntries.slice(startIndex, endIndex);
+
     return new Response(
       JSON.stringify({
-        timeEntries: enrichedEntries,
+        timeEntries: paginatedEntries,
         projects: projects,
+        pagination: {
+          page,
+          limit,
+          total: enrichedEntries.length,
+          hasMore: endIndex < enrichedEntries.length,
+        },
       }),
       {
         status: 200,
