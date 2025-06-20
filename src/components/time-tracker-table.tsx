@@ -1,11 +1,11 @@
 "use client";
 
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { toast } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
-import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -558,7 +558,7 @@ export function TimeTrackerTable() {
       if (showLoadingState && resetData) setLoading(true);
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
-      
+
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
       const limit = resetData ? 100 : 25;
 
@@ -589,8 +589,12 @@ export function TimeTrackerTable() {
           } else {
             // Filter out duplicates by ID to prevent React key conflicts
             setTimeEntries((prev) => {
-              const existingIds = new Set(prev.map((entry: TimeEntry) => entry.id));
-              const newEntries = data.timeEntries.filter((entry: TimeEntry) => !existingIds.has(entry.id));
+              const existingIds = new Set(
+                prev.map((entry: TimeEntry) => entry.id)
+              );
+              const newEntries = data.timeEntries.filter(
+                (entry: TimeEntry) => !existingIds.has(entry.id)
+              );
               return [...prev, ...newEntries];
             });
             currentPageRef.current = pageToFetch;
@@ -611,7 +615,8 @@ export function TimeTrackerTable() {
         // And debounce error toasts to prevent spam
         if (resetData) {
           const now = Date.now();
-          if (now - lastErrorToastRef.current > 5000) { // Max one error toast per 5 seconds
+          if (now - lastErrorToastRef.current > 5000) {
+            // Max one error toast per 5 seconds
             toast.error("Failed to fetch data.");
             lastErrorToastRef.current = now;
           }
@@ -636,14 +641,16 @@ export function TimeTrackerTable() {
   }, [hasMore, loading, fetchData]);
 
   // Infinite scroll hook
-  const { ref: loadMoreRef, isLoading: isLoadingMore, hasError: scrollError, clearError } = useInfiniteScroll(
-    loadMore,
-    {
-      threshold: 0.5,
-      rootMargin: "200px",
-      enabled: hasMore && !loading,
-    }
-  );
+  const {
+    ref: loadMoreRef,
+    isLoading: isLoadingMore,
+    hasError: scrollError,
+    clearError,
+  } = useInfiniteScroll(loadMore, {
+    threshold: 0.5,
+    rootMargin: "200px",
+    enabled: hasMore && !loading,
+  });
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
@@ -713,16 +720,19 @@ export function TimeTrackerTable() {
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
       const apiKey = localStorage.getItem("toggl_api_key");
-      
+
       setLoading(true);
       (async () => {
         try {
-          const response = await fetch(`/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`, {
-            headers: { "x-toggl-api-key": apiKey || "" },
-          });
-          
+          const response = await fetch(
+            `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`,
+            {
+              headers: { "x-toggl-api-key": apiKey || "" },
+            }
+          );
+
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          
+
           const data = await response.json();
           if (data.timeEntries && data.projects && data.pagination) {
             setTimeEntries(data.timeEntries);
@@ -816,7 +826,6 @@ export function TimeTrackerTable() {
       }
     }
   }, [selectedCell, timeEntries, handleDelete]);
-
 
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
@@ -1073,7 +1082,10 @@ export function TimeTrackerTable() {
   }, [selectedCell, timeEntries]);
 
   return (
-    <div className="space-y-6" ref={tableRef}>
+    <div
+      className="h-screen space-y-6 border rounded-xl p-6 overflow-auto"
+      ref={tableRef}
+    >
       <div className="flex items-center space-x-3">
         <Popover>
           <PopoverTrigger asChild>
@@ -1188,7 +1200,9 @@ export function TimeTrackerTable() {
                     <div ref={loadMoreRef}>
                       {scrollError ? (
                         <div className="flex flex-col items-center justify-center space-y-2">
-                          <span className="text-destructive text-sm">Failed to load more entries</span>
+                          <span className="text-destructive text-sm">
+                            Failed to load more entries
+                          </span>
                           <Button
                             variant="outline"
                             size="sm"
@@ -1206,10 +1220,14 @@ export function TimeTrackerTable() {
                       ) : isLoadingMore ? (
                         <div className="flex items-center justify-center space-x-2">
                           <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                          <span className="text-muted-foreground">Loading more entries...</span>
+                          <span className="text-muted-foreground">
+                            Loading more entries...
+                          </span>
                         </div>
                       ) : hasMore ? (
-                        <span className="text-muted-foreground">Scroll to load more</span>
+                        <span className="text-muted-foreground">
+                          Scroll to load more
+                        </span>
                       ) : null}
                     </div>
                   </TableCell>
