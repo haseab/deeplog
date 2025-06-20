@@ -994,6 +994,36 @@ export function TimeTrackerTable() {
     }
   }, [selectedCell, paginatedEntries.length]);
 
+  // Scroll selected cell into view on mobile/small screens
+  React.useEffect(() => {
+    if (selectedCell && paginatedEntries.length > 0) {
+      const entry = paginatedEntries[selectedCell.rowIndex];
+      if (!entry) return;
+
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        const selectedCellElement = document.querySelector(
+          `[data-entry-id="${entry.id}"] td:nth-child(${
+            selectedCell.cellIndex + 1
+          })`
+        ) as HTMLElement;
+
+        if (selectedCellElement) {
+          // Check if we're on a smaller screen where scrolling would be helpful
+          const isMobileViewport = window.innerWidth < 768; // sm breakpoint
+
+          if (isMobileViewport) {
+            selectedCellElement.scrollIntoView({
+              behavior: "smooth",
+              block: "nearest",
+              inline: "nearest",
+            });
+          }
+        }
+      });
+    }
+  }, [selectedCell, paginatedEntries]);
+
   return (
     <div className="space-y-6" ref={tableRef}>
       <div className="flex items-center space-x-3">

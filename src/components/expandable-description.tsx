@@ -35,6 +35,9 @@ export function ExpandableDescription({
   const [linkUrl, setLinkUrl] = React.useState("");
   const [linkText, setLinkText] = React.useState("");
   const [triggerPosition, setTriggerPosition] = React.useState({ x: 0, y: 0 });
+  const [currentCharCount, setCurrentCharCount] = React.useState(0);
+
+  const MAX_CHARS = 3000;
 
   // Initialize Turndown service for HTML to markdown conversion
   const turndownService = React.useMemo(() => {
@@ -99,6 +102,17 @@ export function ExpandableDescription({
     return turndownService.turndown(html);
   }, [turndownService]);
 
+  // Update character count when editor content changes
+  const updateCharCount = React.useCallback(() => {
+    if (editorRef.current) {
+      const content = getMarkdownContent();
+      setCurrentCharCount(content.length);
+    }
+  }, [getMarkdownContent]);
+
+  const isOverLimit = currentCharCount > MAX_CHARS;
+  const remainingChars = MAX_CHARS - currentCharCount;
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -117,8 +131,11 @@ export function ExpandableDescription({
     content: markdownToHtml(description),
     editorProps: {
       attributes: {
-        class:
-          "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border border-border/60 rounded-md resize-none leading-tight transition-all duration-200 focus:border-primary/50 focus:ring-2 focus:ring-primary/10",
+        class: `prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border rounded-md resize-none leading-tight transition-all duration-200 ${
+          isOverLimit
+            ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+            : "border-border/60 focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+        }`,
       },
       handleKeyDown: (view, event) => {
         // Handle Command/Ctrl + Enter to save and exit
@@ -193,6 +210,9 @@ export function ExpandableDescription({
         return false; // Not handled, let editor process normally
       },
     },
+    onUpdate: () => {
+      updateCharCount();
+    },
     onBlur: async () => {
       if (isEditing && editorRef.current && !showLinkDialog) {
         const newContent = getMarkdownContent();
@@ -212,15 +232,27 @@ export function ExpandableDescription({
     if (editor && description !== getMarkdownContent()) {
       // Convert markdown to HTML before setting content
       editor.commands.setContent(markdownToHtml(description));
+      // Update character count after setting content
+      setTimeout(() => {
+        updateCharCount();
+      }, 0);
     }
-  }, [description, editor, getMarkdownContent, markdownToHtml]);
+  }, [
+    description,
+    editor,
+    getMarkdownContent,
+    markdownToHtml,
+    updateCharCount,
+  ]);
 
   const handleClick = () => {
     if (!isEditing) {
       setIsEditing(true);
+      setCurrentCharCount(description.length);
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {
         editor?.commands.focus("end");
+        updateCharCount();
       }, 100);
     }
   };
@@ -239,6 +271,7 @@ export function ExpandableDescription({
 
   const cancelEditing = () => {
     setIsEditing(false);
+    setCurrentCharCount(description.length);
     // Reset to original content
     editor?.commands.setContent(markdownToHtml(description));
   };
@@ -284,6 +317,7 @@ export function ExpandableDescription({
     // Focus back to editor
     setTimeout(() => {
       editor.commands.focus();
+      updateCharCount();
     }, 100);
   };
 
@@ -306,6 +340,19 @@ export function ExpandableDescription({
       <div className="w-full editor-container" data-testid={dataTestId}>
         <div className="relative">
           <EditorContent editor={editor} className="w-full" />
+
+          {/* Character Counter */}
+          <div
+            className={`absolute bottom-2 right-2 text-xs px-2 py-1 rounded-md backdrop-blur-sm ${
+              isOverLimit
+                ? "text-red-600 bg-red-50/90 dark:bg-red-900/20 dark:text-red-400"
+                : remainingChars < 100
+                ? "text-amber-600 bg-amber-50/90 dark:bg-amber-900/20 dark:text-amber-400"
+                : "text-muted-foreground bg-background/90"
+            }`}
+          >
+            {remainingChars >= 0 ? remainingChars : remainingChars}
+          </div>
 
           {/* Link Dialog */}
           <Popover open={showLinkDialog} onOpenChange={setShowLinkDialog}>
