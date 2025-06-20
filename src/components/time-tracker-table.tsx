@@ -252,8 +252,10 @@ export function TimeTrackerTable() {
           onClick: undoAction,
         },
         duration: 4000,
-        onAutoClose: () => {
-          apiCall().catch((error) => {
+        onAutoClose: async () => {
+          try {
+            await apiCall();
+          } catch (error) {
             console.error("API call failed:", error);
             const errorMessage =
               error instanceof Error && error.message
@@ -261,7 +263,7 @@ export function TimeTrackerTable() {
                 : "Failed to update entry. Please try again.";
             toast.error(errorMessage);
             undoAction();
-          });
+          }
         },
       });
     },
@@ -469,26 +471,27 @@ export function TimeTrackerTable() {
     const apiKey = localStorage.getItem("toggl_api_key");
     let createdEntryId: number | null = null;
 
-    fetch("/api/time-entries", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-toggl-api-key": apiKey || "",
-      },
-      body: JSON.stringify({
-        description: "",
-        start: now,
-      }),
-    })
-      .then(async (response) => {
+    (async () => {
+      try {
+        const response = await fetch("/api/time-entries", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-toggl-api-key": apiKey || "",
+          },
+          body: JSON.stringify({
+            description: "",
+            start: now,
+          }),
+        });
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error("API Error:", response.status, errorText);
           throw new Error("Failed to create entry");
         }
-        return response.json();
-      })
-      .then((createdEntry) => {
+
+        const createdEntry = await response.json();
         createdEntryId = createdEntry.id;
 
         // Replace the temporary entry with the real one from the server
@@ -502,12 +505,12 @@ export function TimeTrackerTable() {
         setTimeout(() => {
           fetchData(false);
         }, 500);
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error("Failed to create time entry:", error);
         toast.error("Failed to create time entry. Please try again.");
         setTimeEntries(originalEntries);
-      });
+      }
+    })();
 
     toast("New time entry started", {
       description: runningEntry
@@ -712,11 +715,14 @@ export function TimeTrackerTable() {
       const apiKey = localStorage.getItem("toggl_api_key");
       
       setLoading(true);
-      fetch(`/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`, {
-        headers: { "x-toggl-api-key": apiKey || "" },
-      })
-        .then(async (response) => {
+      (async () => {
+        try {
+          const response = await fetch(`/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`, {
+            headers: { "x-toggl-api-key": apiKey || "" },
+          });
+          
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          
           const data = await response.json();
           if (data.timeEntries && data.projects && data.pagination) {
             setTimeEntries(data.timeEntries);
@@ -724,16 +730,17 @@ export function TimeTrackerTable() {
             setHasMore(data.pagination.hasMore);
             currentPageRef.current = 0;
           }
-        })
-        .catch((error) => {
+        } catch (error) {
           console.error("Initial load error:", error);
           const now = Date.now();
           if (now - lastErrorToastRef.current > 5000) {
             toast.error("Failed to fetch data.");
             lastErrorToastRef.current = now;
           }
-        })
-        .finally(() => setLoading(false));
+        } finally {
+          setLoading(false);
+        }
+      })();
     }
   }, [date, clearError]);
 
