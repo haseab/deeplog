@@ -123,22 +123,22 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20",
+            "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 3 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 3)}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full min-w-[72px]">
             <LiveDuration
               startTime={entry.start}
               stopTime={entry.stop}
               staticDuration={entry.duration}
-              className="group-hover:text-accent-foreground transition-colors duration-200"
+              className="group-hover:text-accent-foreground transition-colors duration-200 block min-w-[60px] text-center"
             />
             {!entry.stop && (
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                 <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75"></div>
               </div>
@@ -1111,7 +1111,7 @@ export function TimeTrackerTable() {
                 <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
                   Time
                 </TableHead>
-                <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground">
+                <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
                   Duration
                 </TableHead>
                 <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
