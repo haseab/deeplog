@@ -65,12 +65,23 @@ const MemoizedTableRow = React.memo(
       >
         <TableCell
           className={cn(
-            "px-4 py-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
+            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-28 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 0 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 0)}
+        >
+          {format(new Date(entry.start), "yyyy-MM-dd")}
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 1 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 1)}
         >
           <ExpandableDescription
             description={entry.description || ""}
@@ -86,10 +97,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 1 &&
+              selectedCell?.cellIndex === 2 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 1)}
+          onClick={() => onSelectCell(rowIndex, 2)}
         >
           <ProjectSelector
             currentProject={entry.project_name || ""}
@@ -107,10 +118,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 2 &&
+              selectedCell?.cellIndex === 3 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 2)}
+          onClick={() => onSelectCell(rowIndex, 3)}
         >
           {format(new Date(entry.start), "h:mm a")} -{" "}
           {entry.stop ? format(new Date(entry.stop), "h:mm a") : "Now"}
@@ -119,10 +130,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 3 &&
+              selectedCell?.cellIndex === 4 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 3)}
+          onClick={() => onSelectCell(rowIndex, 4)}
         >
           <div className="flex items-center gap-2 w-full min-w-[72px]">
             <LiveDuration
@@ -143,10 +154,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 cursor-pointer sm:w-16 w-12",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 4 &&
+              selectedCell?.cellIndex === 5 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 4)}
+          onClick={() => onSelectCell(rowIndex, 5)}
         >
           <ActionsMenu
             onDuplicate={() => {
@@ -166,7 +177,7 @@ const MemoizedTableRow = React.memo(
             onNavigateNext={navigateToNextCell}
             isSelected={
               selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 4
+              selectedCell?.cellIndex === 5
             }
             data-testid="actions-menu"
           />
@@ -695,7 +706,7 @@ export function TimeTrackerTable() {
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      const maxCellIndex = 4; // 5 columns: description, project, time, duration, actions
+      const maxCellIndex = 5; // 6 columns: date, description, project, time, duration, actions
       const currentEntriesLength = timeEntries.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
@@ -775,7 +786,7 @@ export function TimeTrackerTable() {
   const keyboardNavigationData = React.useMemo(
     () => ({
       currentEntriesLength: timeEntries.length,
-      maxCellIndex: 4, // 5 columns: description, project, time, duration, actions
+      maxCellIndex: 5, // 6 columns: date, description, project, time, duration, actions
     }),
     [timeEntries.length]
   );
@@ -1161,6 +1172,9 @@ export function TimeTrackerTable() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-muted/30 transition-colors duration-200 border-border/60">
+                <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
+                  Date
+                </TableHead>
                 <TableHead className="px-4 py-3 font-medium text-muted-foreground">
                   Description
                 </TableHead>
@@ -1196,7 +1210,7 @@ export function TimeTrackerTable() {
               ))}
               {(hasMore || scrollError) && (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-20 text-center">
+                  <TableCell colSpan={6} className="h-20 text-center">
                     <div ref={loadMoreRef}>
                       {scrollError ? (
                         <div className="flex flex-col items-center justify-center space-y-2">
