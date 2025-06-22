@@ -1,6 +1,5 @@
 "use client";
 
-import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { toast } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
@@ -43,6 +42,7 @@ const MemoizedTableRow = React.memo(
     setIsProjectSelectorOpen,
     setIsActionsMenuOpen,
     navigateToNextCell,
+    isNewlyLoaded,
   }: {
     entry: TimeEntry;
     rowIndex: number;
@@ -56,12 +56,16 @@ const MemoizedTableRow = React.memo(
     setIsProjectSelectorOpen: (open: boolean) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
     navigateToNextCell: () => void;
+    isNewlyLoaded: boolean;
   }) {
     return (
       <TableRow
         key={entry.id}
         data-entry-id={entry.id}
-        className="hover:bg-accent/20 transition-all duration-200 border-border/40 group hover:shadow-sm"
+        className={cn(
+          "hover:bg-accent/20 transition-all duration-1000 border-border/40 group hover:shadow-sm",
+          isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+        )}
       >
         <TableCell
           className={cn(
@@ -253,6 +257,10 @@ export function TimeTrackerTable() {
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
     React.useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [newlyLoadedEntries, setNewlyLoadedEntries] = React.useState<
+    Set<number>
+  >(new Set());
   const tableRef = React.useRef<HTMLDivElement>(null);
 
   const showUpdateToast = React.useCallback(
@@ -596,6 +604,7 @@ export function TimeTrackerTable() {
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
             setTimeEntries(data.timeEntries);
+            setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
           } else {
             // Filter out duplicates by ID to prevent React key conflicts
@@ -606,6 +615,18 @@ export function TimeTrackerTable() {
               const newEntries = data.timeEntries.filter(
                 (entry: TimeEntry) => !existingIds.has(entry.id)
               );
+
+              // Track newly loaded entry IDs
+              const newEntryIds = new Set<number>(
+                newEntries.map((entry: TimeEntry) => entry.id)
+              );
+              setNewlyLoadedEntries(newEntryIds);
+
+              // Clear the highlighting after 3 seconds
+              setTimeout(() => {
+                setNewlyLoadedEntries(new Set());
+              }, 3000);
+
               return [...prev, ...newEntries];
             });
             currentPageRef.current = pageToFetch;
@@ -645,23 +666,13 @@ export function TimeTrackerTable() {
 
   // Load more function for infinite scrolling
   const loadMore = React.useCallback(async () => {
-    if (hasMore && !loading) {
-      // Use false for showLoadingState to prevent full table refresh
-      await fetchData(false, false);
-    }
-  }, [hasMore, loading, fetchData]);
+    if (!hasMore || loading || isLoadingMore) return;
 
-  // Infinite scroll hook
-  const {
-    ref: loadMoreRef,
-    isLoading: isLoadingMore,
-    hasError: scrollError,
-    clearError,
-  } = useInfiniteScroll(loadMore, {
-    threshold: 0.5,
-    rootMargin: "200px",
-    enabled: hasMore && !loading,
-  });
+    setIsLoadingMore(true);
+    currentPageRef.current += 1;
+    await fetchData(false, false);
+    setIsLoadingMore(false);
+  }, [hasMore, loading, isLoadingMore, fetchData]);
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
@@ -672,7 +683,7 @@ export function TimeTrackerTable() {
       // Use requestAnimationFrame to defer DOM queries to next tick
       requestAnimationFrame(() => {
         switch (cellIndex) {
-          case 0: // Description
+          case 1: // Description
             const descriptionElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
             ) as HTMLElement;
@@ -680,7 +691,7 @@ export function TimeTrackerTable() {
               descriptionElement.click();
             }
             break;
-          case 1: // Project
+          case 2: // Project
             const projectElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
             ) as HTMLElement;
@@ -688,7 +699,7 @@ export function TimeTrackerTable() {
               projectElement.click();
             }
             break;
-          case 4: // Actions menu
+          case 5: // Actions menu
             const menuElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
             ) as HTMLElement;
@@ -725,7 +736,6 @@ export function TimeTrackerTable() {
   React.useEffect(() => {
     currentPageRef.current = 0;
     setHasMore(true);
-    clearError(); // Clear any infinite scroll errors when date changes
     // Call fetchData directly without depending on the callback
     if (date?.from && date?.to) {
       const fromISO = date.from.toISOString();
@@ -763,7 +773,7 @@ export function TimeTrackerTable() {
         }
       })();
     }
-  }, [date, clearError]);
+  }, [date]);
 
   // DO NOT REMOVE THIS COMMENT
   // Refresh data when tab becomes visible - TEMPORARILY DISABLED
@@ -800,10 +810,9 @@ export function TimeTrackerTable() {
     if (date?.from && date?.to) {
       currentPageRef.current = 0;
       setHasMore(true);
-      clearError();
       fetchData(true, true); // Explicitly reset data and show loading
     }
-  }, [date, clearError, fetchData]);
+  }, [date, fetchData]);
 
   const handleDeleteSelected = React.useCallback(() => {
     if (selectedCell) {
@@ -1094,7 +1103,7 @@ export function TimeTrackerTable() {
 
   return (
     <div
-      className="h-screen space-y-6 border rounded-xl p-6 overflow-auto"
+      className="h-screen space-y-6 border rounded-xl p-6 overflow-auto overscroll-none"
       ref={tableRef}
     >
       <div className="flex items-center space-x-3">
@@ -1206,43 +1215,30 @@ export function TimeTrackerTable() {
                   setIsProjectSelectorOpen={setIsProjectSelectorOpen}
                   setIsActionsMenuOpen={setIsActionsMenuOpen}
                   navigateToNextCell={navigateToNextCell}
+                  isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                 />
               ))}
-              {(hasMore || scrollError) && (
+              {hasMore && (
                 <TableRow>
                   <TableCell colSpan={6} className="h-20 text-center">
-                    <div ref={loadMoreRef}>
-                      {scrollError ? (
-                        <div className="flex flex-col items-center justify-center space-y-2">
-                          <span className="text-destructive text-sm">
-                            Failed to load more entries
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              clearError();
-                              if (hasMore) {
-                                loadMore();
-                              }
-                            }}
-                            className="h-8"
-                          >
-                            Try Again
-                          </Button>
-                        </div>
-                      ) : isLoadingMore ? (
+                    <div className="flex items-center justify-center my-4 mb-8">
+                      {isLoadingMore ? (
                         <div className="flex items-center justify-center space-x-2">
                           <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                           <span className="text-muted-foreground">
                             Loading more entries...
                           </span>
                         </div>
-                      ) : hasMore ? (
-                        <span className="text-muted-foreground">
-                          Scroll to load more
-                        </span>
-                      ) : null}
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={loadMore}
+                          disabled={loading || isLoadingMore}
+                          className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+                        >
+                          Load More Entries
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1255,7 +1251,7 @@ export function TimeTrackerTable() {
       <div className="flex justify-center">
         <p className="text-sm text-muted-foreground">
           Showing {timeEntries.length} entries
-          {hasMore && " (scroll to load more)"}
+          {hasMore && " (click to load more)"}
         </p>
       </div>
     </div>
