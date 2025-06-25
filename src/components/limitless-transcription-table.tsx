@@ -201,7 +201,7 @@ export function LimitlessTranscriptionTable() {
   };
 
   return (
-    <div className="h-screen space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
+    <div className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <Button
