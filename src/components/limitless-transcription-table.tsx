@@ -1,10 +1,9 @@
 "use client";
 
 import { toast } from "@/lib/toast";
-import { endOfDay, format, startOfDay, addDays, subDays } from "date-fns";
+import { format, addDays, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import React from "react";
-import { DayPicker } from "react-day-picker";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -106,8 +105,12 @@ export function LimitlessTranscriptionTable() {
           setTranscriptions(transcriptionsArray);
           setCursor(responseCursor);
         } else {
-          // Append to existing transcriptions for pagination
-          setTranscriptions(prev => [...prev, ...transcriptionsArray]);
+          // Append to existing transcriptions for pagination, filtering out duplicates
+          setTranscriptions(prev => {
+            const existingIds = new Set(prev.map(t => t.id));
+            const newUniqueTranscriptions = transcriptionsArray.filter(t => !existingIds.has(t.id));
+            return [...prev, ...newUniqueTranscriptions];
+          });
           setCursor(responseCursor);
         }
         
