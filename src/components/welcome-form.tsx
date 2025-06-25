@@ -17,9 +17,25 @@ import * as React from "react";
 
 interface WelcomeFormProps {
   onCredentialsSubmit: (apiKey: string) => void;
+  title?: string;
+  description?: string;
+  placeholder?: string;
+  apiKeyLabel?: string;
+  connectButtonText?: string;
+  helpText?: React.ReactNode;
+  skipValidation?: boolean;
 }
 
-export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
+export function WelcomeForm({ 
+  onCredentialsSubmit,
+  title = "DeepLog",
+  description = "for hardcore timetrackers",
+  placeholder = "Enter your Toggl API key",
+  apiKeyLabel = "Toggl API Key",
+  connectButtonText = "Connect to Toggl",
+  helpText,
+  skipValidation = false
+}: WelcomeFormProps) {
   const [apiKey, setApiKey] = React.useState("");
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -69,14 +85,13 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
     setIsSubmitting(true);
 
     try {
-      // Validate the API key
-      await validateApiKey(apiKey.trim());
+      if (!skipValidation) {
+        // Validate the API key
+        await validateApiKey(apiKey.trim());
+      }
 
       // Add a brief delay for smooth animation
       await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Store credentials in localStorage
-      localStorage.setItem("toggl_api_key", apiKey.trim());
 
       onCredentialsSubmit(apiKey.trim());
     } catch (error) {
@@ -85,7 +100,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
         apiKey:
           error instanceof Error
             ? error.message
-            : "Failed to connect to Toggl. Please check your API key.",
+            : "Failed to connect. Please check your API key.",
       });
       setIsSubmitting(false);
     }
@@ -115,13 +130,13 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
 
           <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-700 delay-400">
             <h1 className="text-4xl font-bold tracking-tight text-foreground">
-              DeepLog
+              {title}
             </h1>
             <p className="text-lg text-muted-foreground font-medium">
-              for hardcore timetrackers
+              {description}
             </p>
             <p className="text-sm text-muted-foreground/80">
-              Please enter your Toggl API key
+              Please enter your API key
             </p>
           </div>
         </div>
@@ -131,7 +146,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-xl font-semibold">Welcome!</CardTitle>
             <CardDescription>
-              Connect your Toggl account to get started
+              Connect your account to get started
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -143,7 +158,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
                   className="text-sm font-medium flex items-center gap-2"
                 >
                   <Key className="w-4 h-4 text-muted-foreground" />
-                  Toggl API Key
+                  {apiKeyLabel}
                 </Label>
                 <div className="relative group">
                   <Input
@@ -155,7 +170,7 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
                       if (errors.apiKey)
                         setErrors((prev) => ({ ...prev, apiKey: undefined }));
                     }}
-                    placeholder="Enter your Toggl API key"
+                    placeholder={placeholder}
                     className={cn(
                       "pr-10 transition-all duration-200 border-border/60 hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/10",
                       "group-hover:shadow-sm",
@@ -199,34 +214,25 @@ export function WelcomeForm({ onCredentialsSubmit }: WelcomeFormProps) {
                 {isSubmitting ? (
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    <span>Connecting to Toggl...</span>
+                    <span>Connecting...</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4" />
-                    <span>Connect to Toggl</span>
+                    <span>{connectButtonText}</span>
                   </div>
                 )}
               </Button>
             </form>
 
             {/* Help Text */}
-            <div className="mt-6 p-4 bg-accent/30 rounded-lg animate-in fade-in-0 duration-700 delay-1000">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>How to find your API key:</strong>
-                <br />
-                Visit your{" "}
-                <a
-                  href="https://track.toggl.com/profile"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline transition-colors duration-200"
-                >
-                  Toggl profile page
-                </a>{" "}
-                and scroll to the bottom.
-              </p>
-            </div>
+            {helpText && (
+              <div className="mt-6 p-4 bg-accent/30 rounded-lg animate-in fade-in-0 duration-700 delay-1000">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {helpText}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

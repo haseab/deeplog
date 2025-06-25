@@ -18,9 +18,11 @@ export default function Home() {
     setHasCredentials(!!apiKey);
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleCredentialsSubmit = async (_apiKey: string) => {
+  const handleCredentialsSubmit = async (apiKey: string) => {
     setIsTransitioning(true);
+
+    // Store the API key in localStorage
+    localStorage.setItem("toggl_api_key", apiKey);
 
     // Add a smooth transition delay
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -50,7 +52,27 @@ export default function Home() {
 
   // Show welcome form if no credentials
   if (!hasCredentials) {
-    return <WelcomeForm onCredentialsSubmit={handleCredentialsSubmit} />;
+    return (
+      <WelcomeForm 
+        onCredentialsSubmit={handleCredentialsSubmit}
+        helpText={
+          <>
+            <strong>How to find your API key:</strong>
+            <br />
+            Visit your{" "}
+            <a
+              href="https://track.toggl.com/profile"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline transition-colors duration-200"
+            >
+              Toggl profile page
+            </a>{" "}
+            and scroll to the bottom.
+          </>
+        }
+      />
+    );
   }
 
   // Show main app with transition

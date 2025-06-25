@@ -946,7 +946,6 @@ export function TimeTrackerTable() {
           break;
 
         case "ArrowDown":
-        case "j":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -966,7 +965,6 @@ export function TimeTrackerTable() {
           break;
 
         case "ArrowUp":
-        case "k":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -985,7 +983,6 @@ export function TimeTrackerTable() {
           break;
 
         case "ArrowLeft":
-        case "h":
           e.preventDefault();
           if (selectedCell && selectedCell.cellIndex > 0) {
             setSelectedCell({
@@ -996,7 +993,6 @@ export function TimeTrackerTable() {
           break;
 
         case "ArrowRight":
-        case "l":
           e.preventDefault();
           if (
             !selectedCell &&

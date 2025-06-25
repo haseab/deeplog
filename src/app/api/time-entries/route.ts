@@ -89,7 +89,9 @@ export async function GET(request: NextRequest) {
     });
 
     // Sort entries by start time (most recent first)
-    enrichedEntries.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
+    enrichedEntries.sort(
+      (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+    );
 
     // Apply pagination
     const startIndex = page * limit;
