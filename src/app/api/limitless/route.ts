@@ -21,19 +21,31 @@ export async function GET(request: NextRequest) {
     const end = searchParams.get("end");
     const date = searchParams.get("date");
     const limit = searchParams.get("limit") || "10";
+    const cursor = searchParams.get("cursor");
+    const direction = searchParams.get("direction") || "desc";
+    const includeMarkdown = searchParams.get("includeMarkdown") || "true";
+    const includeHeadings = searchParams.get("includeHeadings") || "true";
 
     // Build the Limitless API URL
     let apiUrl = "https://api.limitless.ai/v1/lifelogs";
     const params = new URLSearchParams();
     
-    // Try different parameter combinations based on the API docs
+    // Add all the parameters
     if (date) {
       params.append("date", date);
     } else {
       if (start) params.append("start", start);
       if (end) params.append("end", end);
     }
+    
     params.append("limit", limit);
+    params.append("direction", direction);
+    params.append("includeMarkdown", includeMarkdown);
+    params.append("includeHeadings", includeHeadings);
+    
+    if (cursor) {
+      params.append("cursor", cursor);
+    }
     
     if (params.toString()) {
       apiUrl += `?${params.toString()}`;

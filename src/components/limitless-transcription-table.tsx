@@ -1,10 +1,10 @@
 "use client";
 
 import { toast } from "@/lib/toast";
-import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import { endOfDay, format, startOfDay, addDays, subDays } from "date-fns";
+import { Calendar as CalendarIcon, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import React from "react";
-import { DateRange } from "react-day-picker";
+import { DayPicker } from "react-day-picker";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -36,25 +36,14 @@ interface Transcription {
 }
 
 export function LimitlessTranscriptionTable() {
-  const getDefaultDateRange = (): DateRange => {
-    const today = new Date();
-    const sevenDaysAgo = subDays(today, 7);
-    return {
-      from: startOfDay(sevenDaysAgo),
-      to: endOfDay(today),
-    };
-  };
-
-  const [date, setDate] = React.useState<DateRange | undefined>(
-    getDefaultDateRange()
-  );
+  const [selectedDate, setSelectedDate] = React.useState<Date>(new Date());
   const [transcriptions, setTranscriptions] = React.useState<Transcription[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [cursor, setCursor] = React.useState<string | null>(null);
+  const [hasMore, setHasMore] = React.useState(true);
 
   const fetchTranscriptions = React.useCallback(
-    async (showLoadingState = true) => {
-      if (!date?.from || !date?.to) return;
-
+    async (showLoadingState = true, resetData = true, nextCursor?: string) => {
       if (showLoadingState) setLoading(true);
       
       const apiKey = localStorage.getItem("limitless_api_key");
@@ -64,12 +53,24 @@ export function LimitlessTranscriptionTable() {
       }
 
       try {
-        const startDate = date.from.toISOString().split('T')[0]; // YYYY-MM-DD format
-        const endDate = date.to.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const dateStr = format(selectedDate, "yyyy-MM-dd"); // YYYY-MM-DD format
         
-        // Make the request with date filters
+        // Build query params
+        const params = new URLSearchParams({
+          date: dateStr,
+          limit: "10",
+          direction: "desc",
+          includeMarkdown: "true",
+          includeHeadings: "true"
+        });
+        
+        if (nextCursor) {
+          params.append("cursor", nextCursor);
+        }
+        
+        // Make the request with date filter
         const response = await fetch(
-          `/api/limitless?start=${startDate}&end=${endDate}&limit=10`,
+          `/api/limitless?${params.toString()}`,
           {
             headers: {
               "x-limitless-api-key": apiKey,
@@ -84,24 +85,33 @@ export function LimitlessTranscriptionTable() {
 
         const data = await response.json();
         
-        // The Limitless API returns data in this structure: { data: { lifelogs: [...] } }
-        let transcriptions = [];
+        // Extract transcriptions and pagination info
+        let newTranscriptions = [];
+        let responseCursor = null;
+        
         if (data.data && data.data.lifelogs) {
-          transcriptions = data.data.lifelogs;
+          newTranscriptions = data.data.lifelogs;
         } else if (data.lifelogs) {
-          transcriptions = data.lifelogs;
-        } else if (data.data && Array.isArray(data.data)) {
-          transcriptions = data.data;
-        } else if (Array.isArray(data)) {
-          transcriptions = data;
+          newTranscriptions = data.lifelogs;
         }
         
-        // Ensure transcriptions is always an array and sort by start time (newest first)
-        const transcriptionsArray = Array.isArray(transcriptions) ? transcriptions : [];
-        const sortedTranscriptions = transcriptionsArray.sort((a, b) => 
-          new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
-        );
-        setTranscriptions(sortedTranscriptions);
+        if (data.meta && data.meta.lifelogs && data.meta.lifelogs.nextCursor) {
+          responseCursor = data.meta.lifelogs.nextCursor;
+        }
+        
+        // Ensure transcriptions is always an array
+        const transcriptionsArray = Array.isArray(newTranscriptions) ? newTranscriptions : [];
+        
+        if (resetData) {
+          setTranscriptions(transcriptionsArray);
+          setCursor(responseCursor);
+        } else {
+          // Append to existing transcriptions for pagination
+          setTranscriptions(prev => [...prev, ...transcriptionsArray]);
+          setCursor(responseCursor);
+        }
+        
+        setHasMore(!!responseCursor);
       } catch (error) {
         console.error("API Error:", error);
         const errorMessage = error instanceof Error ? error.message : "Failed to fetch transcriptions. Please check your API key.";
@@ -111,14 +121,29 @@ export function LimitlessTranscriptionTable() {
         if (showLoadingState) setLoading(false);
       }
     },
-    [date]
+    [selectedDate]
   );
 
+  const loadMoreTranscriptions = React.useCallback(async () => {
+    if (!hasMore || loading || !cursor) return;
+    await fetchTranscriptions(false, false, cursor);
+  }, [hasMore, loading, cursor, fetchTranscriptions]);
+
+  const goToPreviousDay = () => {
+    setSelectedDate(prev => subDays(prev, 1));
+  };
+
+  const goToNextDay = () => {
+    setSelectedDate(prev => addDays(prev, 1));
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  };
+
   React.useEffect(() => {
-    if (date?.from && date?.to) {
-      fetchTranscriptions();
-    }
-  }, [date, fetchTranscriptions]);
+    fetchTranscriptions();
+  }, [selectedDate, fetchTranscriptions]);
 
   const formatTranscriptionTime = (timestamp: string) => {
     try {
@@ -174,62 +199,77 @@ export function LimitlessTranscriptionTable() {
 
   return (
     <div className="h-screen space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
-      <div className="flex items-center space-x-3">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              id="date"
-              variant={"outline"}
-              className={cn(
-                "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                !date && "text-muted-foreground"
-              )}
-            >
-              <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-              {date?.from ? (
-                date.to ? (
-                  <>
-                    {format(date.from, "LLL dd, y")} -{" "}
-                    {format(date.to, "LLL dd, y")}
-                  </>
-                ) : (
-                  format(date.from, "LLL dd, y")
-                )
-              ) : (
-                <span>Pick a date range</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 border-border/60" align="start">
-            <Calendar
-              mode="range"
-              defaultMonth={date?.from}
-              selected={date}
-              onSelect={(selectedRange) => {
-                if (selectedRange?.from && selectedRange?.to) {
-                  const endOfDayTo = endOfDay(selectedRange.to);
-                  setDate({ from: selectedRange.from, to: endOfDayTo });
-                } else {
-                  setDate(selectedRange);
-                }
-              }}
-              numberOfMonths={2}
-              className="rounded-md border-0"
-            />
-          </PopoverContent>
-        </Popover>
-        <Button
-          onClick={() => fetchTranscriptions()}
-          variant="outline"
-          disabled={loading}
-          className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm disabled:opacity-50"
-        >
-          {loading ? (
-            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-        </Button>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <Button
+            onClick={goToPreviousDay}
+            variant="outline"
+            size="sm"
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className={cn(
+                  "w-[240px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                {format(selectedDate, "EEEE, MMM dd, yyyy")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 border-border/60" align="start">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => {
+                  if (date) {
+                    setSelectedDate(date);
+                  }
+                }}
+                initialFocus
+                className="rounded-md border-0"
+              />
+            </PopoverContent>
+          </Popover>
+          
+          <Button
+            onClick={goToNextDay}
+            variant="outline"
+            size="sm"
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <Button
+            onClick={goToToday}
+            variant="outline"
+            size="sm"
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            Today
+          </Button>
+          <Button
+            onClick={() => fetchTranscriptions()}
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm disabled:opacity-50"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -279,9 +319,27 @@ export function LimitlessTranscriptionTable() {
         </div>
       )}
 
-      <div className="flex justify-center">
+      <div className="flex flex-col items-center space-y-4">
+        {hasMore && transcriptions.length > 0 && (
+          <Button
+            onClick={loadMoreTranscriptions}
+            variant="outline"
+            disabled={loading}
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+          >
+            {loading ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                <span>Loading more...</span>
+              </div>
+            ) : (
+              "Load More Transcriptions"
+            )}
+          </Button>
+        )}
+        
         <p className="text-sm text-muted-foreground">
-          Showing {Array.isArray(transcriptions) ? transcriptions.length : 0} transcription{Array.isArray(transcriptions) && transcriptions.length !== 1 ? 's' : ''}
+          Showing {Array.isArray(transcriptions) ? transcriptions.length : 0} transcription{Array.isArray(transcriptions) && transcriptions.length !== 1 ? 's' : ''} for {format(selectedDate, "MMMM dd, yyyy")}
         </p>
       </div>
     </div>
