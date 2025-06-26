@@ -56,9 +56,13 @@ export function LimitlessTranscriptionTable() {
 
         // Parse natural language query for time ranges
         const query = activeQuery.trim().toLowerCase();
-        
+
         // Handle custom phrases that chrono might not understand
-        if (query === 'this last hour' || query === 'last hour' || query === 'past hour') {
+        if (
+          query === "this last hour" ||
+          query === "last hour" ||
+          query === "past hour"
+        ) {
           const now = new Date();
           const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
           startTime = oneHourAgo;
@@ -66,19 +70,23 @@ export function LimitlessTranscriptionTable() {
         } else {
           // Use chrono for standard parsing
           const results = chrono.parse(activeQuery.trim());
-        
+
           if (results.length > 0) {
             const result = results[0];
-            
+
             if (result.start && result.end) {
               // Time range found (e.g., "today from 3 to 5pm")
               startTime = result.start.date();
               endTime = result.end.date();
             } else if (result.start) {
               const parsedTime = result.start.date();
-              
+
               // Check if this is a relative time phrase that should create a range
-              if (query.includes('ago') || query.includes('hours ago') || query.includes('minutes ago')) {
+              if (
+                query.includes("ago") ||
+                query.includes("hours ago") ||
+                query.includes("minutes ago")
+              ) {
                 // For relative times like "2 hours ago", create range from that time to now
                 startTime = parsedTime;
                 endTime = new Date(); // now

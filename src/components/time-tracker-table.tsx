@@ -1067,7 +1067,7 @@ export function TimeTrackerTable() {
     }
   }, [selectedCell, timeEntries.length]);
 
-  // Scroll selected cell into view on mobile/small screens
+  // Scroll selected cell into view when it moves past viewport
   React.useEffect(() => {
     if (selectedCell && timeEntries.length > 0) {
       const entry = timeEntries[selectedCell.rowIndex];
@@ -1075,22 +1075,62 @@ export function TimeTrackerTable() {
 
       // Use requestAnimationFrame to ensure DOM is updated
       requestAnimationFrame(() => {
-        const selectedCellElement = document.querySelector(
-          `[data-entry-id="${entry.id}"] td:nth-child(${
-            selectedCell.cellIndex + 1
-          })`
+        const rowElement = document.querySelector(
+          `[data-entry-id="${entry.id}"]`
         ) as HTMLElement;
 
-        if (selectedCellElement) {
-          // Check if we're on a smaller screen where scrolling would be helpful
-          const isMobileViewport = window.innerWidth < 768; // sm breakpoint
+        if (rowElement && tableRef.current) {
+          const container = tableRef.current;
+          const rowRect = rowElement.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
 
-          if (isMobileViewport) {
-            selectedCellElement.scrollIntoView({
-              behavior: "smooth",
-              block: "nearest",
-              inline: "nearest",
+          // Vertical scrolling - only when row is outside viewport
+          const isAboveViewport = rowRect.bottom < containerRect.top;
+          const isBelowViewport = rowRect.top > containerRect.bottom;
+
+          if (isAboveViewport || isBelowViewport) {
+            // Calculate target scroll position with some padding for better UX
+            const rowOffsetTop = rowElement.offsetTop;
+            const containerHeight = container.clientHeight;
+            const padding = 50; // Small padding to keep row nicely visible
+            
+            let targetScrollTop;
+            
+            if (isAboveViewport) {
+              // Scroll up: position row near top with padding
+              targetScrollTop = rowOffsetTop - padding;
+            } else {
+              // Scroll down: position row near bottom with padding  
+              targetScrollTop = rowOffsetTop - containerHeight + rowElement.offsetHeight + padding;
+            }
+            
+            // Ensure we don't scroll beyond bounds
+            targetScrollTop = Math.max(0, Math.min(targetScrollTop, container.scrollHeight - containerHeight));
+            
+            // Smooth scroll to target position
+            container.scrollTo({
+              top: targetScrollTop,
+              behavior: 'smooth'
             });
+          }
+
+          // Horizontal scrolling for mobile - get the specific cell
+          const selectedCellElement = document.querySelector(
+            `[data-entry-id="${entry.id}"] td:nth-child(${
+              selectedCell.cellIndex + 1
+            })`
+          ) as HTMLElement;
+
+          if (selectedCellElement) {
+            const isMobileViewport = window.innerWidth < 768; // sm breakpoint
+
+            if (isMobileViewport) {
+              selectedCellElement.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+                inline: "nearest",
+              });
+            }
           }
         }
       });
