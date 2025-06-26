@@ -55,45 +55,54 @@ export function LimitlessTranscriptionTable() {
         let startTime: Date, endTime: Date;
 
         // Parse natural language query for time ranges
-        console.log('🔍 Parsing query:', activeQuery.trim());
-        const results = chrono.parse(activeQuery.trim());
-        console.log('📊 Chrono results:', results);
+        const query = activeQuery.trim().toLowerCase();
         
-        if (results.length > 0) {
-          const result = results[0];
-          console.log('📅 First result:', result);
-          
-          if (result.start && result.end) {
-            // Time range found (e.g., "today from 3 to 5pm")
-            startTime = result.start.date();
-            endTime = result.end.date();
-            console.log('⏰ Time range found:', {
-              start: startTime.toISOString(),
-              end: endTime.toISOString()
-            });
-          } else if (result.start) {
-            // Single date/time found, use full day
-            startTime = new Date(result.start.date());
-            startTime.setHours(0, 0, 0, 0);
-            endTime = new Date(result.start.date());
-            endTime.setHours(23, 59, 59, 999);
-            console.log('📆 Single date found, using full day:', {
-              start: startTime.toISOString(),
-              end: endTime.toISOString()
-            });
+        // Handle custom phrases that chrono might not understand
+        if (query === 'this last hour' || query === 'last hour' || query === 'past hour') {
+          const now = new Date();
+          const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+          startTime = oneHourAgo;
+          endTime = now;
+        } else {
+          // Use chrono for standard parsing
+          const results = chrono.parse(activeQuery.trim());
+        
+          if (results.length > 0) {
+            const result = results[0];
+            
+            if (result.start && result.end) {
+              // Time range found (e.g., "today from 3 to 5pm")
+              startTime = result.start.date();
+              endTime = result.end.date();
+            } else if (result.start) {
+              const parsedTime = result.start.date();
+              
+              // Check if this is a relative time phrase that should create a range
+              if (query.includes('ago') || query.includes('hours ago') || query.includes('minutes ago')) {
+                // For relative times like "2 hours ago", create range from that time to now
+                startTime = parsedTime;
+                endTime = new Date(); // now
+              } else {
+                // Single date/time found, use full day
+                startTime = new Date(parsedTime);
+                startTime.setHours(0, 0, 0, 0);
+                endTime = new Date(parsedTime);
+                endTime.setHours(23, 59, 59, 999);
+              }
+            } else {
+              // Return empty results instead of showing error
+              setTranscriptions([]);
+              setCursor(null);
+              setHasMore(false);
+              return;
+            }
           } else {
-            console.log('❌ No start date found in result');
-            toast.error(
-              "Could not understand the date/time. Try something like 'today from 3 to 5pm' or 'yesterday'"
-            );
+            // Return empty results instead of showing error
+            setTranscriptions([]);
+            setCursor(null);
+            setHasMore(false);
             return;
           }
-        } else {
-          console.log('❌ No results from chrono parsing');
-          toast.error(
-            "Could not understand the date/time. Try something like 'today from 3 to 5pm' or 'yesterday'"
-          );
-          return;
         }
 
         // Build query params with start/end timestamps
@@ -113,9 +122,6 @@ export function LimitlessTranscriptionTable() {
         }
 
         // Make the request with date filter
-        console.log('🌐 API request URL:', `/api/limitless?${params.toString()}`);
-        console.log('📋 Query params:', Object.fromEntries(params));
-        
         const response = await fetch(`/api/limitless?${params.toString()}`, {
           headers: {
             "x-limitless-api-key": apiKey,
@@ -174,6 +180,8 @@ export function LimitlessTranscriptionTable() {
             : "Failed to fetch transcriptions. Please check your API key.";
         toast.error(errorMessage);
         setTranscriptions([]);
+        setCursor(null);
+        setHasMore(false);
       } finally {
         if (showLoadingState) setLoading(false);
       }
