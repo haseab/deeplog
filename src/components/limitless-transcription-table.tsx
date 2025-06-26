@@ -52,11 +52,17 @@ export function LimitlessTranscriptionTable() {
       }
 
       try {
-        const dateStr = format(selectedDate, "yyyy-MM-dd"); // YYYY-MM-DD format
+        // Create start and end timestamps for the full day in current timezone
+        const startOfDay = new Date(selectedDate);
+        startOfDay.setHours(0, 0, 0, 0);
         
-        // Build query params
+        const endOfDay = new Date(selectedDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        // Build query params with start/end timestamps
         const params = new URLSearchParams({
-          date: dateStr,
+          start: startOfDay.toISOString(),
+          end: endOfDay.toISOString(),
           limit: "10",
           direction: "desc",
           includeMarkdown: "true",
