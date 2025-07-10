@@ -106,6 +106,18 @@ export function WelcomeForm({
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      // Cmd+Enter or Ctrl+Enter
+      e.preventDefault();
+      handleSubmit(e as any);
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      // Regular Enter (not Shift+Enter)
+      e.preventDefault();
+      handleSubmit(e as any);
+    }
+  };
+
   if (!mounted) {
     return null;
   }
@@ -150,7 +162,7 @@ export function WelcomeForm({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="space-y-6">
               {/* API Key Field */}
               <div className="space-y-2">
                 <Label

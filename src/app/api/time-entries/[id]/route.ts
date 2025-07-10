@@ -15,7 +15,7 @@ export async function PATCH(
   try {
     const { auth, workspaceId } = await setupTogglApi(request);
     const body = await request.json();
-    const { description, project_name, stop } = body;
+    const { description, project_name, stop, tag_ids } = body;
 
     // First, get the current time entry using the correct endpoint
     const getCurrentResponse = await fetch(
@@ -58,11 +58,13 @@ export async function PATCH(
       }
     }
 
+
     // Update the time entry using the workspace-based PUT endpoint
     const updateData = {
       ...currentEntry,
       ...(description !== undefined && { description }),
       ...(project_name !== undefined && { project_id }),
+      ...(tag_ids !== undefined && { tag_ids }),
       ...(stop !== undefined && { stop }),
     };
 

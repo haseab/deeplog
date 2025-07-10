@@ -22,11 +22,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { Project, SelectedCell, TimeEntry } from "../types";
+import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
 import { ExpandableDescription } from "./expandable-description";
 import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
+import { TagSelector } from "./tag-selector";
+import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -36,10 +38,13 @@ const MemoizedTableRow = React.memo(
     onSelectCell,
     onDescriptionSave,
     onProjectChange,
+    onTagsChange,
     onDelete,
     projects,
+    availableTags,
     setIsEditingCell,
     setIsProjectSelectorOpen,
+    setIsTagSelectorOpen,
     setIsActionsMenuOpen,
     navigateToNextCell,
     isNewlyLoaded,
@@ -50,10 +55,13 @@ const MemoizedTableRow = React.memo(
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
+    onTagsChange: (entryId: number) => (newTags: string[]) => void;
     onDelete: (entry: TimeEntry) => void;
     projects: Project[];
+    availableTags: Tag[];
     setIsEditingCell: (editing: boolean) => void;
     setIsProjectSelectorOpen: (open: boolean) => void;
+    setIsTagSelectorOpen: (open: boolean) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
     navigateToNextCell: () => void;
     isNewlyLoaded: boolean;
@@ -120,12 +128,30 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
+            "px-4 py-2 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 3 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 3)}
+        >
+          <TagSelector
+            currentTags={entry.tags || []}
+            onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+            availableTags={availableTags}
+            onOpenChange={setIsTagSelectorOpen}
+            onNavigateNext={navigateToNextCell}
+            data-testid="tag-selector"
+          />
+        </TableCell>
+        <TableCell
+          className={cn(
+            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 4 &&
+              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+          )}
+          onClick={() => onSelectCell(rowIndex, 4)}
         >
           {format(new Date(entry.start), "h:mm a")} -{" "}
           {entry.stop ? format(new Date(entry.stop), "h:mm a") : "Now"}
@@ -134,10 +160,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 4 &&
+              selectedCell?.cellIndex === 5 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 4)}
+          onClick={() => onSelectCell(rowIndex, 5)}
         >
           <div className="flex items-center gap-2 w-full min-w-[72px]">
             <LiveDuration
@@ -158,10 +184,10 @@ const MemoizedTableRow = React.memo(
           className={cn(
             "px-4 py-2 cursor-pointer sm:w-16 w-12",
             selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 5 &&
+              selectedCell?.cellIndex === 6 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
-          onClick={() => onSelectCell(rowIndex, 5)}
+          onClick={() => onSelectCell(rowIndex, 6)}
         >
           <ActionsMenu
             onDuplicate={() => {
@@ -181,7 +207,7 @@ const MemoizedTableRow = React.memo(
             onNavigateNext={navigateToNextCell}
             isSelected={
               selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 5
+              selectedCell?.cellIndex === 6
             }
             data-testid="actions-menu"
           />
@@ -220,11 +246,14 @@ const MemoizedTableRow = React.memo(
       prevProps.onSelectCell === nextProps.onSelectCell &&
       prevProps.onDescriptionSave === nextProps.onDescriptionSave &&
       prevProps.onProjectChange === nextProps.onProjectChange &&
+      prevProps.onTagsChange === nextProps.onTagsChange &&
       prevProps.onDelete === nextProps.onDelete &&
       prevProps.projects === nextProps.projects &&
+      prevProps.availableTags === nextProps.availableTags &&
       prevProps.setIsEditingCell === nextProps.setIsEditingCell &&
       prevProps.setIsProjectSelectorOpen ===
         nextProps.setIsProjectSelectorOpen &&
+      prevProps.setIsTagSelectorOpen === nextProps.setIsTagSelectorOpen &&
       prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen &&
       prevProps.navigateToNextCell === nextProps.navigateToNextCell;
 
@@ -247,6 +276,7 @@ export function TimeTrackerTable() {
   );
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
+  const [availableTags, setAvailableTags] = React.useState<Tag[]>([]);
   const [loading, setLoading] = React.useState(false);
   const currentPageRef = React.useRef(0);
   const [hasMore, setHasMore] = React.useState(true);
@@ -256,12 +286,15 @@ export function TimeTrackerTable() {
   const [isEditingCell, setIsEditingCell] = React.useState(false);
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] =
     React.useState(false);
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = React.useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [newlyLoadedEntries, setNewlyLoadedEntries] = React.useState<
     Set<number>
   >(new Set());
   const tableRef = React.useRef<HTMLDivElement>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(null);
 
   const showUpdateToast = React.useCallback(
     (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
@@ -407,6 +440,68 @@ export function TimeTrackerTable() {
     [projects, showUpdateToast]
   );
 
+  const handleTagsChange = React.useCallback(
+    (entryId: number) => (newTags: string[]) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                tags: newTags,
+              }
+            : entry
+        );
+
+        showUpdateToast(
+          "Tags updated.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            // Convert tag names to tag IDs using cached mapping
+            const tagIds = newTags
+              .map((tagName) => {
+                const tag = availableTags.find((t) => t.name === tagName);
+                return tag ? tag.id : null;
+              })
+              .filter((id): id is number => id !== null);
+
+            const apiKey = localStorage.getItem("toggl_api_key");
+            const response = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-api-key": apiKey || "",
+              },
+              body: JSON.stringify({ tag_ids: tagIds }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              let errorMessage = `Failed to update tags (${response.status})`;
+              if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              } else if (response.status === 400) {
+                errorMessage = "Invalid tags";
+              }
+
+              throw new Error(errorMessage);
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast, availableTags]
+  );
+
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
       setTimeEntries((currentEntries) => {
@@ -475,6 +570,7 @@ export function TimeTrackerTable() {
       start: now,
       stop: "", // Empty stop means it's running
       duration: 0,
+      tags: [],
     };
 
     // Optimistically add the new entry to the beginning
@@ -606,6 +702,10 @@ export function TimeTrackerTable() {
             setTimeEntries(data.timeEntries);
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
+            // Fetch tags when loading initial data
+            if (resetData) {
+              fetchTags();
+            }
           } else {
             // Filter out duplicates by ID to prevent React key conflicts
             setTimeEntries((prev) => {
@@ -674,6 +774,30 @@ export function TimeTrackerTable() {
     setIsLoadingMore(false);
   }, [hasMore, loading, isLoadingMore, fetchData]);
 
+  // Fetch all available tags
+  const fetchTags = React.useCallback(async () => {
+    try {
+      const apiKey = localStorage.getItem("toggl_api_key");
+      const response = await fetch("/api/tags", {
+        headers: {
+          "x-toggl-api-key": apiKey || "",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.tags) {
+        setAvailableTags(data.tags);
+      }
+    } catch (error) {
+      console.error("Failed to fetch tags:", error);
+      // Don't show error toast for tags fetch failure, just log it
+    }
+  }, []);
+
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
     (rowIndex: number, cellIndex: number) => {
@@ -699,7 +823,15 @@ export function TimeTrackerTable() {
               projectElement.click();
             }
             break;
-          case 5: // Actions menu
+          case 3: // Tags
+            const tagElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
+            ) as HTMLElement;
+            if (tagElement) {
+              tagElement.click();
+            }
+            break;
+          case 6: // Actions menu
             const menuElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
             ) as HTMLElement;
@@ -717,7 +849,7 @@ export function TimeTrackerTable() {
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      const maxCellIndex = 5; // 6 columns: date, description, project, time, duration, actions
+      const maxCellIndex = 6; // 7 columns: date, description, project, tags, time, duration, actions
       const currentEntriesLength = timeEntries.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
@@ -760,6 +892,8 @@ export function TimeTrackerTable() {
             setProjects(data.projects);
             setHasMore(data.pagination.hasMore);
             currentPageRef.current = 0;
+            // Fetch tags on initial load
+            fetchTags();
           }
         } catch (error) {
           console.error("Initial load error:", error);
@@ -773,7 +907,7 @@ export function TimeTrackerTable() {
         }
       })();
     }
-  }, [date]);
+  }, [date, fetchTags]);
 
   // DO NOT REMOVE THIS COMMENT
   // Refresh data when tab becomes visible - TEMPORARILY DISABLED
@@ -796,7 +930,7 @@ export function TimeTrackerTable() {
   const keyboardNavigationData = React.useMemo(
     () => ({
       currentEntriesLength: timeEntries.length,
-      maxCellIndex: 5, // 6 columns: date, description, project, time, duration, actions
+      maxCellIndex: 6, // 7 columns: date, description, project, tags, time, duration, actions
     }),
     [timeEntries.length]
   );
@@ -827,25 +961,24 @@ export function TimeTrackerTable() {
     if (selectedCell) {
       const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
-        // Show confirmation dialog
-        const confirmed = window.confirm(
-          `Are you sure you want to delete this time entry?\n\nDescription: ${
-            entry.description || "(no description)"
-          }\nProject: ${
-            entry.project_name || "No Project"
-          }\nDuration: ${Math.floor(entry.duration / 3600)}h ${Math.floor(
-            (entry.duration % 3600) / 60
-          )}m`
-        );
-
-        if (confirmed) {
-          handleDelete(entry);
-          // Clear selection after deletion
-          setSelectedCell(null);
-        }
+        setEntryToDelete(entry);
+        setDeleteDialogOpen(true);
       }
     }
-  }, [selectedCell, timeEntries, handleDelete]);
+  }, [selectedCell, timeEntries]);
+
+  const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
+    setEntryToDelete(entry);
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const handleConfirmDelete = React.useCallback(() => {
+    if (entryToDelete) {
+      handleDelete(entryToDelete);
+      setSelectedCell(null);
+      setEntryToDelete(null);
+    }
+  }, [entryToDelete, handleDelete]);
 
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
@@ -866,8 +999,14 @@ export function TimeTrackerTable() {
         (activeElement as HTMLElement)?.contentEditable === "true" ||
         activeElement?.getAttribute("role") === "textbox";
 
-      // If we're editing a cell, project selector is open, or actions menu is open, don't handle global navigation
-      if (isEditingCell || isProjectSelectorOpen || isActionsMenuOpen) return;
+      // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
+      if (
+        isEditingCell ||
+        isProjectSelectorOpen ||
+        isTagSelectorOpen ||
+        isActionsMenuOpen
+      )
+        return;
 
       // Global shortcuts (work even when focused on inputs)
       if (e.key === "n" && !isInInput) {
@@ -902,7 +1041,11 @@ export function TimeTrackerTable() {
           e.preventDefault();
           e.stopPropagation();
           // Only clear selection if no menus are open
-          if (!isActionsMenuOpen && !isProjectSelectorOpen) {
+          if (
+            !isActionsMenuOpen &&
+            !isProjectSelectorOpen &&
+            !isTagSelectorOpen
+          ) {
             setSelectedCell(null);
           }
           break;
@@ -1050,6 +1193,7 @@ export function TimeTrackerTable() {
     keyboardNavigationData.maxCellIndex,
     isEditingCell,
     isProjectSelectorOpen,
+    isTagSelectorOpen,
     isActionsMenuOpen,
     // Stable callback functions
     activateCell,
@@ -1093,24 +1237,34 @@ export function TimeTrackerTable() {
             const rowOffsetTop = rowElement.offsetTop;
             const containerHeight = container.clientHeight;
             const padding = 50; // Small padding to keep row nicely visible
-            
+
             let targetScrollTop;
-            
+
             if (isAboveViewport) {
               // Scroll up: position row near top with padding
               targetScrollTop = rowOffsetTop - padding;
             } else {
-              // Scroll down: position row near bottom with padding  
-              targetScrollTop = rowOffsetTop - containerHeight + rowElement.offsetHeight + padding;
+              // Scroll down: position row near bottom with padding
+              targetScrollTop =
+                rowOffsetTop -
+                containerHeight +
+                rowElement.offsetHeight +
+                padding;
             }
-            
+
             // Ensure we don't scroll beyond bounds
-            targetScrollTop = Math.max(0, Math.min(targetScrollTop, container.scrollHeight - containerHeight));
-            
+            targetScrollTop = Math.max(
+              0,
+              Math.min(
+                targetScrollTop,
+                container.scrollHeight - containerHeight
+              )
+            );
+
             // Smooth scroll to target position
             container.scrollTo({
               top: targetScrollTop,
-              behavior: 'smooth'
+              behavior: "smooth",
             });
           }
 
@@ -1226,6 +1380,9 @@ export function TimeTrackerTable() {
                 <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
                   Project
                 </TableHead>
+                <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                  Tags
+                </TableHead>
                 <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
                   Time
                 </TableHead>
@@ -1245,10 +1402,13 @@ export function TimeTrackerTable() {
                   onSelectCell={handleSelectCell}
                   onDescriptionSave={handleDescriptionSave}
                   onProjectChange={handleProjectChange}
-                  onDelete={handleDelete}
+                  onTagsChange={handleTagsChange}
+                  onDelete={handleDeleteWithConfirmation}
                   projects={projects}
+                  availableTags={availableTags}
                   setIsEditingCell={setIsEditingCell}
                   setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                  setIsTagSelectorOpen={setIsTagSelectorOpen}
                   setIsActionsMenuOpen={setIsActionsMenuOpen}
                   navigateToNextCell={navigateToNextCell}
                   isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
@@ -1256,7 +1416,7 @@ export function TimeTrackerTable() {
               ))}
               {hasMore && (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-20 text-center">
+                  <TableCell colSpan={7} className="h-20 text-center">
                     <div className="flex items-center justify-center my-4 mb-8">
                       {isLoadingMore ? (
                         <div className="flex items-center justify-center space-x-2">
@@ -1290,6 +1450,13 @@ export function TimeTrackerTable() {
           {hasMore && " (click to load more)"}
         </p>
       </div>
+
+      <DeleteConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        entry={entryToDelete}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }
