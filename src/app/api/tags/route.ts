@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setupTogglApi, createErrorResponse } from "../time-entries/utils";
+import { setupTogglApi } from "../time-entries/utils";
+
+type TogglTag = {
+  id: number;
+  name: string;
+};
 
 export async function GET(request: NextRequest) {
   try {
-    const { auth, workspaceId } = await setupTogglApi(request);
+    const { auth } = await setupTogglApi(request);
 
     // Fetch tags from Toggl API
     const response = await fetch(`https://api.track.toggl.com/api/v9/me/tags`, {
@@ -21,10 +26,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const tags = await response.json();
+    const tags: TogglTag[] = await response.json();
 
     // Transform Toggl tags to our format
-    const transformedTags = tags.map((tag: any) => ({
+    const transformedTags = tags.map((tag) => ({
       id: tag.id,
       name: tag.name,
     }));

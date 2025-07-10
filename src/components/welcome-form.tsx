@@ -110,11 +110,11 @@ export function WelcomeForm({
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       // Cmd+Enter or Ctrl+Enter
       e.preventDefault();
-      handleSubmit(e as any);
+      handleSubmit(e as React.FormEvent<HTMLFormElement>);
     } else if (e.key === "Enter" && !e.shiftKey) {
       // Regular Enter (not Shift+Enter)
       e.preventDefault();
-      handleSubmit(e as any);
+      handleSubmit(e as React.FormEvent<HTMLFormElement>);
     }
   };
 
