@@ -42,24 +42,23 @@ export function ProjectSelector({
     onOpenChange?.(isOpen);
   }, [isOpen, onOpenChange]);
 
-  // Create options array (No Project + filtered projects)
+  // Create options array (filtered projects + No Project at bottom)
   const allOptions = React.useMemo(() => {
     const noProjectOption = { id: -1, name: "No Project", color: "" };
 
     if (!searchTerm.trim()) {
-      return [noProjectOption, ...projects];
+      return [...projects, noProjectOption];
     }
 
     const filtered = projects.filter((project) =>
       project.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    // Only include "No Project" if it matches the search term
-    const options = [];
+    // Only include "No Project" if it matches the search term, but always at the end
+    const options = [...filtered];
     if ("No Project".toLowerCase().includes(searchTerm.toLowerCase())) {
       options.push(noProjectOption);
     }
-    options.push(...filtered);
 
     return options;
   }, [projects, searchTerm]);

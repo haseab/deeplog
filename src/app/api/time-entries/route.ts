@@ -14,6 +14,7 @@ type Project = {
   id: number;
   name: string;
   color: string;
+  active?: boolean;
 };
 
 export async function GET(request: NextRequest) {
@@ -47,6 +48,8 @@ export async function GET(request: NextRequest) {
     }
 
     const projects: Project[] = await projectsResponse.json();
+    // Filter out archived projects
+    const activeProjects = projects.filter(project => project.active !== false);
 
     // Fetch time entries
     const timeEntriesResponse = await fetch(
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
     const timeEntries: TimeEntry[] = await timeEntriesResponse.json();
 
     // Create a map for quick project lookup
-    const projectMap = new Map(projects.map((p) => [p.id, p]));
+    const projectMap = new Map(activeProjects.map((p) => [p.id, p]));
 
     // Add some debug logging to see what we're getting
     // console.log("Sample time entry:", timeEntries[0]);
@@ -101,7 +104,7 @@ export async function GET(request: NextRequest) {
     return new Response(
       JSON.stringify({
         timeEntries: paginatedEntries,
-        projects: projects,
+        projects: activeProjects,
         pagination: {
           page,
           limit,

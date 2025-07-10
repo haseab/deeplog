@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Check, ChevronDown, Search, X } from "lucide-react";
+import React from "react";
 import type { Tag } from "../types";
 
 interface TagSelectorProps {
@@ -43,7 +43,7 @@ export function TagSelector({
   // Create options array (selected tags first, then filtered available tags)
   const allOptions = React.useMemo(() => {
     const searchQuery = searchTerm.trim().toLowerCase();
-    
+
     // Filter tags based on search
     const filteredTags = searchQuery
       ? availableTags.filter((tag) =>
@@ -55,8 +55,8 @@ export function TagSelector({
     const selectedTags = filteredTags.filter((tag) =>
       currentTags.includes(tag.name)
     );
-    const unselectedTags = filteredTags.filter((tag) =>
-      !currentTags.includes(tag.name)
+    const unselectedTags = filteredTags.filter(
+      (tag) => !currentTags.includes(tag.name)
     );
 
     // Return selected tags first, then unselected
@@ -91,7 +91,7 @@ export function TagSelector({
   const handleRemoveTag = async (tagName: string) => {
     setIsChanging(true);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    
+
     const newTags = currentTags.filter((tag) => tag !== tagName);
     onTagsChange?.(newTags);
     setIsChanging(false);
@@ -188,7 +188,9 @@ export function TagSelector({
                 )}
               </div>
             ) : (
-              <span className="text-muted-foreground flex-1 text-sm">No tags</span>
+              <span className="text-muted-foreground flex-1 text-sm">
+                No tags
+              </span>
             )}
             <ChevronDown
               className={cn(
@@ -204,7 +206,7 @@ export function TagSelector({
         className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-80 p-0 border-border/60"
         align="start"
       >
-        <div className="flex items-center border-b border-border/40 px-3 py-2">
+        <div className="flex items-center border-b border-border/40 px-3 py-2 w-32">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50 transition-colors" />
           <Input
             ref={searchInputRef}
@@ -220,10 +222,11 @@ export function TagSelector({
           {allOptions.length > 0 ? (
             allOptions.map((option, index) => {
               const isSelected = currentTags.includes(option.name);
-              const isFirstUnselected = index > 0 && 
-                currentTags.includes(allOptions[index - 1].name) && 
+              const isFirstUnselected =
+                index > 0 &&
+                currentTags.includes(allOptions[index - 1].name) &&
                 !isSelected;
-              
+
               return (
                 <React.Fragment key={option.id}>
                   {isFirstUnselected && (
@@ -254,10 +257,9 @@ export function TagSelector({
             })
           ) : (
             <div className="px-3 py-6 text-sm text-muted-foreground text-center animate-in fade-in-0 duration-200">
-              {searchTerm.trim() 
+              {searchTerm.trim()
                 ? `No tags found matching "${searchTerm}"`
-                : "No tags available"
-              }
+                : "No tags available"}
             </div>
           )}
         </div>
