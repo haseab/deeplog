@@ -663,7 +663,7 @@ export function TimeTrackerTable() {
         },
       },
     });
-  }, [timeEntries, fetchData]);
+  }, [timeEntries]);
 
   const fetchData = React.useCallback(
     async (showLoadingState = true, resetData = true) => {
@@ -761,7 +761,7 @@ export function TimeTrackerTable() {
         if (showLoadingState && resetData) setLoading(false);
       }
     },
-    [date, fetchTags]
+    [date]
   );
 
   // Load more function for infinite scrolling
