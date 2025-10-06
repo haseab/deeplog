@@ -718,20 +718,6 @@ export function TimeTrackerTable() {
 
         const data = await response.json();
 
-        // Debug: Log first few entries to see their properties
-        console.log("=== TIME ENTRIES DEBUG ===");
-        console.log("First 3 entries:", data.timeEntries?.slice(0, 3));
-        if (data.timeEntries?.[0]) {
-          const first = data.timeEntries[0];
-          console.log("First entry details:");
-          console.log("  ID:", first.id);
-          console.log("  Duration:", first.duration);
-          console.log("  Stop:", first.stop);
-          console.log("  Start:", first.start);
-          console.log("  Is running?", !first.stop || first.duration === -1);
-        }
-        console.log("========================");
-
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {

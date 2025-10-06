@@ -159,9 +159,7 @@ export async function GET(request: NextRequest) {
       // If there's a running task, handle it properly
       if (currentTask && currentTask.id) {
         // REMOVE any matching entry from Analytics API (it's stale/cached)
-        const originalLength = enrichedEntries.length;
         enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
-
 
         // Find project info for the current task
         const project = currentTask.project_id
