@@ -1,10 +1,11 @@
+import React from "react";
 import { toast as sonnerToast } from "sonner";
 
 // Simple global deduplication for toasts
 let lastToast: { message: string; timestamp: number } | null = null;
 
 // Store current undo action for keyboard shortcut
-let currentUndoAction: (() => void) | null = null;
+let currentUndoAction: ((event?: React.MouseEvent<HTMLButtonElement>) => void) | null = null;
 
 export const toast = (
   message: string,
@@ -25,7 +26,10 @@ export const toast = (
 
   // Store undo action if present
   if (options?.action && typeof options.action === 'object' && 'onClick' in options.action && typeof options.action.onClick === 'function') {
-    currentUndoAction = options.action.onClick;
+    const originalOnClick = options.action.onClick;
+    currentUndoAction = (event?: React.MouseEvent<HTMLButtonElement>) => {
+      originalOnClick(event as React.MouseEvent<HTMLButtonElement>);
+    };
 
     // Clear undo action when toast is dismissed
     const originalOnDismiss = options.onDismiss;
