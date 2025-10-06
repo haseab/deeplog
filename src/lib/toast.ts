@@ -24,7 +24,7 @@ export const toast = (
   lastToast = { message, timestamp: now };
 
   // Store undo action if present
-  if (options?.action && typeof options.action.onClick === 'function') {
+  if (options?.action && typeof options.action === 'object' && 'onClick' in options.action && typeof options.action.onClick === 'function') {
     currentUndoAction = options.action.onClick;
 
     // Clear undo action when toast is dismissed
