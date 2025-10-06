@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { createErrorResponse, setupTogglApi } from "../utils";
+import { createErrorResponse, setupSessionApi } from "../session-utils";
 
 type Project = {
   id: number;
@@ -13,22 +13,25 @@ export async function PATCH(
   const { id } = await params;
 
   try {
-    const { auth, workspaceId } = await setupTogglApi(request);
+    const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
     const { description, project_name, stop, tag_ids } = body;
 
     // First, get the current time entry using the correct endpoint
     const getCurrentResponse = await fetch(
-      `https://api.track.toggl.com/api/v9/me/time_entries/${id}`,
+      `https://track.toggl.com/api/v9/me/time_entries/${id}`,
       {
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${auth}`,
+          Accept: "application/json",
+          Authorization: `Bearer ${sessionToken}`,
         },
       }
     );
 
     if (!getCurrentResponse.ok) {
+      if (getCurrentResponse.status === 401) {
+        return createErrorResponse("Session expired - please reauthenticate", 401);
+      }
       const errorText = await getCurrentResponse.text();
       console.error("Toggl API error:", getCurrentResponse.status, errorText);
       throw new Error("Failed to get current time entry from Toggl");
@@ -44,20 +47,27 @@ export async function PATCH(
       } else {
         // Fetch projects to find the matching project ID
         const projectsResponse = await fetch(
-          `https://api.track.toggl.com/api/v9/workspaces/${workspaceId}/projects`,
+          `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true`,
           {
             headers: {
-              "Content-Type": "application/json",
-              Authorization: `Basic ${auth}`,
+              Accept: "application/json",
+              Authorization: `Bearer ${sessionToken}`,
             },
           }
         );
+
+        if (!projectsResponse.ok) {
+          if (projectsResponse.status === 401) {
+            return createErrorResponse("Session expired - please reauthenticate", 401);
+          }
+          throw new Error("Failed to fetch projects");
+        }
+
         const projects: Project[] = await projectsResponse.json();
         const project = projects.find((p) => p.name === project_name);
         project_id = project ? project.id : null;
       }
     }
-
 
     // Update the time entry using the workspace-based PUT endpoint
     const updateData = {
@@ -69,18 +79,22 @@ export async function PATCH(
     };
 
     const updateResponse = await fetch(
-      `https://api.track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
+      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Basic ${auth}`,
+          Accept: "application/json",
+          Authorization: `Bearer ${sessionToken}`,
         },
         body: JSON.stringify(updateData),
       }
     );
 
     if (!updateResponse.ok) {
+      if (updateResponse.status === 401) {
+        return createErrorResponse("Session expired - please reauthenticate", 401);
+      }
       const errorText = await updateResponse.text();
       console.error("Update API error:", updateResponse.status, errorText);
       throw new Error(errorText);
@@ -96,8 +110,11 @@ export async function PATCH(
 
     // Handle specific error cases
     if (error instanceof Error) {
-      if (error.message === "Toggl API key is required") {
+      if (error.message === "Toggl session token is required") {
         return createErrorResponse(error.message, 400);
+      }
+      if (error.message.includes("session expired") || error.message.includes("reauthenticate")) {
+        return createErrorResponse(error.message, 401);
       }
       if (error.message === "No workspaces found") {
         return createErrorResponse(error.message, 404);
@@ -120,20 +137,23 @@ export async function DELETE(
   const { id } = await params;
 
   try {
-    const { auth, workspaceId } = await setupTogglApi(request);
+    const { sessionToken, workspaceId } = await setupSessionApi(request);
 
     const deleteResponse = await fetch(
-      `https://api.track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
+      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
       {
         method: "DELETE",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${auth}`,
+          Accept: "application/json",
+          Authorization: `Bearer ${sessionToken}`,
         },
       }
     );
 
     if (!deleteResponse.ok) {
+      if (deleteResponse.status === 401) {
+        return createErrorResponse("Session expired - please reauthenticate", 401);
+      }
       const errorText = await deleteResponse.text();
       console.error("Delete API error:", deleteResponse.status, errorText);
       throw new Error("Failed to delete time entry from Toggl");
@@ -145,8 +165,11 @@ export async function DELETE(
 
     // Handle specific error cases
     if (error instanceof Error) {
-      if (error.message === "Toggl API key is required") {
+      if (error.message === "Toggl session token is required") {
         return createErrorResponse(error.message, 400);
+      }
+      if (error.message.includes("session expired") || error.message.includes("reauthenticate")) {
+        return createErrorResponse(error.message, 401);
       }
       if (error.message === "No workspaces found") {
         return createErrorResponse(error.message, 404);

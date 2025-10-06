@@ -5,6 +5,7 @@ import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
+import { SyncStatusBadge } from "./sync-status-badge";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -297,6 +298,8 @@ export function TimeTrackerTable() {
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
     null
   );
+  const [syncStatus, setSyncStatus] = React.useState<"synced" | "syncing" | "error" | "session_expired" | "offline">("synced");
+  const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
 
   const showUpdateToast = React.useCallback(
     (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
@@ -341,12 +344,12 @@ export function TimeTrackerTable() {
           "Description updated.",
           () => setTimeEntries(originalEntries),
           async () => {
-            const apiKey = localStorage.getItem("toggl_api_key");
+            const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
-                "x-toggl-api-key": apiKey || "",
+                "x-toggl-session-token": sessionToken || "",
               },
               body: JSON.stringify({ description: newDescription }),
             });
@@ -407,12 +410,12 @@ export function TimeTrackerTable() {
           "Project updated.",
           () => setTimeEntries(originalEntries),
           async () => {
-            const apiKey = localStorage.getItem("toggl_api_key");
+            const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
-                "x-toggl-api-key": apiKey || "",
+                "x-toggl-session-token": sessionToken || "",
               },
               body: JSON.stringify({ project_name: newProject }),
             });
@@ -469,12 +472,12 @@ export function TimeTrackerTable() {
               })
               .filter((id): id is number => id !== null);
 
-            const apiKey = localStorage.getItem("toggl_api_key");
+            const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
-                "x-toggl-api-key": apiKey || "",
+                "x-toggl-session-token": sessionToken || "",
               },
               body: JSON.stringify({ tag_ids: tagIds }),
             });
@@ -518,13 +521,13 @@ export function TimeTrackerTable() {
           "Time entry deleted.",
           () => setTimeEntries(originalEntries),
           async () => {
-            const apiKey = localStorage.getItem("toggl_api_key");
+            const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(
               `/api/time-entries/${entryToDelete.id}`,
               {
                 method: "DELETE",
                 headers: {
-                  "x-toggl-api-key": apiKey || "",
+                  "x-toggl-session-token": sessionToken || "",
                 },
               }
             );
@@ -585,7 +588,7 @@ export function TimeTrackerTable() {
     }, 50);
 
     // Make the API call immediately to ensure precise timing
-    const apiKey = localStorage.getItem("toggl_api_key");
+    const sessionToken = localStorage.getItem("toggl_session_token");
     let createdEntryId: number | null = null;
 
     (async () => {
@@ -594,7 +597,7 @@ export function TimeTrackerTable() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-toggl-api-key": apiKey || "",
+            "x-toggl-session-token": sessionToken || "",
           },
           body: JSON.stringify({
             description: "",
@@ -645,7 +648,7 @@ export function TimeTrackerTable() {
               await fetch(`/api/time-entries/${createdEntryId}`, {
                 method: "DELETE",
                 headers: {
-                  "x-toggl-api-key": apiKey || "",
+                  "x-toggl-session-token": sessionToken || "",
                 },
               });
 
@@ -680,19 +683,25 @@ export function TimeTrackerTable() {
       const limit = resetData ? 100 : 25;
 
       // Get credentials from localStorage
-      const apiKey = localStorage.getItem("toggl_api_key");
+      const sessionToken = localStorage.getItem("toggl_session_token");
 
       try {
+        setSyncStatus("syncing");
         const response = await fetch(
           `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}`,
           {
             headers: {
-              "x-toggl-api-key": apiKey || "",
+              "x-toggl-session-token": sessionToken || "",
             },
           }
         );
 
         if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          if (response.status === 401 || errorData.isSessionExpired) {
+            setSyncStatus("session_expired");
+            throw new Error("Session expired");
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
@@ -735,6 +744,8 @@ export function TimeTrackerTable() {
           }
           setProjects(data.projects);
           setHasMore(data.pagination.hasMore);
+          setSyncStatus("synced");
+          setLastSyncTime(new Date());
         } else {
           // Handle error or empty response
           if (resetData) {
@@ -745,13 +756,27 @@ export function TimeTrackerTable() {
         }
       } catch (error) {
         console.error("API Error:", error);
+
+        // Set appropriate sync status based on error
+        if (error instanceof Error && error.message.includes("Session expired")) {
+          setSyncStatus("session_expired");
+        } else if (!navigator.onLine) {
+          setSyncStatus("offline");
+        } else {
+          setSyncStatus("error");
+        }
+
         // Only show toast for initial load, not for infinite scroll loads
         // And debounce error toasts to prevent spam
         if (resetData) {
           const now = Date.now();
           if (now - lastErrorToastRef.current > 5000) {
             // Max one error toast per 5 seconds
-            toast.error("Failed to fetch data.");
+            if (error instanceof Error && error.message.includes("Session expired")) {
+              toast.error("Session expired. Please reauthenticate.");
+            } else {
+              toast.error("Failed to fetch data.");
+            }
             lastErrorToastRef.current = now;
           }
         }
@@ -850,7 +875,7 @@ export function TimeTrackerTable() {
     if (date?.from && date?.to) {
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
-      const apiKey = localStorage.getItem("toggl_api_key");
+      const sessionToken = localStorage.getItem("toggl_session_token");
 
       setLoading(true);
       (async () => {
@@ -858,7 +883,7 @@ export function TimeTrackerTable() {
           const response = await fetch(
             `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`,
             {
-              headers: { "x-toggl-api-key": apiKey || "" },
+              headers: { "x-toggl-session-token": sessionToken || "" },
             }
           );
 
@@ -889,22 +914,30 @@ export function TimeTrackerTable() {
     }
   }, [date]);
 
-  // DO NOT REMOVE THIS COMMENT
-  // Refresh data when tab becomes visible - TEMPORARILY DISABLED
-  // React.useEffect(() => {
-  //   const handleVisibilityChange = () => {
-  //     if (document.visibilityState === "visible" && date?.from && date?.to) {
-  //       // Silently refresh data without showing loading state
-  //       fetchData(false);
-  //     }
-  //   };
+  // Refresh data when tab becomes visible or window gains focus
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && date?.from && date?.to) {
+        // Silently refresh data without showing loading state
+        fetchData(false);
+      }
+    };
 
-  //   document.addEventListener("visibilitychange", handleVisibilityChange);
+    const handleFocus = () => {
+      if (date?.from && date?.to) {
+        // Silently refresh data when window gains focus
+        fetchData(false);
+      }
+    };
 
-  //   return () => {
-  //     document.removeEventListener("visibilitychange", handleVisibilityChange);
-  //   };
-  // }, [fetchData, date]);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [fetchData, date]);
 
   // Memoize expensive calculations
   const keyboardNavigationData = React.useMemo(
@@ -959,6 +992,12 @@ export function TimeTrackerTable() {
       setEntryToDelete(null);
     }
   }, [entryToDelete, handleDelete]);
+
+  const handleReauthenticate = React.useCallback(() => {
+    // Clear the session token and redirect to login
+    localStorage.removeItem("toggl_session_token");
+    window.location.reload(); // This will trigger the welcome form
+  }, []);
 
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
@@ -1282,8 +1321,9 @@ export function TimeTrackerTable() {
       className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none"
       ref={tableRef}
     >
-      <div className="flex items-center space-x-3">
-        <Popover>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-3">
+          <Popover>
           <PopoverTrigger asChild>
             <Button
               id="date"
@@ -1327,20 +1367,27 @@ export function TimeTrackerTable() {
             />
           </PopoverContent>
         </Popover>
-        <Button
-          onClick={() => {
-            fetchData();
-          }}
-          variant="outline"
-          disabled={loading}
-          className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm disabled:opacity-50"
-        >
-          {loading ? (
-            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-        </Button>
+          <Button
+            onClick={() => {
+              fetchData();
+            }}
+            variant="outline"
+            disabled={loading}
+            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm disabled:opacity-50"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
+        <SyncStatusBadge
+          status={syncStatus}
+          lastSyncTime={lastSyncTime}
+          onReauthenticate={handleReauthenticate}
+          onRetry={() => fetchData()}
+        />
       </div>
 
       {loading ? (

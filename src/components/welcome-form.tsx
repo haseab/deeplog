@@ -16,30 +16,32 @@ import Image from "next/image";
 import * as React from "react";
 
 interface WelcomeFormProps {
-  onCredentialsSubmit: (apiKey: string) => void;
+  onCredentialsSubmit: (credential: string) => void;
   title?: string;
   description?: string;
   placeholder?: string;
-  apiKeyLabel?: string;
+  sessionTokenLabel?: string;
   connectButtonText?: string;
   helpText?: React.ReactNode;
   skipValidation?: boolean;
+  credentialType?: "session" | "api_key"; // Add this to support both modes
 }
 
-export function WelcomeForm({ 
+export function WelcomeForm({
   onCredentialsSubmit,
   title = "DeepLog",
   description = "for hardcore timetrackers",
-  placeholder = "Enter your Toggl API key",
-  apiKeyLabel = "Toggl API Key",
+  placeholder = "Enter your Toggl session token",
+  sessionTokenLabel = "Toggl Session Token",
   connectButtonText = "Connect to Toggl",
   helpText,
-  skipValidation = false
+  skipValidation = false,
+  credentialType = "session",
 }: WelcomeFormProps) {
-  const [apiKey, setApiKey] = React.useState("");
-  const [showApiKey, setShowApiKey] = React.useState(false);
+  const [sessionToken, setSessionToken] = React.useState("");
+  const [showSessionToken, setShowSessionToken] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [errors, setErrors] = React.useState<{ apiKey?: string }>({});
+  const [errors, setErrors] = React.useState<{ sessionToken?: string }>({});
   const [mounted, setMounted] = React.useState(false);
 
   React.useEffect(() => {
@@ -47,29 +49,41 @@ export function WelcomeForm({
   }, []);
 
   const validateForm = () => {
-    const newErrors: { apiKey?: string } = {};
+    const newErrors: { sessionToken?: string } = {};
 
-    if (!apiKey.trim()) {
-      newErrors.apiKey = "API key is required";
+    if (!sessionToken.trim()) {
+      newErrors.sessionToken = "Session token is required";
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const validateApiKey = async (apiKeyValue: string) => {
-    const response = await fetch("/api/validate-api-key", {
+  const validateSessionToken = async (sessionTokenValue: string) => {
+    const endpoint =
+      credentialType === "api_key"
+        ? "/api/validate-api-key"
+        : "/api/validate-session-token";
+
+    const bodyKey = credentialType === "api_key" ? "apiKey" : "sessionToken";
+
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ apiKey: apiKeyValue }),
+      body: JSON.stringify({ [bodyKey]: sessionTokenValue }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "Failed to validate API key");
+      throw new Error(
+        data.error ||
+          `Failed to validate ${
+            credentialType === "api_key" ? "API key" : "session token"
+          }`
+      );
     }
 
     return data;
@@ -101,21 +115,21 @@ export function WelcomeForm({
 
     try {
       if (!skipValidation) {
-        // Validate the API key
-        await validateApiKey(apiKey.trim());
+        // Validate the session token
+        await validateSessionToken(sessionToken.trim());
       }
 
       // Add a brief delay for smooth animation
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      onCredentialsSubmit(apiKey.trim());
+      onCredentialsSubmit(sessionToken.trim());
     } catch (error) {
-      console.error("Error validating API key:", error);
+      console.error("Error validating session token:", error);
       setErrors({
-        apiKey:
+        sessionToken:
           error instanceof Error
             ? error.message
-            : "Failed to connect. Please check your API key.",
+            : "Failed to connect. Please check your session token.",
       });
       setIsSubmitting(false);
     }
@@ -134,7 +148,7 @@ export function WelcomeForm({
             <div className="relative">
               <Image
                 src="/deeplog.svg"
-                alt="DeepLog Logo"
+                alt="deeplog Logo"
                 width={64}
                 height={64}
                 className="dark:invert transition-all duration-500 hover:scale-110"
@@ -151,7 +165,7 @@ export function WelcomeForm({
               {description}
             </p>
             <p className="text-sm text-muted-foreground/80">
-              Please enter your API key
+              Please enter your session token to authenticate
             </p>
           </div>
         </div>
@@ -165,31 +179,38 @@ export function WelcomeForm({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="space-y-6">
-              {/* API Key Field */}
+            <form
+              onSubmit={handleSubmit}
+              onKeyDown={handleKeyDown}
+              className="space-y-6"
+            >
+              {/* Session Token Field */}
               <div className="space-y-2">
                 <Label
-                  htmlFor="apiKey"
+                  htmlFor="sessionToken"
                   className="text-sm font-medium flex items-center gap-2"
                 >
                   <Key className="w-4 h-4 text-muted-foreground" />
-                  {apiKeyLabel}
+                  {sessionTokenLabel}
                 </Label>
                 <div className="relative group">
                   <Input
-                    id="apiKey"
-                    type={showApiKey ? "text" : "password"}
-                    value={apiKey}
+                    id="sessionToken"
+                    type={showSessionToken ? "text" : "password"}
+                    value={sessionToken}
                     onChange={(e) => {
-                      setApiKey(e.target.value);
-                      if (errors.apiKey)
-                        setErrors((prev) => ({ ...prev, apiKey: undefined }));
+                      setSessionToken(e.target.value);
+                      if (errors.sessionToken)
+                        setErrors((prev) => ({
+                          ...prev,
+                          sessionToken: undefined,
+                        }));
                     }}
                     placeholder={placeholder}
                     className={cn(
                       "pr-10 transition-all duration-200 border-border/60 hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/10",
                       "group-hover:shadow-sm",
-                      errors.apiKey &&
+                      errors.sessionToken &&
                         "border-destructive focus:border-destructive focus:ring-destructive/10"
                     )}
                     disabled={isSubmitting}
@@ -199,19 +220,19 @@ export function WelcomeForm({
                     variant="ghost"
                     size="icon"
                     className="absolute right-0 top-0 h-full px-3 hover:bg-transparent transition-colors duration-200"
-                    onClick={() => setShowApiKey(!showApiKey)}
+                    onClick={() => setShowSessionToken(!showSessionToken)}
                     disabled={isSubmitting}
                   >
-                    {showApiKey ? (
+                    {showSessionToken ? (
                       <EyeOff className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
                     ) : (
                       <Eye className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
                     )}
                   </Button>
                 </div>
-                {errors.apiKey && (
+                {errors.sessionToken && (
                   <p className="text-sm text-destructive animate-in slide-in-from-left-1 duration-200">
-                    {errors.apiKey}
+                    {errors.sessionToken}
                   </p>
                 )}
               </div>

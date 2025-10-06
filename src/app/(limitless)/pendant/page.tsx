@@ -58,9 +58,10 @@ export default function LimitlessPage() {
         title="Limitless AI Dashboard"
         description="for AI-powered transcriptions"
         placeholder="Enter your Limitless API key"
-        apiKeyLabel="Limitless API Key"
+        sessionTokenLabel="Limitless API Key"
         connectButtonText="Connect to Limitless"
         skipValidation={true}
+        credentialType="api_key"
         helpText={
           <>
             <strong>How to find your API key:</strong>
@@ -94,7 +95,7 @@ export default function LimitlessPage() {
             <div className="flex items-center space-x-2">
               <Image
                 src="/deeplog.svg"
-                alt="DeepLog Logo"
+                alt="deeplog Logo"
                 width={28}
                 height={28}
                 className="dark:invert transition-transform duration-200 hover:scale-110"

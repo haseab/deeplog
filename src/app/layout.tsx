@@ -12,7 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "DeepLog",
+  title: "deeplog",
   description: "for hardcore time trackers.",
 };
 

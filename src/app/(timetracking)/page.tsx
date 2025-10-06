@@ -14,15 +14,15 @@ export default function Home() {
 
   React.useEffect(() => {
     // Check if credentials exist in localStorage
-    const apiKey = localStorage.getItem("toggl_api_key");
-    setHasCredentials(!!apiKey);
+    const sessionToken = localStorage.getItem("toggl_session_token");
+    setHasCredentials(!!sessionToken);
   }, []);
 
-  const handleCredentialsSubmit = async (apiKey: string) => {
+  const handleCredentialsSubmit = async (sessionToken: string) => {
     setIsTransitioning(true);
 
-    // Store the API key in localStorage
-    localStorage.setItem("toggl_api_key", apiKey);
+    // Store the session token in localStorage
+    localStorage.setItem("toggl_session_token", sessionToken);
 
     // Add a smooth transition delay
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -32,7 +32,8 @@ export default function Home() {
   };
 
   const handleCredentialsReset = () => {
-    localStorage.removeItem("toggl_api_key");
+    localStorage.removeItem("toggl_session_token");
+    localStorage.removeItem("toggl_api_key"); // Also remove old API key if it exists
     setHasCredentials(false);
   };
 
@@ -53,23 +54,40 @@ export default function Home() {
   // Show welcome form if no credentials
   if (!hasCredentials) {
     return (
-      <WelcomeForm 
+      <WelcomeForm
         onCredentialsSubmit={handleCredentialsSubmit}
         helpText={
-          <>
-            <strong>How to find your API key:</strong>
-            <br />
-            Visit your{" "}
-            <a
-              href="https://track.toggl.com/profile"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline transition-colors duration-200"
-            >
-              Toggl profile page
-            </a>{" "}
-            and scroll to the bottom.
-          </>
+          <div className="space-y-3">
+            <div>
+              <strong>How to get your session token:</strong>
+            </div>
+            <ol className="list-decimal list-inside space-y-1 text-sm">
+              <li>
+                Log into{" "}
+                <a
+                  href="https://track.toggl.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline transition-colors duration-200"
+                >
+                  Toggl Track
+                </a>{" "}
+                in your browser
+              </li>
+              <li>Open Developer Tools (F12 or right-click → Inspect)</li>
+              <li>Go to Application/Storage → Cookies</li>
+              <li>
+                Find the cookie named{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-xs">
+                  __Secure-accounts-session
+                </code>
+              </li>
+              <li>Copy the value - this is your session token</li>
+            </ol>
+            <p className="text-xs text-muted-foreground">
+              Note: Session tokens expire every month and need to be refreshed
+            </p>
+          </div>
         }
       />
     );
@@ -88,7 +106,7 @@ export default function Home() {
             <div className="flex items-center space-x-2">
               <Image
                 src="/deeplog.svg"
-                alt="DeepLog Logo"
+                alt="deeplog Logo"
                 width={28}
                 height={28}
                 className="dark:invert transition-transform duration-200 hover:scale-110"
