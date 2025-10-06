@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "@/lib/toast";
+import { toast, triggerUndo } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import React from "react";
@@ -24,11 +24,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
+import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { ExpandableDescription } from "./expandable-description";
 import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
 import { TagSelector } from "./tag-selector";
-import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -77,7 +77,7 @@ const MemoizedTableRow = React.memo(
       >
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-28 w-24",
+            "px-4 font-mono text-sm text-muted-foreground cursor-pointer sm:w-28 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 0 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -88,7 +88,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
+            "px-4 pr-0 pl-0 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 1 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -107,7 +107,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 cursor-pointer sm:w-48 w-32",
+            "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 2 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -128,7 +128,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 cursor-pointer sm:w-48 w-32",
+            "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 3 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -146,7 +146,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
+            "px-4 pl-4 pr-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 4 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -158,7 +158,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 py-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
+            "px-4 pl-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 5 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -294,7 +294,9 @@ export function TimeTrackerTable() {
   >(new Set());
   const tableRef = React.useRef<HTMLDivElement>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
-  const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(null);
+  const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
+    null
+  );
 
   const showUpdateToast = React.useCallback(
     (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
@@ -702,9 +704,9 @@ export function TimeTrackerTable() {
             setTimeEntries(data.timeEntries);
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
-            // Fetch tags when loading initial data
-            if (resetData) {
-              fetchTags();
+            // Set tags from the response
+            if (data.tags) {
+              setAvailableTags(data.tags);
             }
           } else {
             // Filter out duplicates by ID to prevent React key conflicts
@@ -773,30 +775,6 @@ export function TimeTrackerTable() {
     await fetchData(false, false);
     setIsLoadingMore(false);
   }, [hasMore, loading, isLoadingMore, fetchData]);
-
-  // Fetch all available tags
-  const fetchTags = React.useCallback(async () => {
-    try {
-      const apiKey = localStorage.getItem("toggl_api_key");
-      const response = await fetch("/api/tags", {
-        headers: {
-          "x-toggl-api-key": apiKey || "",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      if (data.tags) {
-        setAvailableTags(data.tags);
-      }
-    } catch (error) {
-      console.error("Failed to fetch tags:", error);
-      // Don't show error toast for tags fetch failure, just log it
-    }
-  }, []);
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
@@ -892,8 +870,10 @@ export function TimeTrackerTable() {
             setProjects(data.projects);
             setHasMore(data.pagination.hasMore);
             currentPageRef.current = 0;
-            // Fetch tags on initial load
-            fetchTags();
+            // Set tags from the response
+            if (data.tags) {
+              setAvailableTags(data.tags);
+            }
           }
         } catch (error) {
           console.error("Initial load error:", error);
@@ -907,7 +887,7 @@ export function TimeTrackerTable() {
         }
       })();
     }
-  }, [date, fetchTags]);
+  }, [date]);
 
   // DO NOT REMOVE THIS COMMENT
   // Refresh data when tab becomes visible - TEMPORARILY DISABLED
@@ -1030,6 +1010,12 @@ export function TimeTrackerTable() {
       if (e.key === "Backspace" && (e.metaKey || e.ctrlKey) && !isInInput) {
         e.preventDefault();
         handleDeleteSelectedWithConfirmation();
+        return;
+      }
+
+      if (e.key === "u" && !isInInput) {
+        e.preventDefault();
+        triggerUndo();
         return;
       }
 
@@ -1179,7 +1165,7 @@ export function TimeTrackerTable() {
 
         case "d":
           e.preventDefault();
-          handleDeleteSelected();
+          handleDeleteSelectedWithConfirmation();
           break;
       }
     };

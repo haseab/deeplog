@@ -17,6 +17,11 @@ type Project = {
   active?: boolean;
 };
 
+type Tag = {
+  id: number;
+  name: string;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const { auth, workspaceId } = await setupTogglApi(request);
@@ -47,9 +52,30 @@ export async function GET(request: NextRequest) {
       return createErrorResponse("Failed to fetch projects from Toggl");
     }
 
+    // Fetch tags
+    const tagsResponse = await fetch(
+      `https://api.track.toggl.com/api/v9/me/tags`,
+      {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    let tags: Tag[] = [];
+    if (tagsResponse.ok) {
+      tags = await tagsResponse.json();
+    } else {
+      console.error("Failed to fetch tags:", await tagsResponse.text());
+      // Don't fail the whole request if tags fail, just return empty array
+    }
+
     const projects: Project[] = await projectsResponse.json();
     // Filter out archived projects
-    const activeProjects = projects.filter(project => project.active !== false);
+    const activeProjects = projects.filter(
+      (project) => project.active !== false
+    );
 
     // Fetch time entries
     const timeEntriesResponse = await fetch(
@@ -105,6 +131,7 @@ export async function GET(request: NextRequest) {
       JSON.stringify({
         timeEntries: paginatedEntries,
         projects: activeProjects,
+        tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
         pagination: {
           page,
           limit,

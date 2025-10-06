@@ -27,6 +27,8 @@ export function DeleteConfirmationDialog({
   onConfirm,
 }: DeleteConfirmationDialogProps) {
   const deleteButtonRef = React.useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
+  const [focusedButton, setFocusedButton] = React.useState<'delete' | 'cancel'>('delete');
 
   // Focus the delete button when dialog opens
   React.useEffect(() => {
@@ -34,9 +36,21 @@ export function DeleteConfirmationDialog({
       // Small delay to ensure dialog is fully mounted
       setTimeout(() => {
         deleteButtonRef.current?.focus();
+        setFocusedButton('delete');
       }, 100);
     }
   }, [open]);
+
+  // Handle focus changes
+  React.useEffect(() => {
+    if (!open) return;
+
+    if (focusedButton === 'delete') {
+      deleteButtonRef.current?.focus();
+    } else {
+      cancelButtonRef.current?.focus();
+    }
+  }, [focusedButton, open]);
 
   if (!entry) return null;
 
@@ -48,10 +62,20 @@ export function DeleteConfirmationDialog({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleConfirm();
+      if (focusedButton === 'delete') {
+        handleConfirm();
+      } else {
+        onOpenChange(false);
+      }
     } else if (e.key === "Escape") {
       e.preventDefault();
       onOpenChange(false);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      setFocusedButton(prev => prev === 'delete' ? 'cancel' : 'delete');
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      setFocusedButton(prev => prev === 'delete' ? 'cancel' : 'delete');
     }
   };
 
@@ -94,12 +118,16 @@ export function DeleteConfirmationDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            ref={cancelButtonRef}
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button 
+          <Button
             ref={deleteButtonRef}
-            variant="destructive" 
+            variant="destructive"
             onClick={handleConfirm}
           >
             Delete Entry
