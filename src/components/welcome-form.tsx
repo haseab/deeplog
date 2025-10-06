@@ -77,7 +77,22 @@ export function WelcomeForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    await submitForm();
+  };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      // Cmd+Enter or Ctrl+Enter
+      e.preventDefault();
+      submitForm();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      // Regular Enter (not Shift+Enter)
+      e.preventDefault();
+      submitForm();
+    }
+  };
+
+  const submitForm = async () => {
     if (!validateForm()) {
       return;
     }
@@ -103,18 +118,6 @@ export function WelcomeForm({
             : "Failed to connect. Please check your API key.",
       });
       setIsSubmitting(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      // Cmd+Enter or Ctrl+Enter
-      e.preventDefault();
-      handleSubmit(e as React.FormEvent<HTMLFormElement>);
-    } else if (e.key === "Enter" && !e.shiftKey) {
-      // Regular Enter (not Shift+Enter)
-      e.preventDefault();
-      handleSubmit(e as React.FormEvent<HTMLFormElement>);
     }
   };
 
