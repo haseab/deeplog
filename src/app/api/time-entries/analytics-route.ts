@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     }
 
     const analyticsData = await analyticsResponse.json();
-    const enrichedEntries = transformAnalyticsData(analyticsData);
+    let enrichedEntries = transformAnalyticsData(analyticsData);
 
     // Fetch current running task
     const currentTaskResponse = await fetch(
@@ -156,35 +156,34 @@ export async function GET(request: NextRequest) {
     if (currentTaskResponse.ok) {
       const currentTask = await currentTaskResponse.json();
 
-      // If there's a running task, add it to the entries
+      // If there's a running task, handle it properly
       if (currentTask && currentTask.id) {
-        // Check if it's already in the list (shouldn't be, but just in case)
-        const existingIndex = enrichedEntries.findIndex(
-          (e) => e.id === currentTask.id
-        );
+        // REMOVE any matching entry from Analytics API (it's stale/cached)
+        const originalLength = enrichedEntries.length;
+        enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
 
-        if (existingIndex === -1) {
-          // Find project info for the current task
-          const project = currentTask.project_id
-            ? activeProjects.find((p) => p.id === currentTask.project_id)
-            : null;
 
-          // Add the current running task to the beginning
-          const runningEntry = {
-            id: currentTask.id,
-            description: currentTask.description || "",
-            project_id: currentTask.project_id,
-            project_name: project?.name || "",
-            project_color: project?.color || "#6b7280",
-            start: currentTask.start,
-            stop: null, // Running tasks have no stop time
-            duration: currentTask.duration, // Will be negative for running tasks
-            tags: currentTask.tags || [],
-            tag_ids: currentTask.tag_ids || [],
-          };
+        // Find project info for the current task
+        const project = currentTask.project_id
+          ? activeProjects.find((p) => p.id === currentTask.project_id)
+          : null;
 
-          enrichedEntries.unshift(runningEntry);
-        }
+        // Create the running entry with v9 API data (source of truth)
+        const runningEntry = {
+          id: currentTask.id,
+          description: currentTask.description || "",
+          project_id: currentTask.project_id,
+          project_name: project?.name || "",
+          project_color: project?.color || "#6b7280",
+          start: currentTask.start,
+          stop: null, // Running tasks have no stop time
+          duration: -1, // Always use -1 for running tasks
+          tags: currentTask.tags || [],
+          tag_ids: currentTask.tag_ids || [],
+        };
+
+        // Always add the v9 current entry
+        enrichedEntries.unshift(runningEntry);
       }
     }
 

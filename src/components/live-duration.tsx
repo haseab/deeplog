@@ -19,28 +19,29 @@ export function LiveDuration({
   const [currentTime, setCurrentTime] = React.useState(new Date());
 
   React.useEffect(() => {
-    // Only set up interval for running entries (no stop time)
-    if (!stopTime) {
+    // Only set up interval for running entries (no stop time or duration is -1)
+    if (!stopTime || staticDuration === -1) {
       const interval = setInterval(() => {
         setCurrentTime(new Date());
       }, 1000);
 
       return () => clearInterval(interval);
     }
-  }, [stopTime]);
+  }, [stopTime, staticDuration]);
 
   const formatDuration = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    const absSeconds = Math.abs(seconds); // Handle negative durations
+    const hours = Math.floor(absSeconds / 3600);
+    const minutes = Math.floor((absSeconds % 3600) / 60);
+    const secs = absSeconds % 60;
 
     return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // If the entry is completed, show the static duration
-  if (stopTime) {
+  // If the entry is completed (has stop time AND duration is not -1), show the static duration
+  if (stopTime && staticDuration !== -1) {
     return (
       <span
         className={cn("font-mono transition-colors duration-200", className)}

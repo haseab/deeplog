@@ -155,7 +155,7 @@ const MemoizedTableRow = React.memo(
           onClick={() => onSelectCell(rowIndex, 4)}
         >
           {format(new Date(entry.start), "h:mm a")} -{" "}
-          {entry.stop ? format(new Date(entry.stop), "h:mm a") : "Now"}
+          {entry.stop && entry.duration !== -1 ? format(new Date(entry.stop), "h:mm a") : "Now"}
         </TableCell>
         <TableCell
           className={cn(
@@ -173,7 +173,7 @@ const MemoizedTableRow = React.memo(
               staticDuration={entry.duration}
               className="group-hover:text-accent-foreground transition-colors duration-200 block min-w-[60px] text-center"
             />
-            {!entry.stop && (
+            {(!entry.stop || entry.duration === -1) && (
               <div className="relative flex-shrink-0">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                 <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75"></div>
@@ -717,6 +717,20 @@ export function TimeTrackerTable() {
         }
 
         const data = await response.json();
+
+        // Debug: Log first few entries to see their properties
+        console.log("=== TIME ENTRIES DEBUG ===");
+        console.log("First 3 entries:", data.timeEntries?.slice(0, 3));
+        if (data.timeEntries?.[0]) {
+          const first = data.timeEntries[0];
+          console.log("First entry details:");
+          console.log("  ID:", first.id);
+          console.log("  Duration:", first.duration);
+          console.log("  Stop:", first.stop);
+          console.log("  Start:", first.start);
+          console.log("  Is running?", !first.stop || first.duration === -1);
+        }
+        console.log("========================");
 
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
