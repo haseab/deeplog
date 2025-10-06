@@ -670,9 +670,20 @@ export function TimeTrackerTable() {
     });
   }, [timeEntries]);
 
+  // Add a ref to track last fetch time for global debouncing
+  const lastFetchTimeRef = React.useRef(0);
+  const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
+
   const fetchData = React.useCallback(
     async (showLoadingState = true, resetData = true) => {
       if (!date?.from || !date?.to) return;
+
+      // Global debouncing to prevent rapid consecutive fetches
+      const now = Date.now();
+      if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_DELAY && !showLoadingState) {
+        return; // Skip if we're doing a background fetch and recently fetched
+      }
+      lastFetchTimeRef.current = now;
 
       // Only show main loading state for initial loads, not infinite scroll
       if (showLoadingState && resetData) setLoading(true);
@@ -871,69 +882,54 @@ export function TimeTrackerTable() {
   React.useEffect(() => {
     currentPageRef.current = 0;
     setHasMore(true);
-    // Call fetchData directly without depending on the callback
+    // Use fetchData instead of duplicating the logic
     if (date?.from && date?.to) {
-      const fromISO = date.from.toISOString();
-      const toISO = date.to.toISOString();
-      const sessionToken = localStorage.getItem("toggl_session_token");
-
-      setLoading(true);
-      (async () => {
-        try {
-          const response = await fetch(
-            `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=0&limit=100`,
-            {
-              headers: { "x-toggl-session-token": sessionToken || "" },
-            }
-          );
-
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-          const data = await response.json();
-          if (data.timeEntries && data.projects && data.pagination) {
-            setTimeEntries(data.timeEntries);
-            setProjects(data.projects);
-            setHasMore(data.pagination.hasMore);
-            currentPageRef.current = 0;
-            // Set tags from the response
-            if (data.tags) {
-              setAvailableTags(data.tags);
-            }
-          }
-        } catch (error) {
-          console.error("Initial load error:", error);
-          const now = Date.now();
-          if (now - lastErrorToastRef.current > 5000) {
-            toast.error("Failed to fetch data.");
-            lastErrorToastRef.current = now;
-          }
-        } finally {
-          setLoading(false);
-        }
-      })();
+      fetchData(true, true); // Show loading, reset data
     }
-  }, [date]);
+  }, [date]); // Note: fetchData is intentionally not in deps to avoid infinite loop
 
-  // Refresh data when tab becomes visible or window gains focus
+  // Refresh data when tab becomes visible or window gains focus (with debouncing)
   React.useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && date?.from && date?.to) {
+    // Track if this is the initial mount
+    let isMounted = false;
+    let lastFetchTime = 0;
+    const DEBOUNCE_DELAY = 3000; // Minimum 3 seconds between visibility/focus fetches
+
+    // Wait a bit after mount before enabling auto-refresh
+    const mountTimer = setTimeout(() => {
+      isMounted = true;
+    }, 2000);
+
+    const debouncedFetch = () => {
+      if (!isMounted) return; // Don't fetch on initial mount
+
+      const now = Date.now();
+      if (now - lastFetchTime < DEBOUNCE_DELAY) {
+        return; // Skip if we fetched recently
+      }
+      lastFetchTime = now;
+
+      if (date?.from && date?.to) {
         // Silently refresh data without showing loading state
         fetchData(false);
       }
     };
 
-    const handleFocus = () => {
-      if (date?.from && date?.to) {
-        // Silently refresh data when window gains focus
-        fetchData(false);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        debouncedFetch();
       }
+    };
+
+    const handleFocus = () => {
+      debouncedFetch();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleFocus);
 
     return () => {
+      clearTimeout(mountTimer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
     };
