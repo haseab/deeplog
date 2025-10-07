@@ -101,7 +101,7 @@ export default function LimitlessPage() {
                 className="dark:invert transition-transform duration-200 hover:scale-110"
               />
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                Transcriptions
+                History
               </h1>
             </div>
           </div>
