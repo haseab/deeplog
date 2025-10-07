@@ -1,17 +1,16 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { Toaster as Sonner, ToasterProps } from "sonner";
+import { Toaster } from "sonner";
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const ThemedToaster = () => {
   const { theme = "system" } = useTheme();
 
   return (
-    <Sonner
-      theme={theme as ToasterProps["theme"]}
+    <Toaster
+      theme={theme as "light" | "dark" | "system"}
       className="toaster group"
       closeButton
-      pauseWhenPageIsHidden={false} // Don't pause timers when tab is hidden
       style={
         {
           "--normal-bg": "var(--popover)",
@@ -33,9 +32,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
           info: "info-toast",
         },
       }}
-      {...props}
     />
   );
 };
 
-export { Toaster };
+export { ThemedToaster as Toaster };
