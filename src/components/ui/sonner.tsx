@@ -11,6 +11,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       closeButton
+      pauseWhenPageIsHidden={false} // Don't pause timers when tab is hidden
       style={
         {
           "--normal-bg": "var(--popover)",
