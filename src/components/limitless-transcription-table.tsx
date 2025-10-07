@@ -273,25 +273,7 @@ export function LimitlessTranscriptionTable({
     // Reverse the content order so newest timestamps appear first
     const reversedContents = [...textContents].reverse();
 
-    // Only show debug for multi-segment transcriptions with actual gaps
-    if (reversedContents.length > 1) {
-      const segmentsWithGaps = reversedContents
-        .map((c, idx) => {
-          const gap =
-            idx > 0
-              ? c.startOffsetMs - reversedContents[idx - 1].endOffsetMs
-              : 0;
-          return { idx, gap, start: c.startOffsetMs, end: c.endOffsetMs };
-        })
-        .filter((s) => s.gap > 1000); // Only show gaps > 1 second
-
-      if (segmentsWithGaps.length > 0) {
-        console.log(
-          `Found ${segmentsWithGaps.length} gaps in ${reversedContents.length} segments:`,
-          segmentsWithGaps
-        );
-      }
-    }
+    // Remove debug logging - feature is working now
 
     const SILENCE_THRESHOLD_MS = 3000; // 3 seconds - lower threshold to see more gaps
 
@@ -317,29 +299,6 @@ export function LimitlessTranscriptionTable({
 
               // Only show positive gaps
               silenceGap = Math.max(0, silenceGap);
-
-              // Debug - show actual formatted times
-              if (index < 5) {
-                console.log(`Gap check between segments:`, {
-                  earlierSegment: {
-                    time: formatActualTime(
-                      transcription.startTime,
-                      currentSegment.startOffsetMs
-                    ),
-                    endMs: currentSegment.endOffsetMs,
-                  },
-                  laterSegment: {
-                    time: formatActualTime(
-                      transcription.startTime,
-                      prevSegmentInArray.startOffsetMs
-                    ),
-                    startMs: prevSegmentInArray.startOffsetMs,
-                  },
-                  gapMs: silenceGap,
-                  gapSeconds: Math.floor(silenceGap / 1000),
-                  willShow: silenceGap > SILENCE_THRESHOLD_MS,
-                });
-              }
             }
           }
 
