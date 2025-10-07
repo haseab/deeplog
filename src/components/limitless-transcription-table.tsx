@@ -4,6 +4,7 @@ import { toast } from "@/lib/toast";
 import * as chrono from "chrono-node";
 import { format } from "date-fns";
 import { Search } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -29,9 +30,15 @@ interface Transcription {
   markdown?: string;
 }
 
-export function LimitlessTranscriptionTable() {
-  const [nlpQuery, setNlpQuery] = React.useState<string>("today");
-  const [activeQuery, setActiveQuery] = React.useState<string>("today");
+interface LimitlessTranscriptionTableProps {
+  initialQuery?: string;
+}
+
+export function LimitlessTranscriptionTable({ initialQuery = "today" }: LimitlessTranscriptionTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [nlpQuery, setNlpQuery] = React.useState<string>(initialQuery);
+  const [activeQuery, setActiveQuery] = React.useState<string>(initialQuery);
   const [transcriptions, setTranscriptions] = React.useState<Transcription[]>(
     []
   );
@@ -203,9 +210,20 @@ export function LimitlessTranscriptionTable() {
   }, [hasMore, loading, cursor, fetchTranscriptions]);
 
   const handleSearch = () => {
+    // Update URL with the new query
+    const params = new URLSearchParams();
+    params.set('q', nlpQuery);
+    router.push(`${pathname}?${params.toString()}`);
+
     // Set the active query to trigger a new search
     setActiveQuery(nlpQuery);
   };
+
+  // Update local state when URL changes (e.g., from back/forward navigation)
+  React.useEffect(() => {
+    setNlpQuery(initialQuery);
+    setActiveQuery(initialQuery);
+  }, [initialQuery]);
 
   React.useEffect(() => {
     // Fetch when activeQuery changes (including initial load)

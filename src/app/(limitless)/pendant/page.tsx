@@ -4,9 +4,13 @@ import { LimitlessTranscriptionTable } from "@/components/limitless-transcriptio
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WelcomeForm } from "@/components/welcome-form";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import * as React from "react";
+import { Suspense } from "react";
 
-export default function LimitlessPage() {
+function LimitlessPageContent() {
+  const searchParams = useSearchParams();
+  const query = searchParams.get("q") || "today";
   const [hasCredentials, setHasCredentials] = React.useState<boolean | null>(
     null
   );
@@ -117,9 +121,26 @@ export default function LimitlessPage() {
         </div>
 
         <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
-          <LimitlessTranscriptionTable />
+          <LimitlessTranscriptionTable initialQuery={query} />
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LimitlessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="text-muted-foreground animate-pulse">
+            Loading...
+          </p>
+        </div>
+      </div>
+    }>
+      <LimitlessPageContent />
+    </Suspense>
   );
 }
