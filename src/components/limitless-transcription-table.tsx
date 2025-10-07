@@ -4,7 +4,7 @@ import { toast } from "@/lib/toast";
 import * as chrono from "chrono-node";
 import { format } from "date-fns";
 import { Search } from "lucide-react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,9 @@ interface LimitlessTranscriptionTableProps {
   initialQuery?: string;
 }
 
-export function LimitlessTranscriptionTable({ initialQuery = "today" }: LimitlessTranscriptionTableProps) {
+export function LimitlessTranscriptionTable({
+  initialQuery = "today",
+}: LimitlessTranscriptionTableProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [nlpQuery, setNlpQuery] = React.useState<string>(initialQuery);
@@ -212,7 +214,7 @@ export function LimitlessTranscriptionTable({ initialQuery = "today" }: Limitles
   const handleSearch = () => {
     // Update URL with the new query
     const params = new URLSearchParams();
-    params.set('q', nlpQuery);
+    params.set("q", nlpQuery);
     router.push(`${pathname}?${params.toString()}`);
 
     // Set the active query to trigger a new search
@@ -271,23 +273,128 @@ export function LimitlessTranscriptionTable({ initialQuery = "today" }: Limitles
     // Reverse the content order so newest timestamps appear first
     const reversedContents = [...textContents].reverse();
 
+    // Only show debug for multi-segment transcriptions with actual gaps
+    if (reversedContents.length > 1) {
+      const segmentsWithGaps = reversedContents
+        .map((c, idx) => {
+          const gap =
+            idx > 0
+              ? c.startOffsetMs - reversedContents[idx - 1].endOffsetMs
+              : 0;
+          return { idx, gap, start: c.startOffsetMs, end: c.endOffsetMs };
+        })
+        .filter((s) => s.gap > 1000); // Only show gaps > 1 second
+
+      if (segmentsWithGaps.length > 0) {
+        console.log(
+          `Found ${segmentsWithGaps.length} gaps in ${reversedContents.length} segments:`,
+          segmentsWithGaps
+        );
+      }
+    }
+
+    const SILENCE_THRESHOLD_MS = 3000; // 3 seconds - lower threshold to see more gaps
+
     return (
       <div className="space-y-1">
-        {reversedContents.map((content, index) => (
-          <div key={index} className="flex items-start gap-2">
-            {content.startOffsetMs !== undefined && (
-              <span className="text-xs text-muted-foreground font-mono min-w-[60px] mt-0.5">
-                {formatActualTime(
-                  transcription.startTime,
-                  content.startOffsetMs
+        {reversedContents.map((content, index) => {
+          // Calculate time gap from previous segment (remember: array is in reverse chronological order!)
+          let silenceGap = 0;
+          if (index > 0) {
+            const prevSegmentInArray = reversedContents[index - 1]; // This happened LATER in time
+            const currentSegment = content; // This happened EARLIER in time
+
+            // Since we're displaying in reverse chronological order (newest first):
+            // We want to show gaps between segments as they actually occurred
+            // The gap is: laterSegment.startOffset - earlierSegment.endOffset
+            if (
+              currentSegment.endOffsetMs !== undefined &&
+              prevSegmentInArray.startOffsetMs !== undefined
+            ) {
+              // Gap between when current (earlier) ended and prev (later) started
+              silenceGap =
+                prevSegmentInArray.startOffsetMs - currentSegment.endOffsetMs;
+
+              // Only show positive gaps
+              silenceGap = Math.max(0, silenceGap);
+
+              // Debug - show actual formatted times
+              if (index < 5) {
+                console.log(`Gap check between segments:`, {
+                  earlierSegment: {
+                    time: formatActualTime(
+                      transcription.startTime,
+                      currentSegment.startOffsetMs
+                    ),
+                    endMs: currentSegment.endOffsetMs,
+                  },
+                  laterSegment: {
+                    time: formatActualTime(
+                      transcription.startTime,
+                      prevSegmentInArray.startOffsetMs
+                    ),
+                    startMs: prevSegmentInArray.startOffsetMs,
+                  },
+                  gapMs: silenceGap,
+                  gapSeconds: Math.floor(silenceGap / 1000),
+                  willShow: silenceGap > SILENCE_THRESHOLD_MS,
+                });
+              }
+            }
+          }
+
+          const showSilenceIndicator = silenceGap > SILENCE_THRESHOLD_MS;
+          const silenceDurationSeconds = Math.floor(silenceGap / 1000);
+          const silenceMinutes = Math.floor(silenceDurationSeconds / 60);
+          const silenceSeconds = silenceDurationSeconds % 60;
+
+          return (
+            <React.Fragment key={index}>
+              {/* Show silence indicator if there's a significant gap */}
+              {showSilenceIndicator && (
+                <div className="my-3 -mx-1">
+                  <div className="h-8 rounded-md border border-dashed border-border/40 bg-muted/10 relative overflow-hidden">
+                    {/* Hatched pattern using CSS */}
+                    <div
+                      className="absolute inset-0 opacity-20"
+                      style={{
+                        backgroundImage: `repeating-linear-gradient(
+                          45deg,
+                          transparent,
+                          transparent 5px,
+                          currentColor 5px,
+                          currentColor 6px
+                        )`,
+                      }}
+                    />
+                    <div className="absolute inset-0 flex items-center pl-16">
+                      <span className="text-xs text-muted-foreground italic bg-background/80 backdrop-blur-sm px-2 py-0.5 rounded">
+                        {silenceMinutes > 0
+                          ? `${silenceMinutes}m ${silenceSeconds}s silence`
+                          : `${silenceSeconds}s silence`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Original transcript segment */}
+              <div className="flex items-start gap-2">
+                {content.startOffsetMs !== undefined && (
+                  <span className="text-xs text-muted-foreground font-mono min-w-[60px] mt-0.5">
+                    {formatActualTime(
+                      transcription.startTime,
+                      content.startOffsetMs
+                    )}
+                  </span>
                 )}
-              </span>
-            )}
-            <p className="text-xs leading-relaxed text-foreground flex-1">
-              {content.content}
-            </p>
-          </div>
-        ))}
+                <p className="text-xs leading-relaxed text-foreground flex-1">
+                  {content.content}
+                </p>
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
     );
   };
