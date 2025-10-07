@@ -88,11 +88,6 @@ export function ExpandableDescription({
     return html;
   }, []);
 
-  // Notify parent of editing state changes
-  React.useEffect(() => {
-    onEditingChange?.(isEditing);
-  }, [isEditing, onEditingChange]);
-
   // Create a ref for the editor to avoid dependency issues
   const editorRef = React.useRef<Editor>(null);
 
@@ -101,6 +96,47 @@ export function ExpandableDescription({
     const html = editorRef.current.getHTML();
     return turndownService.turndown(html);
   }, [turndownService]);
+
+  // Notify parent of editing state changes
+  React.useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
+
+  // Handle click outside to save and close editor
+  React.useEffect(() => {
+    if (!isEditing || !editorRef.current) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
+      // Find the editor container
+      const editorContainer = document.querySelector('.editor-container');
+      if (!editorContainer) return;
+
+      // Check if click is outside the editor container
+      if (!editorContainer.contains(target)) {
+        // Also check if it's not the link dialog
+        const popoverContent = document.querySelector('[role="dialog"]');
+        if (popoverContent && popoverContent.contains(target)) {
+          return; // Clicked in dialog, don't close
+        }
+
+        // Save and close
+        const newContent = getMarkdownContent();
+        if (newContent !== description) {
+          onSave?.(newContent);
+        }
+        setIsEditing(false);
+      }
+    };
+
+    // Add listener
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isEditing, description, getMarkdownContent, onSave]);
 
   // Update character count when editor content changes
   const updateCharCount = React.useCallback(() => {
@@ -213,16 +249,7 @@ export function ExpandableDescription({
     onUpdate: () => {
       updateCharCount();
     },
-    onBlur: async () => {
-      if (isEditing && editorRef.current && !showLinkDialog) {
-        const newContent = getMarkdownContent();
-        // Only save if content has actually changed
-        if (newContent !== description) {
-          onSave?.(newContent);
-        }
-        setIsEditing(false);
-      }
-    },
+    // Remove onBlur - we handle closing via click outside detection now
   });
 
   React.useEffect(() => {

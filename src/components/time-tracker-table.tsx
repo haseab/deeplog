@@ -903,6 +903,11 @@ export function TimeTrackerTable() {
     const debouncedFetch = () => {
       if (!isMounted) return; // Don't fetch on initial mount
 
+      // Don't sync if any input field is being edited
+      if (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isActionsMenuOpen) {
+        return; // Skip auto-sync while editing
+      }
+
       const now = Date.now();
       if (now - lastFetchTime < DEBOUNCE_DELAY) {
         return; // Skip if we fetched recently
@@ -933,7 +938,7 @@ export function TimeTrackerTable() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [fetchData, date]);
+  }, [fetchData, date, isEditingCell, isProjectSelectorOpen, isTagSelectorOpen, isActionsMenuOpen]);
 
   // Memoize expensive calculations
   const keyboardNavigationData = React.useMemo(
