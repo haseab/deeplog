@@ -110,7 +110,7 @@ export function ExpandableDescription({
       const target = event.target as HTMLElement;
 
       // Find the editor container
-      const editorContainer = document.querySelector('.editor-container');
+      const editorContainer = document.querySelector(".editor-container");
       if (!editorContainer) return;
 
       // Check if click is outside the editor container
@@ -131,10 +131,10 @@ export function ExpandableDescription({
     };
 
     // Add listener
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isEditing, description, getMarkdownContent, onSave]);
 
@@ -366,11 +366,14 @@ export function ExpandableDescription({
     return (
       <div className="w-full editor-container" data-testid={dataTestId}>
         <div className="relative">
-          <EditorContent editor={editor} className="w-full" />
+          <EditorContent
+            editor={editor}
+            className="w-full"
+          />
 
           {/* Character Counter */}
           <div
-            className={`absolute bottom-2 right-2 text-xs px-2 py-1 rounded-md backdrop-blur-sm ${
+            className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none ${
               isOverLimit
                 ? "text-red-600 bg-red-50/90 dark:bg-red-900/20 dark:text-red-400"
                 : remainingChars < 100

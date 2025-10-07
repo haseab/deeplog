@@ -2,7 +2,7 @@
 
 import { toast, triggerUndo } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { Calendar as CalendarIcon, RefreshCw, Plus } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
 import { SyncStatusBadge } from "./sync-status-badge";
@@ -89,7 +89,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 pr-0 pl-0 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
+            "px-4 pr-2 pl-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 1 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -155,7 +155,9 @@ const MemoizedTableRow = React.memo(
           onClick={() => onSelectCell(rowIndex, 4)}
         >
           {format(new Date(entry.start), "h:mm a")} -{" "}
-          {entry.stop && entry.duration !== -1 ? format(new Date(entry.stop), "h:mm a") : "Now"}
+          {entry.stop && entry.duration !== -1
+            ? format(new Date(entry.stop), "h:mm a")
+            : "Now"}
         </TableCell>
         <TableCell
           className={cn(
@@ -298,7 +300,9 @@ export function TimeTrackerTable() {
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
     null
   );
-  const [syncStatus, setSyncStatus] = React.useState<"synced" | "syncing" | "error" | "session_expired" | "offline">("synced");
+  const [syncStatus, setSyncStatus] = React.useState<
+    "synced" | "syncing" | "error" | "session_expired" | "offline"
+  >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
 
   const showUpdateToast = React.useCallback(
@@ -680,7 +684,10 @@ export function TimeTrackerTable() {
 
       // Global debouncing to prevent rapid consecutive fetches
       const now = Date.now();
-      if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_DELAY && !showLoadingState) {
+      if (
+        now - lastFetchTimeRef.current < FETCH_DEBOUNCE_DELAY &&
+        !showLoadingState
+      ) {
         return; // Skip if we're doing a background fetch and recently fetched
       }
       lastFetchTimeRef.current = now;
@@ -769,7 +776,10 @@ export function TimeTrackerTable() {
         console.error("API Error:", error);
 
         // Set appropriate sync status based on error
-        if (error instanceof Error && error.message.includes("Session expired")) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Session expired")
+        ) {
           setSyncStatus("session_expired");
         } else if (!navigator.onLine) {
           setSyncStatus("offline");
@@ -783,7 +793,10 @@ export function TimeTrackerTable() {
           const now = Date.now();
           if (now - lastErrorToastRef.current > 5000) {
             // Max one error toast per 5 seconds
-            if (error instanceof Error && error.message.includes("Session expired")) {
+            if (
+              error instanceof Error &&
+              error.message.includes("Session expired")
+            ) {
               toast.error("Session expired. Please reauthenticate.");
             } else {
               toast.error("Failed to fetch data.");
@@ -904,7 +917,12 @@ export function TimeTrackerTable() {
       if (!isMounted) return; // Don't fetch on initial mount
 
       // Don't sync if any input field is being edited
-      if (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isActionsMenuOpen) {
+      if (
+        isEditingCell ||
+        isProjectSelectorOpen ||
+        isTagSelectorOpen ||
+        isActionsMenuOpen
+      ) {
         return; // Skip auto-sync while editing
       }
 
@@ -938,7 +956,14 @@ export function TimeTrackerTable() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [fetchData, date, isEditingCell, isProjectSelectorOpen, isTagSelectorOpen, isActionsMenuOpen]);
+  }, [
+    fetchData,
+    date,
+    isEditingCell,
+    isProjectSelectorOpen,
+    isTagSelectorOpen,
+    isActionsMenuOpen,
+  ]);
 
   // Memoize expensive calculations
   const keyboardNavigationData = React.useMemo(
@@ -1325,49 +1350,52 @@ export function TimeTrackerTable() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              id="date"
-              variant={"outline"}
-              className={cn(
-                "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                !date && "text-muted-foreground"
-              )}
-            >
-              <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-              {date?.from ? (
-                date.to ? (
-                  <>
-                    {format(date.from, "LLL dd, y")} -{" "}
-                    {format(date.to, "LLL dd, y")}
-                  </>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                  !date && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                {date?.from ? (
+                  date.to ? (
+                    <>
+                      {format(date.from, "LLL dd, y")} -{" "}
+                      {format(date.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(date.from, "LLL dd, y")
+                  )
                 ) : (
-                  format(date.from, "LLL dd, y")
-                )
-              ) : (
-                <span>Pick a date range</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 border-border/60" align="start">
-            <Calendar
-              mode="range"
-              defaultMonth={date?.from}
-              selected={date}
-              onSelect={(selectedRange) => {
-                if (selectedRange?.from && selectedRange?.to) {
-                  // Set end date to end of day
-                  const endOfDayTo = endOfDay(selectedRange.to);
-                  setDate({ from: selectedRange.from, to: endOfDayTo });
-                } else {
-                  setDate(selectedRange);
-                }
-              }}
-              numberOfMonths={2}
-              className="rounded-md border-0"
-            />
-          </PopoverContent>
-        </Popover>
+                  <span>Pick a date range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-auto p-0 border-border/60"
+              align="start"
+            >
+              <Calendar
+                mode="range"
+                defaultMonth={date?.from}
+                selected={date}
+                onSelect={(selectedRange) => {
+                  if (selectedRange?.from && selectedRange?.to) {
+                    // Set end date to end of day
+                    const endOfDayTo = endOfDay(selectedRange.to);
+                    setDate({ from: selectedRange.from, to: endOfDayTo });
+                  } else {
+                    setDate(selectedRange);
+                  }
+                }}
+                numberOfMonths={2}
+                className="rounded-md border-0"
+              />
+            </PopoverContent>
+          </Popover>
           <Button
             onClick={() => {
               fetchData();
