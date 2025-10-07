@@ -2,7 +2,7 @@
 
 import { toast, triggerUndo } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import { Calendar as CalendarIcon, RefreshCw, Plus } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
 import { SyncStatusBadge } from "./sync-status-badge";
@@ -1383,12 +1383,22 @@ export function TimeTrackerTable() {
             )}
           </Button>
         </div>
-        <SyncStatusBadge
-          status={syncStatus}
-          lastSyncTime={lastSyncTime}
-          onReauthenticate={handleReauthenticate}
-          onRetry={() => fetchData()}
-        />
+        <div className="flex items-center gap-3">
+          <SyncStatusBadge
+            status={syncStatus}
+            lastSyncTime={lastSyncTime}
+            onReauthenticate={handleReauthenticate}
+            onRetry={() => fetchData()}
+          />
+          <Button
+            onClick={handleNewEntry}
+            size="icon"
+            className="rounded-full h-9 w-9 bg-accent hover:bg-accent/80 text-accent-foreground border border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
+            title="Start new timer (N)"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {loading ? (
