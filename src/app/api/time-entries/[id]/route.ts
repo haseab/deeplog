@@ -15,7 +15,7 @@ export async function PATCH(
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
-    const { description, project_name, stop, tag_ids } = body;
+    const { description, project_name, start, stop, tag_ids } = body;
 
     // First, get the current time entry using the correct endpoint
     const getCurrentResponse = await fetch(
@@ -75,8 +75,15 @@ export async function PATCH(
       ...(description !== undefined && { description }),
       ...(project_name !== undefined && { project_id }),
       ...(tag_ids !== undefined && { tag_ids }),
+      ...(start !== undefined && { start }),
       ...(stop !== undefined && { stop }),
     };
+
+    // Remove duration if we're updating start or stop times
+    // Toggl will calculate it automatically and mismatches cause errors
+    if (start !== undefined || stop !== undefined) {
+      delete updateData.duration;
+    }
 
     const updateResponse = await fetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,

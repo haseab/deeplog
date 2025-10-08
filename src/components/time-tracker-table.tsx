@@ -34,6 +34,7 @@ import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
 import { TagSelector } from "./tag-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
+import { TimeEditor } from "./time-editor";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -44,6 +45,7 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
+    onTimeChange,
     onDelete,
     onPin,
     onUnpin,
@@ -55,7 +57,9 @@ const MemoizedTableRow = React.memo(
     setIsProjectSelectorOpen,
     setIsTagSelectorOpen,
     setIsActionsMenuOpen,
+    setIsTimeEditorOpen,
     navigateToNextCell,
+    navigateToNextRow,
     isNewlyLoaded,
   }: {
     entry: TimeEntry;
@@ -65,6 +69,7 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
+    onTimeChange: (entryId: number) => (startTime: string, endTime: string | null) => void;
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
@@ -76,7 +81,9 @@ const MemoizedTableRow = React.memo(
     setIsProjectSelectorOpen: (open: boolean) => void;
     setIsTagSelectorOpen: (open: boolean) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
+    setIsTimeEditorOpen: (open: boolean) => void;
     navigateToNextCell: () => void;
+    navigateToNextRow: () => void;
     isNewlyLoaded: boolean;
   }) {
     return (
@@ -90,12 +97,8 @@ const MemoizedTableRow = React.memo(
       >
         <TableCell
           className={cn(
-            "px-4 font-mono text-sm text-muted-foreground cursor-pointer sm:w-28 w-24",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 0 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+            "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24"
           )}
-          onClick={() => onSelectCell(rowIndex, 0)}
         >
           {format(new Date(entry.start), "yyyy-MM-dd")}
         </TableCell>
@@ -136,6 +139,7 @@ const MemoizedTableRow = React.memo(
             projects={projects}
             onOpenChange={setIsProjectSelectorOpen}
             onNavigateNext={navigateToNextCell}
+            onNavigateDown={navigateToNextRow}
             data-testid="project-selector"
           />
         </TableCell>
@@ -159,17 +163,22 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 pl-4 pr-2 font-mono text-sm text-muted-foreground cursor-pointer sm:w-32 w-24",
+            "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 4 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 4)}
         >
-          {format(new Date(entry.start), "h:mm a")} -{" "}
-          {entry.stop && entry.duration !== -1
-            ? format(new Date(entry.stop), "h:mm a")
-            : "Now"}
+          <TimeEditor
+            startTime={entry.start}
+            endTime={entry.stop}
+            onSave={(startTime, endTime) => onTimeChange(entry.id)(startTime, endTime)}
+            onEditingChange={setIsTimeEditorOpen}
+            onNavigateNext={navigateToNextCell}
+            onNavigateDown={navigateToNextRow}
+            data-testid="time-editor"
+          />
         </TableCell>
         <TableCell
           className={cn(
@@ -253,22 +262,30 @@ const MemoizedTableRow = React.memo(
     }
 
     // Return true if props are equal (should NOT rerender)
+    const entryEqual = prevProps.entry === nextProps.entry;
+    const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
+    const onSelectCellEqual = prevProps.onSelectCell === nextProps.onSelectCell;
+    const onDescriptionSaveEqual = prevProps.onDescriptionSave === nextProps.onDescriptionSave;
+    const onProjectChangeEqual = prevProps.onProjectChange === nextProps.onProjectChange;
+    const onTagsChangeEqual = prevProps.onTagsChange === nextProps.onTagsChange;
+    const onTimeChangeEqual = prevProps.onTimeChange === nextProps.onTimeChange;
+    const onDeleteEqual = prevProps.onDelete === nextProps.onDelete;
+    const projectsEqual = prevProps.projects === nextProps.projects;
+    const availableTagsEqual = prevProps.availableTags === nextProps.availableTags;
+    const setIsEditingCellEqual = prevProps.setIsEditingCell === nextProps.setIsEditingCell;
+    const setIsProjectSelectorOpenEqual = prevProps.setIsProjectSelectorOpen === nextProps.setIsProjectSelectorOpen;
+    const setIsTagSelectorOpenEqual = prevProps.setIsTagSelectorOpen === nextProps.setIsTagSelectorOpen;
+    const setIsActionsMenuOpenEqual = prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen;
+    const setIsTimeEditorOpenEqual = prevProps.setIsTimeEditorOpen === nextProps.setIsTimeEditorOpen;
+    const navigateToNextCellEqual = prevProps.navigateToNextCell === nextProps.navigateToNextCell;
+    const navigateToNextRowEqual = prevProps.navigateToNextRow === nextProps.navigateToNextRow;
+
     const shouldNotRerender =
-      prevProps.entry === nextProps.entry &&
-      prevProps.rowIndex === nextProps.rowIndex &&
-      prevProps.onSelectCell === nextProps.onSelectCell &&
-      prevProps.onDescriptionSave === nextProps.onDescriptionSave &&
-      prevProps.onProjectChange === nextProps.onProjectChange &&
-      prevProps.onTagsChange === nextProps.onTagsChange &&
-      prevProps.onDelete === nextProps.onDelete &&
-      prevProps.projects === nextProps.projects &&
-      prevProps.availableTags === nextProps.availableTags &&
-      prevProps.setIsEditingCell === nextProps.setIsEditingCell &&
-      prevProps.setIsProjectSelectorOpen ===
-        nextProps.setIsProjectSelectorOpen &&
-      prevProps.setIsTagSelectorOpen === nextProps.setIsTagSelectorOpen &&
-      prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen &&
-      prevProps.navigateToNextCell === nextProps.navigateToNextCell;
+      entryEqual && rowIndexEqual && onSelectCellEqual && onDescriptionSaveEqual &&
+      onProjectChangeEqual && onTagsChangeEqual && onTimeChangeEqual && onDeleteEqual &&
+      projectsEqual && availableTagsEqual && setIsEditingCellEqual && setIsProjectSelectorOpenEqual &&
+      setIsTagSelectorOpenEqual && setIsActionsMenuOpenEqual && setIsTimeEditorOpenEqual &&
+      navigateToNextCellEqual && navigateToNextRowEqual;
 
     return shouldNotRerender;
   }
@@ -296,6 +313,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     getDefaultDateRange()
   );
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
+  const timeEntriesRef = React.useRef<TimeEntry[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [availableTags, setAvailableTags] = React.useState<Tag[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -309,6 +327,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     React.useState(false);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = React.useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
+  const [isTimeEditorOpen, setIsTimeEditorOpen] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [newlyLoadedEntries, setNewlyLoadedEntries] = React.useState<
     Set<number>
@@ -531,6 +550,82 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
       });
     },
     [showUpdateToast, availableTags]
+  );
+
+  const handleTimeChange = React.useCallback(
+    (entryId: number) => (startTime: string, endTime: string | null) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Calculate new duration for optimistic UI update
+        const start = new Date(startTime);
+        const end = endTime ? new Date(endTime) : null;
+        const duration = end ? Math.floor((end.getTime() - start.getTime()) / 1000) : -1;
+
+        // Create updated entries for optimistic update
+        const updatedEntries = currentEntries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                start: startTime,
+                stop: endTime || "",
+                duration: duration,
+              }
+            : entry
+        );
+
+        // Sort by start time (most recent first)
+        updatedEntries.sort(
+          (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+        );
+
+        showUpdateToast(
+          "Time updated.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const sessionToken = localStorage.getItem("toggl_session_token");
+            const response = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({
+                start: startTime,
+                stop: endTime || undefined,
+                // Don't send duration - let Toggl calculate it
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              let errorMessage = `Failed to update time (${response.status})`;
+              if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              } else if (response.status === 400) {
+                errorMessage = "Invalid time range";
+              }
+
+              throw new Error(errorMessage);
+            }
+
+            // After successful API call, refresh to get accurate duration from Toggl
+            setTimeout(() => {
+              fetchData(false, false);
+            }, 300);
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showUpdateToast]
   );
 
   const handleDelete = React.useCallback(
@@ -978,7 +1073,8 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
     (rowIndex: number, cellIndex: number) => {
-      const entry = timeEntries[rowIndex];
+      // Use a ref to get the latest timeEntries without causing re-creation
+      const entry = timeEntriesRef.current[rowIndex];
       if (!entry) return;
 
       // Use requestAnimationFrame to defer DOM queries to next tick
@@ -1008,6 +1104,14 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
               tagElement.click();
             }
             break;
+          case 4: // Time
+            const timeElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
+            ) as HTMLElement;
+            if (timeElement) {
+              timeElement.click();
+            }
+            break;
           case 6: // Actions menu
             const menuElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
@@ -1019,7 +1123,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         }
       });
     },
-    [timeEntries]
+    [] // No dependencies - use ref for timeEntries
   );
 
   const navigateToNextCell = React.useCallback(() => {
@@ -1041,6 +1145,34 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
       return currentSelectedCell; // No change if at the end
     });
   }, [timeEntries.length]);
+
+  const navigateToNextRow = React.useCallback(() => {
+    setSelectedCell((currentSelectedCell) => {
+      if (!currentSelectedCell) return null;
+
+      const currentEntriesLength = timeEntries.length;
+
+      // Move to same column in next row
+      if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
+        const newCell = {
+          rowIndex: currentSelectedCell.rowIndex + 1,
+          cellIndex: currentSelectedCell.cellIndex,
+        };
+
+        // Activate the cell after navigation
+        activateCell(newCell.rowIndex, newCell.cellIndex);
+
+        return newCell;
+      }
+
+      return currentSelectedCell; // No change if at the end
+    });
+  }, [timeEntries.length, activateCell]);
+
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    timeEntriesRef.current = timeEntries;
+  }, [timeEntries]);
 
   React.useEffect(() => {
     currentPageRef.current = 0;
@@ -1072,7 +1204,8 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         isEditingCell ||
         isProjectSelectorOpen ||
         isTagSelectorOpen ||
-        isActionsMenuOpen
+        isActionsMenuOpen ||
+        isTimeEditorOpen
       ) {
         return; // Skip auto-sync while editing
       }
@@ -1114,6 +1247,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     isProjectSelectorOpen,
     isTagSelectorOpen,
     isActionsMenuOpen,
+    isTimeEditorOpen,
   ]);
 
   // Memoize expensive calculations
@@ -1262,7 +1396,8 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         isEditingCell ||
         isProjectSelectorOpen ||
         isTagSelectorOpen ||
-        isActionsMenuOpen
+        isActionsMenuOpen ||
+        isTimeEditorOpen
       )
         return;
 
@@ -1528,6 +1663,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     isProjectSelectorOpen,
     isTagSelectorOpen,
     isActionsMenuOpen,
+    isTimeEditorOpen,
     pinnedEntries,
     showPinnedEntries,
     timeEntries,
@@ -1776,6 +1912,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
                   onDescriptionSave={handleDescriptionSave}
                   onProjectChange={handleProjectChange}
                   onTagsChange={handleTagsChange}
+                  onTimeChange={handleTimeChange}
                   onDelete={handleDeleteWithConfirmation}
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
@@ -1787,7 +1924,9 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
                   setIsProjectSelectorOpen={setIsProjectSelectorOpen}
                   setIsTagSelectorOpen={setIsTagSelectorOpen}
                   setIsActionsMenuOpen={setIsActionsMenuOpen}
+                  setIsTimeEditorOpen={setIsTimeEditorOpen}
                   navigateToNextCell={navigateToNextCell}
+                  navigateToNextRow={navigateToNextRow}
                   isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                 />
               ))}

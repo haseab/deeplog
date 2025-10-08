@@ -19,6 +19,7 @@ interface ProjectSelectorProps {
   projects: Project[];
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
+  onNavigateDown?: () => void;
   "data-testid"?: string;
 }
 
@@ -29,12 +30,12 @@ export function ProjectSelector({
   projects,
   onOpenChange,
   onNavigateNext,
+  onNavigateDown,
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [isOpen, setIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
-  const [isChanging, setIsChanging] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   // Notify parent of open state changes
@@ -72,17 +73,11 @@ export function ProjectSelector({
     setSearchTerm(e.target.value);
   };
 
-  const handleSelect = async (projectName: string) => {
-    setIsChanging(true);
-
-    // Brief delay for smooth animation
-    await new Promise((resolve) => setTimeout(resolve, 150));
-
+  const handleSelect = (projectName: string) => {
     onProjectChange?.(projectName);
     setIsOpen(false);
     setSearchTerm("");
     setHighlightedIndex(0);
-    setIsChanging(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -103,6 +98,10 @@ export function ProjectSelector({
         e.preventDefault();
         if (allOptions[highlightedIndex]) {
           handleSelect(allOptions[highlightedIndex].name);
+          // Only navigate down if Cmd+Enter
+          if (e.metaKey || e.ctrlKey) {
+            onNavigateDown?.();
+          }
         }
         break;
       case "Tab":
@@ -112,9 +111,7 @@ export function ProjectSelector({
         setIsOpen(false);
         setSearchTerm("");
         setHighlightedIndex(0);
-        setTimeout(() => {
-          onNavigateNext?.();
-        }, 100);
+        onNavigateNext?.();
         break;
       case "Escape":
         e.preventDefault();
@@ -147,8 +144,7 @@ export function ProjectSelector({
           data-testid={dataTestId}
           className={cn(
             "w-full justify-start border-none shadow-none hover:bg-accent/40 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 h-auto p-2 rounded-md transition-all duration-200 group",
-            "hover:scale-[1.01] active:scale-[0.99]",
-            isChanging && "opacity-60 scale-[0.99]"
+            "hover:scale-[1.01] active:scale-[0.99]"
           )}
         >
           <div className="flex items-center truncate">
