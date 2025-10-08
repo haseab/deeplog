@@ -54,7 +54,6 @@ export function AppSettings({
       }
       if (showTogglKey) {
         setTogglSessionToken(localStorage.getItem("toggl_session_token") || "");
-        setTogglApiKey(localStorage.getItem("toggl_api_key") || "");
       }
       setTodoistApiKey(localStorage.getItem("todoist_api_key") || "");
       setOpenaiApiKey(localStorage.getItem("openai_api_key") || "");
