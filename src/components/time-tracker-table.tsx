@@ -52,6 +52,7 @@ const MemoizedTableRow = React.memo(
     onTagsChange,
     onTimeChange,
     onDurationChange,
+    onDurationChangeWithStartTimeAdjustment,
     onDelete,
     onPin,
     onUnpin,
@@ -79,6 +80,7 @@ const MemoizedTableRow = React.memo(
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
+    onDurationChangeWithStartTimeAdjustment: (entryId: number) => (newDuration: number) => void;
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
@@ -204,6 +206,7 @@ const MemoizedTableRow = React.memo(
             startTime={entry.start}
             endTime={entry.stop}
             onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
+            onSaveWithStartTimeAdjustment={(newDuration) => onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)}
             onEditingChange={setIsEditingCell}
             onNavigateDown={navigateToNextRow}
             data-testid="duration-editor"
@@ -758,6 +761,88 @@ export function TimeTrackerTable({
     [showUpdateToast]
   );
 
+  const handleDurationChangeWithStartTimeAdjustment = React.useCallback(
+    (entryId: number) => (newDuration: number) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Find the entry
+        const entry = currentEntries.find((e) => e.id === entryId);
+        if (!entry) return currentEntries;
+
+        const isRunning = !entry.stop || entry.duration === -1;
+
+        // Create updated entries - ALWAYS adjust start time
+        const updatedEntries = currentEntries.map((entry) => {
+          if (entry.id === entryId) {
+            if (isRunning) {
+              // For running timers, move start time backwards (now - duration)
+              const now = new Date();
+              const newStartDate = new Date(now.getTime() - newDuration * 1000);
+
+              return {
+                ...entry,
+                start: newStartDate.toISOString(),
+                duration: -1, // Keep it running
+              };
+            } else {
+              // For stopped timers, adjust start time while keeping stop time fixed
+              const stopDate = new Date(entry.stop!);
+              const newStartDate = new Date(
+                stopDate.getTime() - newDuration * 1000
+              );
+
+              return {
+                ...entry,
+                start: newStartDate.toISOString(),
+                duration: newDuration,
+              };
+            }
+          }
+          return entry;
+        });
+
+        showUpdateToast(
+          "Start time adjusted.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const sessionToken = localStorage.getItem("toggl_session_token");
+
+            // Always send new start time
+            const newStart = isRunning
+              ? new Date(new Date().getTime() - newDuration * 1000).toISOString()
+              : new Date(
+                  new Date(entry.stop!).getTime() - newDuration * 1000
+                ).toISOString();
+
+            const response = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ start: newStart }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+              throw new Error("Failed to update start time");
+            }
+
+            setTimeout(() => {
+              fetchData(false, false);
+            }, 1500);
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showUpdateToast]
+  );
+
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
       setTimeEntries((currentEntries) => {
@@ -924,6 +1009,17 @@ export function TimeTrackerTable({
       projectColor: string = "#6b7280",
       tags: string[] = []
     ) => {
+      console.log("[StartNewTimer] === START ===");
+      console.log("[StartNewTimer] Current timeEntries count:", timeEntries.length);
+      console.log("[StartNewTimer] All entries:", timeEntries.map(e => ({
+        id: e.id,
+        desc: e.description,
+        start: e.start,
+        stop: e.stop,
+        duration: e.duration,
+        isRunning: !e.stop || e.stop === ""
+      })));
+
       const originalEntries = [...timeEntries];
 
       // Create new time entry starting now
@@ -932,6 +1028,13 @@ export function TimeTrackerTable({
 
       // Find currently running entry (no stop time) for UI feedback
       const runningEntry = timeEntries.find((entry) => !entry.stop);
+      console.log("[StartNewTimer] Running entry found:", runningEntry ? {
+        id: runningEntry.id,
+        desc: runningEntry.description,
+        start: runningEntry.start,
+        stop: runningEntry.stop,
+        duration: runningEntry.duration
+      } : "NONE");
 
       const newEntry: TimeEntry = {
         id: tempId,
@@ -944,9 +1047,41 @@ export function TimeTrackerTable({
         tags,
       };
 
-      // Optimistically add the new entry to the beginning
-      // Backend will handle stopping any running timer
-      setTimeEntries([newEntry, ...timeEntries]);
+      console.log("[StartNewTimer] New entry created:", {
+        id: newEntry.id,
+        desc: newEntry.description,
+        start: newEntry.start,
+        stop: newEntry.stop,
+        duration: newEntry.duration
+      });
+
+      // Optimistically stop the previous running timer and add new entry
+      const updatedEntries = runningEntry
+        ? timeEntries.map((entry) => {
+            if (entry.id === runningEntry.id) {
+              const startDate = new Date(entry.start);
+              const stopDate = new Date(now);
+              const calculatedDuration = Math.floor(
+                (stopDate.getTime() - startDate.getTime()) / 1000
+              );
+              console.log("[StartNewTimer] Stopping previous running timer:", {
+                id: entry.id,
+                oldStop: entry.stop,
+                newStop: now,
+                calculatedDuration
+              });
+              return {
+                ...entry,
+                stop: now,
+                duration: calculatedDuration,
+              };
+            }
+            return entry;
+          })
+        : timeEntries;
+
+      console.log("[StartNewTimer] About to setTimeEntries with new entry at beginning and previous timer stopped");
+      setTimeEntries([newEntry, ...updatedEntries]);
 
       // Select the new entry's description field for immediate editing
       setTimeout(() => {
@@ -2063,6 +2198,7 @@ export function TimeTrackerTable({
                   onTagsChange={handleTagsChange}
                   onTimeChange={handleTimeChange}
                   onDurationChange={handleDurationChange}
+                  onDurationChangeWithStartTimeAdjustment={handleDurationChangeWithStartTimeAdjustment}
                   onDelete={handleDeleteWithConfirmation}
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}

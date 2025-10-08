@@ -10,6 +10,7 @@ interface DurationEditorProps {
   startTime: string;
   endTime: string | null;
   onSave?: (duration: number) => void;
+  onSaveWithStartTimeAdjustment?: (duration: number) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateDown?: () => void;
   "data-testid"?: string;
@@ -20,6 +21,7 @@ export function DurationEditor({
   startTime,
   endTime,
   onSave,
+  onSaveWithStartTimeAdjustment,
   onEditingChange,
   onNavigateDown,
   "data-testid": dataTestId,
@@ -138,9 +140,29 @@ export function DurationEditor({
 
     if (e.key === "Enter") {
       e.preventDefault();
-      handleSave();
-      if (e.metaKey || e.ctrlKey) {
-        onNavigateDown?.();
+
+      const h = parseInt(hours) || 0;
+      const m = parseInt(minutes) || 0;
+      const s = parseInt(seconds) || 0;
+      const totalSeconds = h * 3600 + m * 60 + s;
+
+      // Option+Enter or Cmd+Option+Enter: adjust start time instead of stop time
+      if (e.altKey) {
+        if (totalSeconds !== duration) {
+          onSaveWithStartTimeAdjustment?.(totalSeconds);
+        }
+        setIsEditing(false);
+
+        // Cmd+Option+Enter: also navigate down
+        if (e.metaKey || e.ctrlKey) {
+          onNavigateDown?.();
+        }
+      } else {
+        // Regular Enter or Cmd+Enter: normal behavior (adjust stop time)
+        handleSave();
+        if (e.metaKey || e.ctrlKey) {
+          onNavigateDown?.();
+        }
       }
     } else if (e.key === "Tab") {
       if (e.shiftKey) {
