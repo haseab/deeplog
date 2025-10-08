@@ -13,7 +13,6 @@ interface ActionsMenuProps {
   onPin?: () => void;
   onUnpin?: () => void;
   isPinned?: boolean;
-  onDuplicate?: () => void;
   onSplit?: () => void;
   onStartEntry?: () => void;
   onCopyId?: () => void;
@@ -28,7 +27,6 @@ export function ActionsMenu({
   onPin,
   onUnpin,
   isPinned = false,
-  onDuplicate,
   onSplit,
   onStartEntry,
   onCopyId,

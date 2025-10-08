@@ -701,6 +701,7 @@ export function TimeTrackerTable() {
         },
       });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [timeEntries, availableTags]
   );
 
@@ -929,6 +930,7 @@ export function TimeTrackerTable() {
     if (date?.from && date?.to) {
       fetchData(true, true); // Show loading, reset data
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]); // Note: fetchData is intentionally not in deps to avoid infinite loop
 
   // Refresh data when tab becomes visible or window gains focus (with debouncing)

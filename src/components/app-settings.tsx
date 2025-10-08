@@ -36,13 +36,11 @@ export function AppSettings({
   // API Keys
   const [limitlessApiKey, setLimitlessApiKey] = useState("");
   const [togglSessionToken, setTogglSessionToken] = useState("");
-  const [togglApiKey, setTogglApiKey] = useState("");
   const [todoistApiKey, setTodoistApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
 
   const [showLimitlessApiKey, setShowLimitlessApiKey] = useState(false);
   const [showTogglToken, setShowTogglToken] = useState(false);
-  const [showTogglApiKey, setShowTogglApiKey] = useState(false);
   const [showTodoistKey, setShowTodoistKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
