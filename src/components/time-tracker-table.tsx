@@ -278,7 +278,7 @@ const MemoizedTableRow = React.memo(
 
 export function TimeTrackerTable() {
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
-  const [showPinnedShortcuts, setShowPinnedShortcuts] = React.useState(false);
+  const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
 
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
@@ -1045,6 +1045,29 @@ export function TimeTrackerTable() {
     startNewTimeEntry();
   }, [startNewTimeEntry]);
 
+  const handleNewEntryClick = React.useCallback(() => {
+    // If already showing pinned entries, create empty timer
+    if (showPinnedEntries) {
+      setShowPinnedEntries(false);
+      handleNewEntry();
+      return;
+    }
+
+    // If we have pinned entries, show them
+    if (pinnedEntries.length > 0) {
+      setShowPinnedEntries(true);
+
+      // Auto-hide after 3 seconds
+      setTimeout(() => {
+        setShowPinnedEntries(false);
+      }, 3000);
+      return;
+    }
+
+    // No pinned entries, just create new timer
+    handleNewEntry();
+  }, [showPinnedEntries, pinnedEntries.length, handleNewEntry]);
+
   const handleRefreshData = React.useCallback(() => {
     if (date?.from && date?.to) {
       currentPageRef.current = 0;
@@ -1103,7 +1126,6 @@ export function TimeTrackerTable() {
   React.useEffect(() => {
     let awaitingPinnedNumber = false;
     let pinnedTimeoutId: NodeJS.Timeout | null = null;
-    let toastId: string | number | null = null;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
@@ -1123,44 +1145,47 @@ export function TimeTrackerTable() {
       )
         return;
 
-      // Handle pinned entry shortcuts: p followed by number (1-9)
-      if (!isInInput && e.key === "p" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      // Handle 'n' key - show pinned entries if available, otherwise create new entry
+      if (e.key === "n" && !isInInput) {
         e.preventDefault();
 
-        // If already waiting, toggle off
+        // If already showing pinned entries and waiting for number, create empty timer
         if (awaitingPinnedNumber) {
           awaitingPinnedNumber = false;
-          setShowPinnedShortcuts(false);
+          setShowPinnedEntries(false);
           if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
-          if (toastId) toast.dismiss(toastId);
+          handleNewEntry();
           return;
         }
 
-        // Otherwise, activate shortcut mode
-        awaitingPinnedNumber = true;
-        setShowPinnedShortcuts(true);
+        // If we have pinned entries, show them and wait for number selection
+        if (pinnedEntries.length > 0) {
+          awaitingPinnedNumber = true;
+          setShowPinnedEntries(true);
 
-        // Clear any existing timeout
-        if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+          // Clear any existing timeout
+          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
 
-        // Reset after 2 seconds if no number is pressed
-        pinnedTimeoutId = setTimeout(() => {
-          awaitingPinnedNumber = false;
-          setShowPinnedShortcuts(false);
-        }, 2000);
+          // Reset after 3 seconds if no number is pressed
+          pinnedTimeoutId = setTimeout(() => {
+            awaitingPinnedNumber = false;
+            setShowPinnedEntries(false);
+          }, 3000);
+          return;
+        }
 
-        // Show visual feedback
-        toastId = toast("Press 1-9 to start a pinned entry", { duration: 2000 });
+        // No pinned entries, just create new timer
+        handleNewEntry();
         return;
       }
 
-      // If waiting for a number after 'p'
+      // If waiting for a number after 'n'
       if (awaitingPinnedNumber && !isInInput) {
         const num = parseInt(e.key);
         if (!isNaN(num) && num >= 1 && num <= 9) {
           e.preventDefault();
           awaitingPinnedNumber = false;
-          setShowPinnedShortcuts(false);
+          setShowPinnedEntries(false);
           if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
 
           const index = num - 1;
@@ -1171,13 +1196,6 @@ export function TimeTrackerTable() {
           }
           return;
         }
-      }
-
-      // Global shortcuts (work even when focused on inputs)
-      if (e.key === "n" && !isInInput) {
-        e.preventDefault();
-        handleNewEntry();
-        return;
       }
 
       if (e.key === "r" && (e.ctrlKey || e.metaKey)) {
@@ -1211,6 +1229,15 @@ export function TimeTrackerTable() {
         case "Escape":
           e.preventDefault();
           e.stopPropagation();
+
+          // If showing pinned entries, hide them
+          if (showPinnedEntries) {
+            awaitingPinnedNumber = false;
+            setShowPinnedEntries(false);
+            if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+            return;
+          }
+
           // Only clear selection if no menus are open
           if (
             !isActionsMenuOpen &&
@@ -1472,12 +1499,14 @@ export function TimeTrackerTable() {
       className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none"
       ref={tableRef}
     >
-      <PinnedTimeEntries
-        pinnedEntries={pinnedEntries}
-        onUnpin={handleUnpinEntry}
-        onStartTimer={handleStartTimerFromPinned}
-        showShortcuts={showPinnedShortcuts}
-      />
+      {showPinnedEntries && (
+        <PinnedTimeEntries
+          pinnedEntries={pinnedEntries}
+          onUnpin={handleUnpinEntry}
+          onStartTimer={handleStartTimerFromPinned}
+          showShortcuts={true}
+        />
+      )}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <Popover>
@@ -1550,7 +1579,7 @@ export function TimeTrackerTable() {
             onRetry={() => fetchData()}
           />
           <Button
-            onClick={handleNewEntry}
+            onClick={handleNewEntryClick}
             size="icon"
             className="rounded-full h-9 w-9 bg-accent hover:bg-accent/80 text-accent-foreground border border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
             title="Start new timer (N)"
