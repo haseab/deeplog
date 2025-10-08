@@ -57,6 +57,7 @@ const MemoizedTableRow = React.memo(
     onPin,
     onUnpin,
     onSplit,
+    onStartEntry,
     isPinned,
     projects,
     availableTags,
@@ -85,6 +86,7 @@ const MemoizedTableRow = React.memo(
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
     onSplit: (entry: TimeEntry) => void;
+    onStartEntry: (entry: TimeEntry) => void;
     isPinned: boolean;
     projects: Project[];
     availableTags: Tag[];
@@ -226,9 +228,7 @@ const MemoizedTableRow = React.memo(
             onUnpin={() => onUnpin(entry.id.toString())}
             isPinned={isPinned}
             onSplit={() => onSplit(entry)}
-            onStartEntry={() => {
-              // Implement start entry logic
-            }}
+            onStartEntry={() => onStartEntry(entry)}
             onCopyId={() => {
               // Implement copy ID logic
             }}
@@ -282,6 +282,7 @@ const MemoizedTableRow = React.memo(
     const onDurationChangeEqual =
       prevProps.onDurationChange === nextProps.onDurationChange;
     const onDeleteEqual = prevProps.onDelete === nextProps.onDelete;
+    const onStartEntryEqual = prevProps.onStartEntry === nextProps.onStartEntry;
     const projectsEqual = prevProps.projects === nextProps.projects;
     const availableTagsEqual =
       prevProps.availableTags === nextProps.availableTags;
@@ -310,6 +311,7 @@ const MemoizedTableRow = React.memo(
       onTimeChangeEqual &&
       onDurationChangeEqual &&
       onDeleteEqual &&
+      onStartEntryEqual &&
       projectsEqual &&
       availableTagsEqual &&
       setIsEditingCellEqual &&
@@ -1181,6 +1183,18 @@ export function TimeTrackerTable({
     [timeEntries, availableTags]
   );
 
+  const handleCopyAndStartEntry = React.useCallback(
+    (entry: TimeEntry) => {
+      startNewTimeEntry(
+        entry.description,
+        entry.project_name || "No Project",
+        entry.project_color || "#6b7280",
+        entry.tags || []
+      );
+    },
+    [startNewTimeEntry]
+  );
+
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
   const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
@@ -1918,6 +1932,16 @@ export function TimeTrackerTable({
             }
           }
           break;
+
+        case "p":
+          e.preventDefault();
+          if (selectedCell) {
+            const entry = timeEntries[selectedCell.rowIndex];
+            if (entry) {
+              handleCopyAndStartEntry(entry);
+            }
+          }
+          break;
       }
     };
 
@@ -1948,6 +1972,7 @@ export function TimeTrackerTable({
     handleDeleteSelectedWithConfirmation,
     handleStartTimerFromPinned,
     handleSplit,
+    handleCopyAndStartEntry,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -2203,6 +2228,7 @@ export function TimeTrackerTable({
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
                   onSplit={handleSplit}
+                  onStartEntry={handleCopyAndStartEntry}
                   isPinned={isPinned(entry.id.toString())}
                   projects={projects}
                   availableTags={availableTags}

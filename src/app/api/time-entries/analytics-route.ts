@@ -254,7 +254,7 @@ export async function POST(request: NextRequest) {
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
-    const { description, start } = body;
+    const { description, start, project_name, tag_ids } = body;
 
     // First, get the current running time entry
     const currentEntryResponse = await fetch(
@@ -311,14 +311,54 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // If project_name is provided, find the project_id
+    let project_id: number | undefined;
+    if (project_name && project_name !== "No Project") {
+      const projectsResponse = await fetch(
+        `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true&only_me=true&sort_field=client_name&pinned=false`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${sessionToken}`,
+          },
+        }
+      );
+
+      if (projectsResponse.ok) {
+        const projects: Project[] = await projectsResponse.json();
+        const matchedProject = projects.find((p) => p.name === project_name);
+        if (matchedProject) {
+          project_id = matchedProject.id;
+        }
+      }
+    }
+
     // Create new time entry data for Toggl API
-    const timeEntryData = {
+    const timeEntryData: {
+      description: string;
+      start: string;
+      wid: string | number;
+      duration: number;
+      created_with: string;
+      project_id?: number;
+      tag_ids?: number[];
+    } = {
       description: description || "",
       start: start,
       wid: workspaceId, // Use 'wid' instead of 'workspace_id'
       duration: -1, // Negative duration indicates running timer
       created_with: "deeplog",
     };
+
+    // Add project_id if found
+    if (project_id) {
+      timeEntryData.project_id = project_id;
+    }
+
+    // Add tag_ids if provided
+    if (tag_ids && Array.isArray(tag_ids) && tag_ids.length > 0) {
+      timeEntryData.tag_ids = tag_ids;
+    }
 
     // Create the new time entry using Toggl API
     const createResponse = await fetch(

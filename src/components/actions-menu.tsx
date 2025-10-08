@@ -42,13 +42,13 @@ export function ActionsMenu({
 
   // Menu options array for easier navigation
   const menuOptions = [
+    { label: "▶︎ Start", action: onStartEntry || (() => {}) },
     isPinned
-      ? { label: "Unpin", action: onUnpin || (() => {}) }
-      : { label: "Pin", action: onPin || (() => {}) },
-    { label: "Split", action: onSplit || (() => {}) },
-    { label: "Start entry", action: onStartEntry || (() => {}) },
-    { label: "Copy ID", action: onCopyId || (() => {}) },
-    { label: "Delete", action: onDelete || (() => {}), isDestructive: true },
+      ? { label: "📌 Unpin", action: onUnpin || (() => {}) }
+      : { label: "📌 Pin", action: onPin || (() => {}) },
+    { label: "✂️ Split", action: onSplit || (() => {}) },
+    { label: "📋 Copy ID", action: onCopyId || (() => {}) },
+    { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true },
   ];
 
   // Notify parent of open state changes
