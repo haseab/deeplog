@@ -35,6 +35,7 @@ import { ProjectSelector } from "./project-selector";
 import { TagSelector } from "./tag-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TimeEditor } from "./time-editor";
+import { DurationEditor } from "./duration-editor";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -46,6 +47,7 @@ const MemoizedTableRow = React.memo(
     onProjectChange,
     onTagsChange,
     onTimeChange,
+    onDurationChange,
     onDelete,
     onPin,
     onUnpin,
@@ -70,6 +72,7 @@ const MemoizedTableRow = React.memo(
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
     onTimeChange: (entryId: number) => (startTime: string, endTime: string | null) => void;
+    onDurationChange: (entryId: number) => (newDuration: number) => void;
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
@@ -182,27 +185,23 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 pl-2 font-mono text-sm cursor-pointer sm:w-24 w-20 min-w-[80px]",
+            "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 5 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 5)}
         >
-          <div className="flex items-center gap-2 w-full min-w-[72px]">
-            <LiveDuration
-              startTime={entry.start}
-              stopTime={entry.stop}
-              staticDuration={entry.duration}
-              className="group-hover:text-accent-foreground transition-colors duration-200 block min-w-[60px] text-center"
-            />
-            {(!entry.stop || entry.duration === -1) && (
-              <div className="relative flex-shrink-0">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75"></div>
-              </div>
-            )}
-          </div>
+          <DurationEditor
+            duration={entry.duration}
+            startTime={entry.start}
+            endTime={entry.stop}
+            onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
+            onEditingChange={setIsEditingCell}
+            onNavigateNext={navigateToNextCell}
+            onNavigateDown={navigateToNextRow}
+            data-testid="duration-editor"
+          />
         </TableCell>
         <TableCell
           className={cn(
@@ -269,6 +268,7 @@ const MemoizedTableRow = React.memo(
     const onProjectChangeEqual = prevProps.onProjectChange === nextProps.onProjectChange;
     const onTagsChangeEqual = prevProps.onTagsChange === nextProps.onTagsChange;
     const onTimeChangeEqual = prevProps.onTimeChange === nextProps.onTimeChange;
+    const onDurationChangeEqual = prevProps.onDurationChange === nextProps.onDurationChange;
     const onDeleteEqual = prevProps.onDelete === nextProps.onDelete;
     const projectsEqual = prevProps.projects === nextProps.projects;
     const availableTagsEqual = prevProps.availableTags === nextProps.availableTags;
@@ -282,7 +282,7 @@ const MemoizedTableRow = React.memo(
 
     const shouldNotRerender =
       entryEqual && rowIndexEqual && onSelectCellEqual && onDescriptionSaveEqual &&
-      onProjectChangeEqual && onTagsChangeEqual && onTimeChangeEqual && onDeleteEqual &&
+      onProjectChangeEqual && onTagsChangeEqual && onTimeChangeEqual && onDurationChangeEqual && onDeleteEqual &&
       projectsEqual && availableTagsEqual && setIsEditingCellEqual && setIsProjectSelectorOpenEqual &&
       setIsTagSelectorOpenEqual && setIsActionsMenuOpenEqual && setIsTimeEditorOpenEqual &&
       navigateToNextCellEqual && navigateToNextRowEqual;
@@ -615,6 +615,74 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
             }
 
             // After successful API call, refresh to get accurate duration from Toggl
+            setTimeout(() => {
+              fetchData(false, false);
+            }, 300);
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showUpdateToast]
+  );
+
+  const handleDurationChange = React.useCallback(
+    (entryId: number) => (newDuration: number) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Create updated entries for optimistic update
+        const updatedEntries = currentEntries.map((entry) => {
+          if (entry.id === entryId) {
+            // Calculate new stop time based on start + duration
+            const startDate = new Date(entry.start);
+            const newStopDate = new Date(startDate.getTime() + newDuration * 1000);
+
+            return {
+              ...entry,
+              duration: newDuration,
+              stop: newStopDate.toISOString(),
+            };
+          }
+          return entry;
+        });
+
+        showUpdateToast(
+          "Duration updated.",
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const sessionToken = localStorage.getItem("toggl_session_token");
+            const response = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({
+                duration: newDuration,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+
+              let errorMessage = `Failed to update duration (${response.status})`;
+              if (response.status === 401) {
+                errorMessage =
+                  "Authentication failed. Please check your API key";
+              } else if (response.status === 403) {
+                errorMessage = "Permission denied";
+              } else if (response.status === 400) {
+                errorMessage = "Invalid duration";
+              }
+
+              throw new Error(errorMessage);
+            }
+
+            // After successful API call, refresh to get accurate data from Toggl
             setTimeout(() => {
               fetchData(false, false);
             }, 300);
@@ -1110,6 +1178,14 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
             ) as HTMLElement;
             if (timeElement) {
               timeElement.click();
+            }
+            break;
+          case 5: // Duration
+            const durationElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
+            ) as HTMLElement;
+            if (durationElement) {
+              durationElement.click();
             }
             break;
           case 6: // Actions menu
@@ -1913,6 +1989,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
                   onProjectChange={handleProjectChange}
                   onTagsChange={handleTagsChange}
                   onTimeChange={handleTimeChange}
+                  onDurationChange={handleDurationChange}
                   onDelete={handleDeleteWithConfirmation}
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
