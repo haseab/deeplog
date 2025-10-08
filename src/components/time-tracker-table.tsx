@@ -1,14 +1,19 @@
 "use client";
 
+import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { toast, triggerUndo } from "@/lib/toast";
+import type { PinnedEntry } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { Calendar as CalendarIcon, Maximize2, Minimize2, Plus } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Maximize2,
+  Minimize2,
+  Plus,
+} from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
-import { SyncStatusBadge } from "./sync-status-badge";
-import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { PinnedTimeEntries } from "./pinned-time-entries";
-import type { PinnedEntry } from "@/types";
+import { SyncStatusBadge } from "./sync-status-badge";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -29,13 +34,12 @@ import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
-import { ExpandableDescription } from "./expandable-description";
-import { LiveDuration } from "./live-duration";
-import { ProjectSelector } from "./project-selector";
-import { TagSelector } from "./tag-selector";
-import { SplitEntryDialog } from "./split-entry-dialog";
-import { TimeEditor } from "./time-editor";
 import { DurationEditor } from "./duration-editor";
+import { ExpandableDescription } from "./expandable-description";
+import { ProjectSelector } from "./project-selector";
+import { SplitEntryDialog } from "./split-entry-dialog";
+import { TagSelector } from "./tag-selector";
+import { TimeEditor } from "./time-editor";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -71,7 +75,9 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
-    onTimeChange: (entryId: number) => (startTime: string, endTime: string | null) => void;
+    onTimeChange: (
+      entryId: number
+    ) => (startTime: string, endTime: string | null) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
@@ -176,9 +182,10 @@ const MemoizedTableRow = React.memo(
           <TimeEditor
             startTime={entry.start}
             endTime={entry.stop}
-            onSave={(startTime, endTime) => onTimeChange(entry.id)(startTime, endTime)}
+            onSave={(startTime, endTime) =>
+              onTimeChange(entry.id)(startTime, endTime)
+            }
             onEditingChange={setIsTimeEditorOpen}
-            onNavigateNext={navigateToNextCell}
             onNavigateDown={navigateToNextRow}
             data-testid="time-editor"
           />
@@ -198,7 +205,6 @@ const MemoizedTableRow = React.memo(
             endTime={entry.stop}
             onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
             onEditingChange={setIsEditingCell}
-            onNavigateNext={navigateToNextCell}
             onNavigateDown={navigateToNextRow}
             data-testid="duration-editor"
           />
@@ -264,34 +270,60 @@ const MemoizedTableRow = React.memo(
     const entryEqual = prevProps.entry === nextProps.entry;
     const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
     const onSelectCellEqual = prevProps.onSelectCell === nextProps.onSelectCell;
-    const onDescriptionSaveEqual = prevProps.onDescriptionSave === nextProps.onDescriptionSave;
-    const onProjectChangeEqual = prevProps.onProjectChange === nextProps.onProjectChange;
+    const onDescriptionSaveEqual =
+      prevProps.onDescriptionSave === nextProps.onDescriptionSave;
+    const onProjectChangeEqual =
+      prevProps.onProjectChange === nextProps.onProjectChange;
     const onTagsChangeEqual = prevProps.onTagsChange === nextProps.onTagsChange;
     const onTimeChangeEqual = prevProps.onTimeChange === nextProps.onTimeChange;
-    const onDurationChangeEqual = prevProps.onDurationChange === nextProps.onDurationChange;
+    const onDurationChangeEqual =
+      prevProps.onDurationChange === nextProps.onDurationChange;
     const onDeleteEqual = prevProps.onDelete === nextProps.onDelete;
     const projectsEqual = prevProps.projects === nextProps.projects;
-    const availableTagsEqual = prevProps.availableTags === nextProps.availableTags;
-    const setIsEditingCellEqual = prevProps.setIsEditingCell === nextProps.setIsEditingCell;
-    const setIsProjectSelectorOpenEqual = prevProps.setIsProjectSelectorOpen === nextProps.setIsProjectSelectorOpen;
-    const setIsTagSelectorOpenEqual = prevProps.setIsTagSelectorOpen === nextProps.setIsTagSelectorOpen;
-    const setIsActionsMenuOpenEqual = prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen;
-    const setIsTimeEditorOpenEqual = prevProps.setIsTimeEditorOpen === nextProps.setIsTimeEditorOpen;
-    const navigateToNextCellEqual = prevProps.navigateToNextCell === nextProps.navigateToNextCell;
-    const navigateToNextRowEqual = prevProps.navigateToNextRow === nextProps.navigateToNextRow;
+    const availableTagsEqual =
+      prevProps.availableTags === nextProps.availableTags;
+    const setIsEditingCellEqual =
+      prevProps.setIsEditingCell === nextProps.setIsEditingCell;
+    const setIsProjectSelectorOpenEqual =
+      prevProps.setIsProjectSelectorOpen === nextProps.setIsProjectSelectorOpen;
+    const setIsTagSelectorOpenEqual =
+      prevProps.setIsTagSelectorOpen === nextProps.setIsTagSelectorOpen;
+    const setIsActionsMenuOpenEqual =
+      prevProps.setIsActionsMenuOpen === nextProps.setIsActionsMenuOpen;
+    const setIsTimeEditorOpenEqual =
+      prevProps.setIsTimeEditorOpen === nextProps.setIsTimeEditorOpen;
+    const navigateToNextCellEqual =
+      prevProps.navigateToNextCell === nextProps.navigateToNextCell;
+    const navigateToNextRowEqual =
+      prevProps.navigateToNextRow === nextProps.navigateToNextRow;
 
     const shouldNotRerender =
-      entryEqual && rowIndexEqual && onSelectCellEqual && onDescriptionSaveEqual &&
-      onProjectChangeEqual && onTagsChangeEqual && onTimeChangeEqual && onDurationChangeEqual && onDeleteEqual &&
-      projectsEqual && availableTagsEqual && setIsEditingCellEqual && setIsProjectSelectorOpenEqual &&
-      setIsTagSelectorOpenEqual && setIsActionsMenuOpenEqual && setIsTimeEditorOpenEqual &&
-      navigateToNextCellEqual && navigateToNextRowEqual;
+      entryEqual &&
+      rowIndexEqual &&
+      onSelectCellEqual &&
+      onDescriptionSaveEqual &&
+      onProjectChangeEqual &&
+      onTagsChangeEqual &&
+      onTimeChangeEqual &&
+      onDurationChangeEqual &&
+      onDeleteEqual &&
+      projectsEqual &&
+      availableTagsEqual &&
+      setIsEditingCellEqual &&
+      setIsProjectSelectorOpenEqual &&
+      setIsTagSelectorOpenEqual &&
+      setIsActionsMenuOpenEqual &&
+      setIsTimeEditorOpenEqual &&
+      navigateToNextCellEqual &&
+      navigateToNextRowEqual;
 
     return shouldNotRerender;
   }
 );
 
-export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
+export function TimeTrackerTable({
+  onFullscreenChange,
+}: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
@@ -560,7 +592,9 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         // Calculate new duration for optimistic UI update
         const start = new Date(startTime);
         const end = endTime ? new Date(endTime) : null;
-        const duration = end ? Math.floor((end.getTime() - start.getTime()) / 1000) : -1;
+        const duration = end
+          ? Math.floor((end.getTime() - start.getTime()) / 1000)
+          : -1;
 
         // Create updated entries for optimistic update
         const updatedEntries = currentEntries.map((entry) =>
@@ -617,7 +651,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
             // After successful API call, refresh to get accurate duration from Toggl
             setTimeout(() => {
               fetchData(false, false);
-            }, 300);
+            }, 1500);
           }
         );
 
@@ -633,18 +667,36 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
+        // Find the entry to check if it's running
+        const entry = currentEntries.find((e) => e.id === entryId);
+        const isRunning = entry && (!entry.stop || entry.duration === -1);
+
         // Create updated entries for optimistic update
         const updatedEntries = currentEntries.map((entry) => {
           if (entry.id === entryId) {
-            // Calculate new stop time based on start + duration
-            const startDate = new Date(entry.start);
-            const newStopDate = new Date(startDate.getTime() + newDuration * 1000);
+            if (isRunning) {
+              // For running timers, move start time backwards (now - duration)
+              const now = new Date();
+              const newStartDate = new Date(now.getTime() - newDuration * 1000);
 
-            return {
-              ...entry,
-              duration: newDuration,
-              stop: newStopDate.toISOString(),
-            };
+              return {
+                ...entry,
+                start: newStartDate.toISOString(),
+                duration: -1, // Keep it running
+              };
+            } else {
+              // For stopped timers, calculate new stop time based on start + duration
+              const startDate = new Date(entry.start);
+              const newStopDate = new Date(
+                startDate.getTime() + newDuration * 1000
+              );
+
+              return {
+                ...entry,
+                duration: newDuration,
+                stop: newStopDate.toISOString(),
+              };
+            }
           }
           return entry;
         });
@@ -654,15 +706,25 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
+
+            // For running timers, send new start time instead of duration
+            const payload = isRunning
+              ? {
+                  start: new Date(
+                    new Date().getTime() - newDuration * 1000
+                  ).toISOString(),
+                }
+              : {
+                  duration: newDuration,
+                };
+
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
                 "x-toggl-session-token": sessionToken || "",
               },
-              body: JSON.stringify({
-                duration: newDuration,
-              }),
+              body: JSON.stringify(payload),
             });
 
             if (!response.ok) {
@@ -685,7 +747,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
             // After successful API call, refresh to get accurate data from Toggl
             setTimeout(() => {
               fetchData(false, false);
-            }, 300);
+            }, 1500);
           }
         );
 
@@ -746,17 +808,14 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     [showUpdateToast]
   );
 
-  const handleSplit = React.useCallback(
-    (entry: TimeEntry) => {
-      if (!entry.stop || entry.duration === -1) {
-        toast.error("Cannot split a running time entry");
-        return;
-      }
-      setEntryToSplit(entry);
-      setSplitDialogOpen(true);
-    },
-    []
-  );
+  const handleSplit = React.useCallback((entry: TimeEntry) => {
+    if (!entry.stop || entry.duration === -1) {
+      toast.error("Cannot split a running time entry");
+      return;
+    }
+    setEntryToSplit(entry);
+    setSplitDialogOpen(true);
+  }, []);
 
   const handleConfirmSplit = React.useCallback(
     (parts: number) => {
@@ -782,7 +841,9 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
       // Create new entries for the remaining parts
       for (let i = 1; i < parts; i++) {
         const partStartTime = new Date(startTime.getTime() + partDuration * i);
-        const partEndTime = new Date(startTime.getTime() + partDuration * (i + 1));
+        const partEndTime = new Date(
+          startTime.getTime() + partDuration * (i + 1)
+        );
 
         splitEntries.push({
           ...entryToSplit,
@@ -883,66 +944,66 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         tags,
       };
 
-    // Optimistically add the new entry to the beginning
-    // Backend will handle stopping any running timer
-    setTimeEntries([newEntry, ...timeEntries]);
+      // Optimistically add the new entry to the beginning
+      // Backend will handle stopping any running timer
+      setTimeEntries([newEntry, ...timeEntries]);
 
-    // Select the new entry's description field for immediate editing
-    setTimeout(() => {
-      setSelectedCell({ rowIndex: 0, cellIndex: 0 });
-    }, 50);
+      // Select the new entry's description field for immediate editing
+      setTimeout(() => {
+        setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+      }, 50);
 
-    // Make the API call immediately to ensure precise timing
-    const sessionToken = localStorage.getItem("toggl_session_token");
-    let createdEntryId: number | null = null;
+      // Make the API call immediately to ensure precise timing
+      const sessionToken = localStorage.getItem("toggl_session_token");
+      let createdEntryId: number | null = null;
 
-    (async () => {
-      try {
-        const response = await fetch("/api/time-entries", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-toggl-session-token": sessionToken || "",
-          },
-          body: JSON.stringify({
-            description,
-            start: now,
-            project_name: projectName,
-            tag_ids: tags
-              .map((tagName) => {
-                const tag = availableTags.find((t) => t.name === tagName);
-                return tag ? tag.id : null;
-              })
-              .filter((id): id is number => id !== null),
-          }),
-        });
+      (async () => {
+        try {
+          const response = await fetch("/api/time-entries", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken || "",
+            },
+            body: JSON.stringify({
+              description,
+              start: now,
+              project_name: projectName,
+              tag_ids: tags
+                .map((tagName) => {
+                  const tag = availableTags.find((t) => t.name === tagName);
+                  return tag ? tag.id : null;
+                })
+                .filter((id): id is number => id !== null),
+            }),
+          });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("API Error:", response.status, errorText);
-          throw new Error("Failed to create entry");
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("API Error:", response.status, errorText);
+            throw new Error("Failed to create entry");
+          }
+
+          const createdEntry = await response.json();
+          createdEntryId = createdEntry.id;
+
+          // Replace the temporary entry with the real one from the server
+          setTimeEntries((prev) =>
+            prev.map((entry) =>
+              entry.id === tempId ? { ...newEntry, id: createdEntry.id } : entry
+            )
+          );
+
+          // Refresh data to get the updated state (including stopped timer)
+          setTimeout(() => {
+            fetchData(false);
+          }, 500);
+        } catch (error) {
+          console.error("Failed to create time entry:", error);
+          toast.error("Failed to create time entry. Please try again.");
+          setTimeEntries(originalEntries);
         }
-
-        const createdEntry = await response.json();
-        createdEntryId = createdEntry.id;
-
-        // Replace the temporary entry with the real one from the server
-        setTimeEntries((prev) =>
-          prev.map((entry) =>
-            entry.id === tempId ? { ...newEntry, id: createdEntry.id } : entry
-          )
-        );
-
-        // Refresh data to get the updated state (including stopped timer)
-        setTimeout(() => {
-          fetchData(false);
-        }, 500);
-      } catch (error) {
-        console.error("Failed to create time entry:", error);
-        toast.error("Failed to create time entry. Please try again.");
-        setTimeEntries(originalEntries);
-      }
-    })();
+      })();
 
       toast("New time entry started", {
         description: runningEntry
@@ -1551,7 +1612,7 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
 
       if (e.key === "f" && !isInInput) {
         e.preventDefault();
-        setIsFullscreen(prev => !prev);
+        setIsFullscreen((prev) => !prev);
         return;
       }
 
@@ -1845,7 +1906,9 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
     <div
       className={cn(
         "space-y-6 overflow-auto overscroll-none",
-        isFullscreen ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode" : "h-[calc(100vh-8rem)] border rounded-xl p-6"
+        isFullscreen
+          ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
+          : "h-[calc(100vh-8rem)] border rounded-xl p-6"
       )}
       ref={tableRef}
     >
@@ -1923,9 +1986,15 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
             size="icon"
             variant="outline"
             className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-            title={isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"}
+            title={
+              isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"
+            }
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? (
+              <Minimize2 className="w-4 h-4" />
+            ) : (
+              <Maximize2 className="w-4 h-4" />
+            )}
           </Button>
           <Button
             onClick={handleNewEntryClick}
@@ -1949,10 +2018,14 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
           </div>
         </div>
       ) : (
-        <div className={cn(
-          "bg-card",
-          isFullscreen ? "overflow-x-auto" : "rounded-lg border border-border/60 shadow-sm overflow-hidden"
-        )}>
+        <div
+          className={cn(
+            "bg-card",
+            isFullscreen
+              ? "overflow-x-auto"
+              : "rounded-lg border border-border/60 shadow-sm overflow-hidden"
+          )}
+        >
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-muted/30 transition-colors duration-200 border-border/60">

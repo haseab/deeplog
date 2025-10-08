@@ -11,7 +11,6 @@ interface DurationEditorProps {
   endTime: string | null;
   onSave?: (duration: number) => void;
   onEditingChange?: (isEditing: boolean) => void;
-  onNavigateNext?: () => void;
   onNavigateDown?: () => void;
   "data-testid"?: string;
 }
@@ -22,7 +21,6 @@ export function DurationEditor({
   endTime,
   onSave,
   onEditingChange,
-  onNavigateNext,
   onNavigateDown,
   "data-testid": dataTestId,
 }: DurationEditorProps) {
@@ -39,14 +37,6 @@ export function DurationEditor({
   React.useEffect(() => {
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
-
-  // Format duration for display (HH:MM:SS)
-  const formatDuration = (durationInSeconds: number): string => {
-    const h = Math.floor(durationInSeconds / 3600);
-    const m = Math.floor((durationInSeconds % 3600) / 60);
-    const s = durationInSeconds % 60;
-    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
 
   const handleActivate = () => {
     // If timer is running (duration = -1), calculate current duration from start time

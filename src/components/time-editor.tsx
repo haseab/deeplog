@@ -18,7 +18,6 @@ interface TimeEditorProps {
   endTime: string | null;
   onSave?: (startTime: string, endTime: string | null) => void;
   onEditingChange?: (isEditing: boolean) => void;
-  onNavigateNext?: () => void;
   onNavigateDown?: () => void;
   "data-testid"?: string;
 }
@@ -28,7 +27,6 @@ export function TimeEditor({
   endTime,
   onSave,
   onEditingChange,
-  onNavigateNext,
   onNavigateDown,
   "data-testid": dataTestId,
 }: TimeEditorProps) {
@@ -133,7 +131,7 @@ export function TimeEditor({
     return date;
   };
 
-  const handleSave = (shouldNavigateDown: boolean = false) => {
+  const handleSave = () => {
     const finalStartDateTime = buildDateTime(startDateValue, startTimeHours, startTimeMinutes);
 
     if (!finalStartDateTime) {
@@ -329,12 +327,12 @@ export function TimeEditor({
     }
   };
 
-  const isRunning = !endTime || endTime === "";
-  const startDateObj = new Date(startTime);
-  const endDateObj = endTime ? new Date(endTime) : null;
-
   // Format display text to include dates when they differ
   const displayText = React.useMemo(() => {
+    const isRunning = !endTime || endTime === "";
+    const startDateObj = new Date(startTime);
+    const endDateObj = endTime ? new Date(endTime) : null;
+
     if (isRunning) {
       return `${format(startDateObj, "MMM d, HH:mm")} - Now`;
     }
@@ -344,7 +342,7 @@ export function TimeEditor({
     }
 
     return `${format(startDateObj, "HH:mm")} - ${format(endDateObj!, "HH:mm")}`;
-  }, [startDateObj, endDateObj, isRunning]);
+  }, [startTime, endTime]);
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -404,7 +402,7 @@ export function TimeEditor({
           {/* End Time (Hours and Minutes) */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">
-              End Time {isRunning && <span className="text-xs">(running)</span>}
+              End Time {(!endTime || endTime === "") && <span className="text-xs">(running)</span>}
             </Label>
             <div className="flex gap-2 items-center">
               <Input
