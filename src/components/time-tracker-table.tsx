@@ -828,7 +828,6 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
 
   const fetchData = React.useCallback(
     async (showLoadingState = true, resetData = true) => {
-      console.log('[FetchData] Called with showLoadingState:', showLoadingState, 'resetData:', resetData);
       if (!date?.from || !date?.to) return;
 
       // Global debouncing to prevent rapid consecutive fetches
@@ -839,7 +838,6 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
         !showLoadingState &&
         resetData // Only debounce background refreshes, not pagination
       ) {
-        console.log('[FetchData] Skipped due to debouncing');
         return; // Skip if we're doing a background fetch and recently fetched
       }
       lastFetchTimeRef.current = now;
@@ -852,8 +850,6 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
       // Use consistent limit to avoid pagination issues
       const limit = 100;
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
-
-      console.log('[FetchData] currentPageRef.current:', currentPageRef.current, 'pageToFetch:', pageToFetch, 'limit:', limit);
 
       // Get credentials from localStorage
       const sessionToken = localStorage.getItem("toggl_session_token");
@@ -880,17 +876,9 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
 
         const data = await response.json();
 
-        console.log('[FetchData] Received data:', {
-          timeEntriesCount: data.timeEntries?.length,
-          hasMore: data.pagination?.hasMore,
-          currentPage: data.pagination?.currentPage,
-          totalPages: data.pagination?.totalPages
-        });
-
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
-            console.log('[FetchData] Resetting data with', data.timeEntries.length, 'entries');
             setTimeEntries(data.timeEntries);
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
@@ -908,8 +896,6 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
                 (entry: TimeEntry) => !existingIds.has(entry.id)
               );
 
-              console.log('[FetchData] Appending entries. Previous count:', prev.length, 'New entries:', newEntries.length, 'Duplicates filtered:', data.timeEntries.length - newEntries.length);
-
               // Track newly loaded entry IDs
               const newEntryIds = new Set<number>(
                 newEntries.map((entry: TimeEntry) => entry.id)
@@ -924,7 +910,6 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
               return [...prev, ...newEntries];
             });
             currentPageRef.current = pageToFetch;
-            console.log('[FetchData] Updated currentPageRef to:', pageToFetch);
           }
           setProjects(data.projects);
           setHasMore(data.pagination.hasMore);
@@ -983,15 +968,12 @@ export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: 
 
   // Load more function for infinite scrolling
   const loadMore = React.useCallback(async () => {
-    console.log('[LoadMore] Called - hasMore:', hasMore, 'loading:', loading, 'isLoadingMore:', isLoadingMore);
     if (!hasMore || loading || isLoadingMore) return;
 
-    console.log('[LoadMore] Starting to load more. Current page:', currentPageRef.current, 'Current entries:', timeEntries.length);
     setIsLoadingMore(true);
     await fetchData(false, false);
     setIsLoadingMore(false);
-    console.log('[LoadMore] Finished. New page:', currentPageRef.current, 'New entries count:', timeEntries.length);
-  }, [hasMore, loading, isLoadingMore, fetchData, timeEntries.length]);
+  }, [hasMore, loading, isLoadingMore, fetchData]);
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
