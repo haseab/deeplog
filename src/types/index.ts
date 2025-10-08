@@ -9,6 +9,14 @@ export type TimeEntry = {
   tags: string[];
 };
 
+export type PinnedEntry = {
+  id: string;
+  description: string;
+  project_name: string;
+  project_color: string;
+  tags: string[];
+};
+
 export type Project = {
   id: number;
   name: string;

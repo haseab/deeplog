@@ -6,6 +6,9 @@ import { Calendar as CalendarIcon, Plus, RefreshCw } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
 import { SyncStatusBadge } from "./sync-status-badge";
+import { usePinnedEntries } from "@/hooks/use-pinned-entries";
+import { PinnedTimeEntries } from "./pinned-time-entries";
+import type { PinnedEntry } from "@/types";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -41,6 +44,9 @@ const MemoizedTableRow = React.memo(
     onProjectChange,
     onTagsChange,
     onDelete,
+    onPin,
+    onUnpin,
+    isPinned,
     projects,
     availableTags,
     setIsEditingCell,
@@ -58,6 +64,9 @@ const MemoizedTableRow = React.memo(
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
     onDelete: (entry: TimeEntry) => void;
+    onPin: (entry: TimeEntry) => void;
+    onUnpin: (id: string) => void;
+    isPinned: boolean;
     projects: Project[];
     availableTags: Tag[];
     setIsEditingCell: (editing: boolean) => void;
@@ -193,6 +202,9 @@ const MemoizedTableRow = React.memo(
           onClick={() => onSelectCell(rowIndex, 6)}
         >
           <ActionsMenu
+            onPin={() => onPin(entry)}
+            onUnpin={() => onUnpin(entry.id.toString())}
+            isPinned={isPinned}
             onDuplicate={() => {
               // Implement duplicate logic
             }}
@@ -265,6 +277,9 @@ const MemoizedTableRow = React.memo(
 );
 
 export function TimeTrackerTable() {
+  const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
+  const [showPinnedShortcuts, setShowPinnedShortcuts] = React.useState(false);
+
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
     const sevenDaysAgo = subDays(today, 7);
@@ -561,26 +576,32 @@ export function TimeTrackerTable() {
     [showUpdateToast]
   );
 
-  const startNewTimeEntry = React.useCallback(() => {
-    const originalEntries = [...timeEntries];
+  const startNewTimeEntry = React.useCallback(
+    (
+      description: string = "",
+      projectName: string = "No Project",
+      projectColor: string = "#6b7280",
+      tags: string[] = []
+    ) => {
+      const originalEntries = [...timeEntries];
 
-    // Create new time entry starting now
-    const now = new Date().toISOString();
-    const tempId = -Date.now(); // Temporary negative ID
+      // Create new time entry starting now
+      const now = new Date().toISOString();
+      const tempId = -Date.now(); // Temporary negative ID
 
-    // Find currently running entry (no stop time) for UI feedback
-    const runningEntry = timeEntries.find((entry) => !entry.stop);
+      // Find currently running entry (no stop time) for UI feedback
+      const runningEntry = timeEntries.find((entry) => !entry.stop);
 
-    const newEntry: TimeEntry = {
-      id: tempId,
-      description: "",
-      project_name: "No Project",
-      project_color: "#6b7280",
-      start: now,
-      stop: "", // Empty stop means it's running
-      duration: 0,
-      tags: [],
-    };
+      const newEntry: TimeEntry = {
+        id: tempId,
+        description,
+        project_name: projectName,
+        project_color: projectColor,
+        start: now,
+        stop: "", // Empty stop means it's running
+        duration: 0,
+        tags,
+      };
 
     // Optimistically add the new entry to the beginning
     // Backend will handle stopping any running timer
@@ -604,8 +625,15 @@ export function TimeTrackerTable() {
             "x-toggl-session-token": sessionToken || "",
           },
           body: JSON.stringify({
-            description: "",
+            description,
             start: now,
+            project_name: projectName,
+            tag_ids: tags
+              .map((tagName) => {
+                const tag = availableTags.find((t) => t.name === tagName);
+                return tag ? tag.id : null;
+              })
+              .filter((id): id is number => id !== null),
           }),
         });
 
@@ -636,43 +664,45 @@ export function TimeTrackerTable() {
       }
     })();
 
-    toast("New time entry started", {
-      description: runningEntry
-        ? `Stopped previous timer and started new one at ${new Date().toLocaleTimeString()}`
-        : `Started tracking time at ${new Date().toLocaleTimeString()}`,
-      action: {
-        label: "Undo",
-        onClick: async () => {
-          // Revert UI immediately
-          setTimeEntries(originalEntries);
+      toast("New time entry started", {
+        description: runningEntry
+          ? `Stopped previous timer and started new one at ${new Date().toLocaleTimeString()}`
+          : `Started tracking time at ${new Date().toLocaleTimeString()}`,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            // Revert UI immediately
+            setTimeEntries(originalEntries);
 
-          // If the API call succeeded, delete the created entry
-          if (createdEntryId) {
-            try {
-              await fetch(`/api/time-entries/${createdEntryId}`, {
-                method: "DELETE",
-                headers: {
-                  "x-toggl-session-token": sessionToken || "",
-                },
-              });
+            // If the API call succeeded, delete the created entry
+            if (createdEntryId) {
+              try {
+                await fetch(`/api/time-entries/${createdEntryId}`, {
+                  method: "DELETE",
+                  headers: {
+                    "x-toggl-session-token": sessionToken || "",
+                  },
+                });
 
-              // Refresh data to restore any stopped timer
-              setTimeout(() => {
+                // Refresh data to restore any stopped timer
+                setTimeout(() => {
+                  fetchData(false);
+                }, 500);
+              } catch (error) {
+                console.error("Failed to undo time entry creation:", error);
+                // UI is already reverted, just refresh to get accurate state
                 fetchData(false);
-              }, 500);
-            } catch (error) {
-              console.error("Failed to undo time entry creation:", error);
-              // UI is already reverted, just refresh to get accurate state
+              }
+            } else {
+              // API call hasn't completed yet or failed, just refresh
               fetchData(false);
             }
-          } else {
-            // API call hasn't completed yet or failed, just refresh
-            fetchData(false);
-          }
+          },
         },
-      },
-    });
-  }, [timeEntries]);
+      });
+    },
+    [timeEntries, availableTags]
+  );
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
@@ -974,6 +1004,42 @@ export function TimeTrackerTable() {
     [timeEntries.length]
   );
 
+  // Handlers for pinning/unpinning entries
+  const handlePinEntry = React.useCallback(
+    (entry: TimeEntry) => {
+      const pinnedEntry: PinnedEntry = {
+        id: entry.id.toString(),
+        description: entry.description,
+        project_name: entry.project_name,
+        project_color: entry.project_color,
+        tags: entry.tags,
+      };
+      pinEntry(pinnedEntry);
+      toast("Entry pinned");
+    },
+    [pinEntry]
+  );
+
+  const handleUnpinEntry = React.useCallback(
+    (id: string) => {
+      unpinEntry(id);
+      toast("Entry unpinned");
+    },
+    [unpinEntry]
+  );
+
+  const handleStartTimerFromPinned = React.useCallback(
+    (entry: PinnedEntry) => {
+      startNewTimeEntry(
+        entry.description,
+        entry.project_name,
+        entry.project_color,
+        entry.tags
+      );
+    },
+    [startNewTimeEntry]
+  );
+
   // Stable functions for keyboard navigation
   const handleNewEntry = React.useCallback(() => {
     startNewTimeEntry();
@@ -1035,6 +1101,10 @@ export function TimeTrackerTable() {
 
   // Keyboard navigation
   React.useEffect(() => {
+    let awaitingPinnedNumber = false;
+    let pinnedTimeoutId: NodeJS.Timeout | null = null;
+    let toastId: string | number | null = null;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
       const activeElement = document.activeElement;
@@ -1052,6 +1122,56 @@ export function TimeTrackerTable() {
         isActionsMenuOpen
       )
         return;
+
+      // Handle pinned entry shortcuts: p followed by number (1-9)
+      if (!isInInput && e.key === "p" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+
+        // If already waiting, toggle off
+        if (awaitingPinnedNumber) {
+          awaitingPinnedNumber = false;
+          setShowPinnedShortcuts(false);
+          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+          if (toastId) toast.dismiss(toastId);
+          return;
+        }
+
+        // Otherwise, activate shortcut mode
+        awaitingPinnedNumber = true;
+        setShowPinnedShortcuts(true);
+
+        // Clear any existing timeout
+        if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+
+        // Reset after 2 seconds if no number is pressed
+        pinnedTimeoutId = setTimeout(() => {
+          awaitingPinnedNumber = false;
+          setShowPinnedShortcuts(false);
+        }, 2000);
+
+        // Show visual feedback
+        toastId = toast("Press 1-9 to start a pinned entry", { duration: 2000 });
+        return;
+      }
+
+      // If waiting for a number after 'p'
+      if (awaitingPinnedNumber && !isInInput) {
+        const num = parseInt(e.key);
+        if (!isNaN(num) && num >= 1 && num <= 9) {
+          e.preventDefault();
+          awaitingPinnedNumber = false;
+          setShowPinnedShortcuts(false);
+          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+
+          const index = num - 1;
+          if (index < pinnedEntries.length) {
+            handleStartTimerFromPinned(pinnedEntries[index]);
+          } else {
+            toast.error(`No pinned entry at position ${num}`);
+          }
+          return;
+        }
+      }
 
       // Global shortcuts (work even when focused on inputs)
       if (e.key === "n" && !isInInput) {
@@ -1236,7 +1356,10 @@ export function TimeTrackerTable() {
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+    };
   }, [
     // Essential dependencies only - remove functions that don't need to be in deps
     selectedCell,
@@ -1246,6 +1369,7 @@ export function TimeTrackerTable() {
     isProjectSelectorOpen,
     isTagSelectorOpen,
     isActionsMenuOpen,
+    pinnedEntries,
     // Stable callback functions
     activateCell,
     navigateToNextCell,
@@ -1253,6 +1377,7 @@ export function TimeTrackerTable() {
     handleRefreshData,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
+    handleStartTimerFromPinned,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -1347,6 +1472,12 @@ export function TimeTrackerTable() {
       className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none"
       ref={tableRef}
     >
+      <PinnedTimeEntries
+        pinnedEntries={pinnedEntries}
+        onUnpin={handleUnpinEntry}
+        onStartTimer={handleStartTimerFromPinned}
+        showShortcuts={showPinnedShortcuts}
+      />
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <Popover>
@@ -1476,6 +1607,9 @@ export function TimeTrackerTable() {
                   onProjectChange={handleProjectChange}
                   onTagsChange={handleTagsChange}
                   onDelete={handleDeleteWithConfirmation}
+                  onPin={handlePinEntry}
+                  onUnpin={handleUnpinEntry}
+                  isPinned={isPinned(entry.id.toString())}
                   projects={projects}
                   availableTags={availableTags}
                   setIsEditingCell={setIsEditingCell}

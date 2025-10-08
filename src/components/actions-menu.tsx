@@ -10,6 +10,9 @@ import { cn } from "@/lib/utils";
 import { MoreVertical } from "lucide-react";
 import * as React from "react";
 interface ActionsMenuProps {
+  onPin?: () => void;
+  onUnpin?: () => void;
+  isPinned?: boolean;
   onDuplicate?: () => void;
   onSplit?: () => void;
   onStartEntry?: () => void;
@@ -22,6 +25,9 @@ interface ActionsMenuProps {
 }
 
 export function ActionsMenu({
+  onPin,
+  onUnpin,
+  isPinned = false,
   onDuplicate,
   onSplit,
   onStartEntry,
@@ -38,6 +44,9 @@ export function ActionsMenu({
 
   // Menu options array for easier navigation
   const menuOptions = [
+    isPinned
+      ? { label: "Unpin", action: onUnpin || (() => {}) }
+      : { label: "Pin", action: onPin || (() => {}) },
     { label: "Duplicate", action: onDuplicate || (() => {}) },
     { label: "Split", action: onSplit || (() => {}) },
     { label: "Start entry", action: onStartEntry || (() => {}) },
