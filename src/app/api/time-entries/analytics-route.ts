@@ -54,27 +54,39 @@ export async function GET(request: NextRequest) {
       return createErrorResponse("Failed to fetch projects from Toggl");
     }
 
-    // Fetch tags
-    const tagsResponse = await fetch(
-      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/tags?page=1&per_page=100`,
-      {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-
+    // Fetch all tags with pagination
     let tags: Tag[] = [];
-    if (tagsResponse.ok) {
-      tags = await tagsResponse.json();
-    } else if (tagsResponse.status === 401) {
-      return createErrorResponse(
-        "Session expired - please reauthenticate",
-        401
+    let currentPage = 1;
+    const perPage = 200; // Max per page for tags API
+    let hasMoreTags = true;
+
+    while (hasMoreTags) {
+      const tagsResponse = await fetch(
+        `https://track.toggl.com/api/v9/workspaces/${workspaceId}/tags?page=${currentPage}&per_page=${perPage}`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${sessionToken}`,
+          },
+        }
       );
-    } else {
-      console.error("Failed to fetch tags:", await tagsResponse.text());
+
+      if (tagsResponse.ok) {
+        const pageTags: Tag[] = await tagsResponse.json();
+        tags = [...tags, ...pageTags];
+
+        // If we got fewer tags than per_page, we've reached the end
+        hasMoreTags = pageTags.length === perPage;
+        currentPage++;
+      } else if (tagsResponse.status === 401) {
+        return createErrorResponse(
+          "Session expired - please reauthenticate",
+          401
+        );
+      } else {
+        console.error("Failed to fetch tags:", await tagsResponse.text());
+        hasMoreTags = false;
+      }
     }
 
     const projects: Project[] = await projectsResponse.json();

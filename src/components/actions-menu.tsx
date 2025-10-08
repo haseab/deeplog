@@ -47,7 +47,6 @@ export function ActionsMenu({
     isPinned
       ? { label: "Unpin", action: onUnpin || (() => {}) }
       : { label: "Pin", action: onPin || (() => {}) },
-    { label: "Duplicate", action: onDuplicate || (() => {}) },
     { label: "Split", action: onSplit || (() => {}) },
     { label: "Start entry", action: onStartEntry || (() => {}) },
     { label: "Copy ID", action: onCopyId || (() => {}) },
