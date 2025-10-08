@@ -205,9 +205,6 @@ const MemoizedTableRow = React.memo(
             onPin={() => onPin(entry)}
             onUnpin={() => onUnpin(entry.id.toString())}
             isPinned={isPinned}
-            onDuplicate={() => {
-              // Implement duplicate logic
-            }}
             onSplit={() => {
               // Implement split logic
             }}
