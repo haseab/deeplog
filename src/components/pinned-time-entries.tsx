@@ -1,7 +1,7 @@
 "use client";
 
 import { PinnedEntry } from "@/types";
-import { Play, X } from "lucide-react";
+import { Play, Plus, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,7 @@ interface PinnedTimeEntriesProps {
   pinnedEntries: PinnedEntry[];
   onUnpin: (id: string) => void;
   onStartTimer: (entry: PinnedEntry) => void;
+  onNewEntry: () => void;
   showShortcuts?: boolean;
 }
 
@@ -16,6 +17,7 @@ export function PinnedTimeEntries({
   pinnedEntries,
   onUnpin,
   onStartTimer,
+  onNewEntry,
   showShortcuts = false,
 }: PinnedTimeEntriesProps) {
   if (pinnedEntries.length === 0) {
@@ -28,6 +30,10 @@ export function PinnedTimeEntries({
         Pinned Entries
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        {/* New Entry Card */}
+        <NewEntryCard onNewEntry={onNewEntry} showShortcut={showShortcuts} />
+
+        {/* Pinned Entry Cards */}
         {pinnedEntries.map((entry, index) => (
           <PinnedEntryCard
             key={entry.id}
@@ -39,6 +45,61 @@ export function PinnedTimeEntries({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+interface NewEntryCardProps {
+  onNewEntry: () => void;
+  showShortcut?: boolean;
+}
+
+function NewEntryCard({ onNewEntry, showShortcut = false }: NewEntryCardProps) {
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  return (
+    <div
+      className="relative group cursor-pointer rounded-lg border-2 border-dashed border-border/60 bg-card overflow-hidden transition-all duration-200 hover:shadow-md hover:scale-[1.02] active:scale-[0.98] hover:border-primary/50 flex items-center justify-center"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={onNewEntry}
+    >
+      {/* Content */}
+      <div
+        className={cn(
+          "p-2.5 transition-all duration-200 flex items-center justify-center",
+          isHovered && "blur-[2px] opacity-70"
+        )}
+      >
+        <div className="flex flex-row items-center gap-2">
+          <Plus className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">New Entry</span>
+        </div>
+      </div>
+
+      {/* Keyboard shortcut badge */}
+      {showShortcut && (
+        <div className="absolute top-2 right-2 w-5 h-5 rounded bg-muted/80 backdrop-blur-sm flex items-center justify-center shadow-sm z-10">
+          <span className="text-xs font-semibold text-muted-foreground">
+            N
+          </span>
+        </div>
+      )}
+
+      {/* Hover overlay */}
+      <>
+        {/* Play button */}
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300 ease-out",
+            isHovered ? "opacity-100 scale-100" : "opacity-0 scale-90"
+          )}
+        >
+          <div className="w-7 h-7 rounded-full bg-green-600/90 dark:bg-green-400/90 backdrop-blur-sm flex items-center justify-center shadow-lg">
+            <Play className="w-3.5 h-3.5 text-white dark:text-green-950 ml-0.5" fill="currentColor" />
+          </div>
+        </div>
+      </>
     </div>
   );
 }
@@ -72,7 +133,7 @@ function PinnedEntryCard({
       {/* Content */}
       <div
         className={cn(
-          "p-3 space-y-1.5 transition-all duration-200",
+          "p-2.5 space-y-1 transition-all duration-200",
           isHovered && "blur-[2px] opacity-70"
         )}
       >

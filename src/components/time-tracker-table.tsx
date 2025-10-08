@@ -1397,6 +1397,7 @@ export function TimeTrackerTable() {
     isTagSelectorOpen,
     isActionsMenuOpen,
     pinnedEntries,
+    showPinnedEntries,
     // Stable callback functions
     activateCell,
     navigateToNextCell,
@@ -1504,6 +1505,10 @@ export function TimeTrackerTable() {
           pinnedEntries={pinnedEntries}
           onUnpin={handleUnpinEntry}
           onStartTimer={handleStartTimerFromPinned}
+          onNewEntry={() => {
+            setShowPinnedEntries(false);
+            handleNewEntry();
+          }}
           showShortcuts={true}
         />
       )}
