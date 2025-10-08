@@ -684,6 +684,7 @@ export function TimeTrackerTable() {
           setTimeEntries(originalEntries);
         });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [entryToSplit, timeEntries]
   );
 
@@ -1516,6 +1517,7 @@ export function TimeTrackerTable() {
     isActionsMenuOpen,
     pinnedEntries,
     showPinnedEntries,
+    timeEntries,
     // Stable callback functions
     activateCell,
     navigateToNextCell,
@@ -1524,6 +1526,7 @@ export function TimeTrackerTable() {
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
     handleStartTimerFromPinned,
+    handleSplit,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes

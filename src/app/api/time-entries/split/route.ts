@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     // Build update body with only the fields Toggl expects
     // Don't include duration - let Toggl calculate it from start/stop times
-    const updateBody: Record<string, any> = {
+    const updateBody: Record<string, string | number | boolean | number[] | undefined> = {
       description: entry.description,
       start: entry.start,
       stop: newEndTime.toISOString(),
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
 
       // Build request body with only the fields Toggl expects
       // Don't include duration - let Toggl calculate it from start/stop times
-      const requestBody: Record<string, any> = {
+      const requestBody: Record<string, string | number | boolean | number[] | undefined> = {
         description: entry.description,
         start: partStartTime.toISOString(),
         stop: partEndTime.toISOString(),
