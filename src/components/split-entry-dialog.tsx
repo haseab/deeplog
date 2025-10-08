@@ -16,7 +16,7 @@ import * as React from "react";
 interface SplitEntryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (parts: number) => void;
+  onConfirm: (offsetMinutes: number) => void;
   entryDescription?: string;
 }
 
@@ -26,7 +26,7 @@ export function SplitEntryDialog({
   onConfirm,
   entryDescription,
 }: SplitEntryDialogProps) {
-  const [parts, setParts] = React.useState("2");
+  const [offsetMinutes, setOffsetMinutes] = React.useState("5");
   const [error, setError] = React.useState("");
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -35,27 +35,22 @@ export function SplitEntryDialog({
   };
 
   const handleConfirm = () => {
-    const numParts = parseInt(parts);
+    const minutes = parseInt(offsetMinutes);
 
-    if (isNaN(numParts) || numParts < 2) {
-      setError("Please enter a number of 2 or more");
+    if (isNaN(minutes) || minutes <= 0) {
+      setError("Please enter a number greater than 0");
       return;
     }
 
-    if (numParts > 10) {
-      setError("Maximum 10 parts allowed");
-      return;
-    }
-
-    onConfirm(numParts);
+    onConfirm(minutes);
     onOpenChange(false);
-    setParts("2");
+    setOffsetMinutes("5");
     setError("");
   };
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      setParts("2");
+      setOffsetMinutes("5");
       setError("");
     }
     onOpenChange(newOpen);
@@ -73,23 +68,22 @@ export function SplitEntryDialog({
               </span>
             )}
             <span className="block mt-2">
-              How many equal parts do you want to split this entry into?
+              How many minutes from the end do you want to split?
             </span>
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="parts" className="text-right">
-              Parts
+            <Label htmlFor="offsetMinutes" className="text-right">
+              Minutes
             </Label>
             <Input
-              id="parts"
+              id="offsetMinutes"
               type="number"
-              min="2"
-              max="10"
-              value={parts}
+              min="1"
+              value={offsetMinutes}
               onChange={(e) => {
-                setParts(e.target.value);
+                setOffsetMinutes(e.target.value);
                 setError("");
               }}
               onFocus={handleInputFocus}

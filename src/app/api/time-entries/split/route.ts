@@ -5,10 +5,10 @@ export async function POST(request: NextRequest) {
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
-    const { entryId, parts } = body;
+    const { entryId, offsetMinutes } = body;
 
-    if (!entryId || !parts || parts < 2) {
-      return createErrorResponse("entryId and parts (minimum 2) are required", 400);
+    if (!entryId || offsetMinutes === undefined || offsetMinutes <= 0) {
+      return createErrorResponse("entryId and offsetMinutes (greater than 0) are required", 400);
     }
 
     // Get the time entry
@@ -42,7 +42,10 @@ export async function POST(request: NextRequest) {
     const startTime = new Date(entry.start);
     const endTime = new Date(entry.stop);
     const duration = endTime.getTime() - startTime.getTime();
-    const partDuration = duration / parts;
+    const offsetMs = offsetMinutes * 60 * 1000;
+
+    // Split point is offsetMinutes from the end
+    const splitPoint = endTime.getTime() - offsetMs;
 
     console.log(`[Split API] Original entry:`, {
       id: entry.id,
@@ -50,12 +53,12 @@ export async function POST(request: NextRequest) {
       stop: entry.stop,
       duration: entry.duration,
       durationMs: duration,
-      parts,
-      partDurationMs: partDuration,
+      offsetMinutes,
+      splitPoint: new Date(splitPoint).toISOString(),
     });
 
-    // Update the original entry with 1/parts of the duration
-    const newEndTime = new Date(startTime.getTime() + partDuration);
+    // Update the original entry to end at the split point
+    const newEndTime = new Date(splitPoint);
 
     // Build update body with only the fields Toggl expects
     // Don't include duration - let Toggl calculate it from start/stop times
@@ -116,77 +119,68 @@ export async function POST(request: NextRequest) {
 
     const updatedEntry = await updateResponse.json();
     console.log(`[Split API] Successfully updated original entry:`, updatedEntry);
-    const createdEntries = [];
 
-    // Create the remaining parts
-    for (let i = 1; i < parts; i++) {
-      const partStartTime = new Date(startTime.getTime() + partDuration * i);
-      const partEndTime = new Date(startTime.getTime() + partDuration * (i + 1));
+    // Create the second part (from split point to original end)
+    const requestBody: Record<string, string | number | boolean | number[] | undefined> = {
+      description: entry.description,
+      start: new Date(splitPoint).toISOString(),
+      stop: entry.stop,
+      billable: entry.billable,
+      wid: workspaceId,
+      created_with: "deeplog",
+    };
 
-      // Build request body with only the fields Toggl expects
-      // Don't include duration - let Toggl calculate it from start/stop times
-      const requestBody: Record<string, string | number | boolean | number[] | undefined> = {
-        description: entry.description,
-        start: partStartTime.toISOString(),
-        stop: partEndTime.toISOString(),
-        billable: entry.billable,
-        wid: workspaceId,
-        created_with: "deeplog",
-      };
+    // Only include project_id if it exists and is valid
+    if (entry.project_id) {
+      requestBody.project_id = entry.project_id;
+    }
 
-      // Only include project_id if it exists and is valid
-      if (entry.project_id) {
-        requestBody.project_id = entry.project_id;
+    // Only include tag_ids if they exist
+    if (entry.tag_ids && entry.tag_ids.length > 0) {
+      requestBody.tag_ids = entry.tag_ids;
+    }
+
+    console.log(`[Split API] Creating second part:`, {
+      ...requestBody,
+      calculatedDurationSeconds: Math.round(offsetMs / 1000),
+    });
+
+    const createResponse = await fetch(
+      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify(requestBody),
       }
+    );
 
-      // Only include tag_ids if they exist
-      if (entry.tag_ids && entry.tag_ids.length > 0) {
-        requestBody.tag_ids = entry.tag_ids;
-      }
-
-      console.log(`[Split API] Creating part ${i + 1}/${parts}:`, {
-        ...requestBody,
-        calculatedDurationSeconds: Math.round((partEndTime.getTime() - partStartTime.getTime()) / 1000),
+    if (!createResponse.ok) {
+      const errorText = await createResponse.text();
+      console.error(`[Split API] Failed to create second part:`, {
+        status: createResponse.status,
+        statusText: createResponse.statusText,
+        error: errorText,
+        requestBody,
       });
 
-      const createResponse = await fetch(
-        `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            Authorization: `Bearer ${sessionToken}`,
-          },
-          body: JSON.stringify(requestBody),
-        }
-      );
-
-      if (!createResponse.ok) {
-        const errorText = await createResponse.text();
-        console.error(`[Split API] Failed to create part ${i + 1}:`, {
-          status: createResponse.status,
-          statusText: createResponse.statusText,
-          error: errorText,
-          requestBody,
-        });
-
-        if (createResponse.status === 401) {
-          return createErrorResponse("Session expired - please reauthenticate", 401);
-        }
-        throw new Error(`Failed to create part ${i + 1}: ${errorText}`);
+      if (createResponse.status === 401) {
+        return createErrorResponse("Session expired - please reauthenticate", 401);
       }
-
-      const createdEntry = await createResponse.json();
-      console.log(`[Split API] Successfully created part ${i + 1}:`, createdEntry);
-      createdEntries.push(createdEntry);
+      throw new Error(`Failed to create second part: ${errorText}`);
     }
+
+    const createdEntry = await createResponse.json();
+    console.log(`[Split API] Successfully created second part:`, createdEntry);
 
     return new Response(
       JSON.stringify({
         updatedEntry,
-        createdEntries,
-        message: `Split into ${parts} equal parts`,
+        createdEntry,
+        message: `Split into 2 parts with ${offsetMinutes} minutes offset from end`,
       }),
       {
         status: 200,

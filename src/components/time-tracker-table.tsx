@@ -905,41 +905,36 @@ export function TimeTrackerTable({
   }, []);
 
   const handleConfirmSplit = React.useCallback(
-    (parts: number) => {
+    (offsetMinutes: number) => {
       if (!entryToSplit) return;
 
       const originalEntries = [...timeEntries];
       const startTime = new Date(entryToSplit.start);
       const endTime = new Date(entryToSplit.stop!);
-      const duration = endTime.getTime() - startTime.getTime();
-      const partDuration = duration / parts;
+      const offsetMs = offsetMinutes * 60 * 1000;
+
+      // Split point is offsetMinutes from the end
+      const splitPoint = endTime.getTime() - offsetMs;
 
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
 
-      // Update the first entry (modified original)
+      // Update the first entry (original, ending at split point)
       const firstEntry: TimeEntry = {
         ...entryToSplit,
-        stop: new Date(startTime.getTime() + partDuration).toISOString(),
-        duration: Math.floor(partDuration / 1000),
+        stop: new Date(splitPoint).toISOString(),
+        duration: Math.floor((splitPoint - startTime.getTime()) / 1000),
       };
       splitEntries.push(firstEntry);
 
-      // Create new entries for the remaining parts
-      for (let i = 1; i < parts; i++) {
-        const partStartTime = new Date(startTime.getTime() + partDuration * i);
-        const partEndTime = new Date(
-          startTime.getTime() + partDuration * (i + 1)
-        );
-
-        splitEntries.push({
-          ...entryToSplit,
-          id: -Date.now() - i, // Temporary negative ID
-          start: partStartTime.toISOString(),
-          stop: partEndTime.toISOString(),
-          duration: Math.floor(partDuration / 1000),
-        });
-      }
+      // Create second entry (from split point to original end)
+      splitEntries.push({
+        ...entryToSplit,
+        id: -Date.now(), // Temporary negative ID
+        start: new Date(splitPoint).toISOString(),
+        stop: endTime.toISOString(),
+        duration: Math.floor(offsetMs / 1000),
+      });
 
       // Update UI optimistically
       setTimeEntries((currentEntries) => {
@@ -959,7 +954,7 @@ export function TimeTrackerTable({
       // Make API call
       const sessionToken = localStorage.getItem("toggl_session_token");
 
-      toast(`Splitting entry into ${parts} parts...`, {
+      toast(`Splitting entry with ${offsetMinutes} minute offset...`, {
         duration: 2000,
       });
 
@@ -971,7 +966,7 @@ export function TimeTrackerTable({
         },
         body: JSON.stringify({
           entryId: entryToSplit.id,
-          parts,
+          offsetMinutes,
         }),
       })
         .then(async (response) => {
@@ -987,7 +982,7 @@ export function TimeTrackerTable({
 
           // Instead of trying to merge API data (which lacks enriched fields),
           // just refresh the data to get the properly enriched entries
-          toast.success(data.message || `Split into ${parts} equal parts`);
+          toast.success(data.message || "Entry split successfully");
 
           // Refresh data to get properly enriched entries with project names, colors, tags, etc.
           setTimeout(() => {
