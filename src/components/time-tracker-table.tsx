@@ -33,6 +33,7 @@ import { ExpandableDescription } from "./expandable-description";
 import { LiveDuration } from "./live-duration";
 import { ProjectSelector } from "./project-selector";
 import { TagSelector } from "./tag-selector";
+import { SplitEntryDialog } from "./split-entry-dialog";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -46,6 +47,7 @@ const MemoizedTableRow = React.memo(
     onDelete,
     onPin,
     onUnpin,
+    onSplit,
     isPinned,
     projects,
     availableTags,
@@ -66,6 +68,7 @@ const MemoizedTableRow = React.memo(
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
+    onSplit: (entry: TimeEntry) => void;
     isPinned: boolean;
     projects: Project[];
     availableTags: Tag[];
@@ -205,9 +208,7 @@ const MemoizedTableRow = React.memo(
             onPin={() => onPin(entry)}
             onUnpin={() => onUnpin(entry.id.toString())}
             isPinned={isPinned}
-            onSplit={() => {
-              // Implement split logic
-            }}
+            onSplit={() => onSplit(entry)}
             onStartEntry={() => {
               // Implement start entry logic
             }}
@@ -310,6 +311,10 @@ export function TimeTrackerTable() {
   const tableRef = React.useRef<HTMLDivElement>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
+    null
+  );
+  const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
+  const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
     null
   );
   const [syncStatus, setSyncStatus] = React.useState<
@@ -571,6 +576,115 @@ export function TimeTrackerTable() {
       });
     },
     [showUpdateToast]
+  );
+
+  const handleSplit = React.useCallback(
+    (entry: TimeEntry) => {
+      if (!entry.stop || entry.duration === -1) {
+        toast.error("Cannot split a running time entry");
+        return;
+      }
+      setEntryToSplit(entry);
+      setSplitDialogOpen(true);
+    },
+    []
+  );
+
+  const handleConfirmSplit = React.useCallback(
+    (parts: number) => {
+      if (!entryToSplit) return;
+
+      const originalEntries = [...timeEntries];
+      const startTime = new Date(entryToSplit.start);
+      const endTime = new Date(entryToSplit.stop!);
+      const duration = endTime.getTime() - startTime.getTime();
+      const partDuration = duration / parts;
+
+      // Optimistically create the split entries
+      const splitEntries: TimeEntry[] = [];
+
+      // Update the first entry (modified original)
+      const firstEntry: TimeEntry = {
+        ...entryToSplit,
+        stop: new Date(startTime.getTime() + partDuration).toISOString(),
+        duration: Math.floor(partDuration / 1000),
+      };
+      splitEntries.push(firstEntry);
+
+      // Create new entries for the remaining parts
+      for (let i = 1; i < parts; i++) {
+        const partStartTime = new Date(startTime.getTime() + partDuration * i);
+        const partEndTime = new Date(startTime.getTime() + partDuration * (i + 1));
+
+        splitEntries.push({
+          ...entryToSplit,
+          id: -Date.now() - i, // Temporary negative ID
+          start: partStartTime.toISOString(),
+          stop: partEndTime.toISOString(),
+          duration: Math.floor(partDuration / 1000),
+        });
+      }
+
+      // Update UI optimistically
+      setTimeEntries((currentEntries) => {
+        const entriesWithoutOriginal = currentEntries.filter(
+          (entry) => entry.id !== entryToSplit.id
+        );
+
+        // Insert split entries in the correct position (sorted by start time)
+        const updatedEntries = [...entriesWithoutOriginal, ...splitEntries];
+        updatedEntries.sort(
+          (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+        );
+
+        return updatedEntries;
+      });
+
+      // Make API call
+      const sessionToken = localStorage.getItem("toggl_session_token");
+
+      toast(`Splitting entry into ${parts} parts...`, {
+        duration: 2000,
+      });
+
+      fetch("/api/time-entries/split", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          entryId: entryToSplit.id,
+          parts,
+        }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("API Error:", response.status, errorText);
+            throw new Error("Failed to split entry");
+          }
+          return response.json();
+        })
+        .then((data) => {
+          console.log("[Split] API response:", data);
+
+          // Instead of trying to merge API data (which lacks enriched fields),
+          // just refresh the data to get the properly enriched entries
+          toast.success(data.message || `Split into ${parts} equal parts`);
+
+          // Refresh data to get properly enriched entries with project names, colors, tags, etc.
+          setTimeout(() => {
+            fetchData(false);
+          }, 300);
+        })
+        .catch((error) => {
+          console.error("Failed to split time entry:", error);
+          toast.error("Failed to split entry. Reverting changes.");
+          setTimeEntries(originalEntries);
+        });
+    },
+    [entryToSplit, timeEntries]
   );
 
   const startNewTimeEntry = React.useCallback(
@@ -1071,7 +1185,7 @@ export function TimeTrackerTable() {
     if (date?.from && date?.to) {
       currentPageRef.current = 0;
       setHasMore(true);
-      fetchData(true, true); // Explicitly reset data and show loading
+      fetchData(false, true); // Reset data but don't show loading spinner - just show syncing badge
     }
   }, [date, fetchData]);
 
@@ -1197,13 +1311,8 @@ export function TimeTrackerTable() {
         }
       }
 
-      if (e.key === "r" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        handleRefreshData();
-        return;
-      }
-
-      if (e.key === "r" && !isInInput) {
+      // Only handle plain 'r' for refresh, allow Cmd+R/Ctrl+R for browser refresh
+      if (e.key === "r" && !isInInput && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleRefreshData();
         return;
@@ -1377,6 +1486,16 @@ export function TimeTrackerTable() {
         case "d":
           e.preventDefault();
           handleDeleteSelectedWithConfirmation();
+          break;
+
+        case "s":
+          e.preventDefault();
+          if (selectedCell) {
+            const entry = timeEntries[selectedCell.rowIndex];
+            if (entry) {
+              handleSplit(entry);
+            }
+          }
           break;
       }
     };
@@ -1642,6 +1761,7 @@ export function TimeTrackerTable() {
                   onDelete={handleDeleteWithConfirmation}
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
+                  onSplit={handleSplit}
                   isPinned={isPinned(entry.id.toString())}
                   projects={projects}
                   availableTags={availableTags}
@@ -1695,6 +1815,13 @@ export function TimeTrackerTable() {
         onOpenChange={setDeleteDialogOpen}
         entry={entryToDelete}
         onConfirm={handleConfirmDelete}
+      />
+
+      <SplitEntryDialog
+        open={splitDialogOpen}
+        onOpenChange={setSplitDialogOpen}
+        onConfirm={handleConfirmSplit}
+        entryDescription={entryToSplit?.description}
       />
     </div>
   );
