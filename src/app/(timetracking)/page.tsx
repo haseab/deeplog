@@ -11,11 +11,16 @@ export default function Home() {
     null
   );
   const [isTransitioning, setIsTransitioning] = React.useState(false);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
 
   React.useEffect(() => {
     // Check if credentials exist in localStorage
     const sessionToken = localStorage.getItem("toggl_session_token");
     setHasCredentials(!!sessionToken);
+  }, []);
+
+  const handleFullscreenChange = React.useCallback((fullscreen: boolean) => {
+    setIsFullscreen(fullscreen);
   }, []);
 
   const handleCredentialsSubmit = async (sessionToken: string) => {
@@ -101,27 +106,29 @@ export default function Home() {
       }`}
     >
       <div className="container mx-auto py-8 px-4 max-w-7xl">
-        <div className="flex justify-between items-center mb-8">
-          <div>
+        {!isFullscreen && (
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Image
+                  src="/deeplog.svg"
+                  alt="deeplog Logo"
+                  width={28}
+                  height={28}
+                  className="dark:invert transition-transform duration-200 hover:scale-110"
+                />
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  DeepLog
+                </h1>
+              </div>
+            </div>
             <div className="flex items-center space-x-2">
-              <Image
-                src="/deeplog.svg"
-                alt="deeplog Logo"
-                width={28}
-                height={28}
-                className="dark:invert transition-transform duration-200 hover:scale-110"
-              />
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                DeepLog
-              </h1>
+              <AppSettings showTogglKey={true} showLimitlessKey={true} onResetCredentials={handleCredentialsReset} />
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <AppSettings showTogglKey={true} showLimitlessKey={true} onResetCredentials={handleCredentialsReset} />
-          </div>
-        </div>
+        )}
 
-        <TimeTrackerTable />
+        <TimeTrackerTable onFullscreenChange={handleFullscreenChange} />
       </div>
     </main>
   );

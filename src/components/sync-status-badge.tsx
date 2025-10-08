@@ -27,6 +27,7 @@ export function SyncStatusBadge({
   onRetry,
   className,
 }: SyncStatusBadgeProps) {
+  const [isHovered, setIsHovered] = React.useState(false);
   const getStatusConfig = () => {
     switch (status) {
       case "synced":
@@ -99,28 +100,51 @@ export function SyncStatusBadge({
       onReauthenticate();
     } else if (status === "error" && onRetry) {
       onRetry();
+    } else if (status === "synced" && onRetry) {
+      onRetry();
     }
   };
+
+  const showRefreshOnHover = status === "synced";
+  const isClickable = config.actionable || showRefreshOnHover;
 
   const badge = (
     <div
       className={cn(
-        "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-200",
+        "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-200 relative overflow-hidden",
         config.bgColor,
         config.borderColor,
         config.color,
-        config.actionable && "cursor-pointer hover:scale-105 hover:shadow-sm",
+        isClickable && "cursor-pointer hover:scale-105 hover:shadow-sm",
+        showRefreshOnHover && isHovered && "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400",
         className
       )}
-      onClick={config.actionable ? handleClick : undefined}
+      onClick={isClickable ? handleClick : undefined}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      <Icon
-        className={cn(
-          "w-4 h-4",
-          config.animate && "animate-spin"
-        )}
-      />
-      <span>{config.text}</span>
+      <div className={cn(
+        "flex items-center gap-2 transition-all duration-200",
+        showRefreshOnHover && isHovered && "blur-sm opacity-0"
+      )}>
+        <Icon
+          className={cn(
+            "w-4 h-4",
+            config.animate && "animate-spin"
+          )}
+        />
+        <span>{config.text}</span>
+      </div>
+
+      {showRefreshOnHover && (
+        <div className={cn(
+          "absolute inset-0 flex items-center justify-center gap-2 transition-all duration-200",
+          isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}>
+          <RefreshCw className="w-4 h-4" />
+          <span>Refresh</span>
+        </div>
+      )}
     </div>
   );
 
@@ -135,6 +159,11 @@ export function SyncStatusBadge({
           {config.actionable && (
             <p className="text-xs text-muted-foreground mt-1">
               Click to {status === "session_expired" ? "reauthenticate" : "retry"}
+            </p>
+          )}
+          {showRefreshOnHover && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Click to refresh
             </p>
           )}
         </TooltipContent>

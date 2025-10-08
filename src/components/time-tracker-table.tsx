@@ -2,7 +2,7 @@
 
 import { toast, triggerUndo } from "@/lib/toast";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { Calendar as CalendarIcon, Plus, RefreshCw } from "lucide-react";
+import { Calendar as CalendarIcon, Maximize2, Minimize2, Plus } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
 import { SyncStatusBadge } from "./sync-status-badge";
@@ -84,7 +84,7 @@ const MemoizedTableRow = React.memo(
         key={entry.id}
         data-entry-id={entry.id}
         className={cn(
-          "hover:bg-accent/20 transition-all duration-1000 border-border/40 group hover:shadow-sm",
+          "hover:bg-accent/20 border-border/40 group hover:shadow-sm",
           isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
         )}
       >
@@ -101,7 +101,7 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 pr-2 pl-2 max-w-0 w-full cursor-pointer sm:max-w-0 max-w-[200px]",
+            "px-4 pr-2 pl-2 cursor-pointer description-cell",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 1 &&
               "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
@@ -274,9 +274,14 @@ const MemoizedTableRow = React.memo(
   }
 );
 
-export function TimeTrackerTable() {
+export function TimeTrackerTable({ onFullscreenChange }: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+
+  React.useEffect(() => {
+    onFullscreenChange?.(isFullscreen);
+  }, [isFullscreen, onFullscreenChange]);
 
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
@@ -1331,6 +1336,12 @@ export function TimeTrackerTable() {
         return;
       }
 
+      if (e.key === "f" && !isInInput) {
+        e.preventDefault();
+        setIsFullscreen(prev => !prev);
+        return;
+      }
+
       // Navigation shortcuts (only when not in input)
       if (isInInput) return;
 
@@ -1618,7 +1629,10 @@ export function TimeTrackerTable() {
 
   return (
     <div
-      className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none"
+      className={cn(
+        "space-y-6 overflow-auto overscroll-none",
+        isFullscreen ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode" : "h-[calc(100vh-8rem)] border rounded-xl p-6"
+      )}
       ref={tableRef}
     >
       {showPinnedEntries && (
@@ -1682,32 +1696,28 @@ export function TimeTrackerTable() {
               />
             </PopoverContent>
           </Popover>
-          <Button
-            onClick={() => {
-              fetchData();
-            }}
-            variant="outline"
-            disabled={loading}
-            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm disabled:opacity-50"
-          >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-          </Button>
-        </div>
-        <div className="flex items-center gap-3">
           <SyncStatusBadge
             status={syncStatus}
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
           />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            size="icon"
+            variant="outline"
+            className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+            title={isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </Button>
           <Button
             onClick={handleNewEntryClick}
             size="icon"
-            className="rounded-full h-9 w-9 bg-accent hover:bg-accent/80 text-accent-foreground border border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
+            variant="outline"
+            className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
             title="Start new timer (N)"
           >
             <Plus className="w-4 h-4" />
@@ -1725,14 +1735,17 @@ export function TimeTrackerTable() {
           </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-border/60 overflow-hidden shadow-sm bg-card">
+        <div className={cn(
+          "bg-card",
+          isFullscreen ? "overflow-x-auto" : "rounded-lg border border-border/60 shadow-sm overflow-hidden"
+        )}>
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-muted/30 transition-colors duration-200 border-border/60">
                 <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
                   Date
                 </TableHead>
-                <TableHead className="px-4 py-3 font-medium text-muted-foreground">
+                <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
                   Description
                 </TableHead>
                 <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">

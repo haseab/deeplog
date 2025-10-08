@@ -202,4 +202,28 @@
   .info-toast [data-icon] {
     color: white !important;
   }
+
+  /* Description column default width */
+  .description-cell {
+    max-width: 0;
+    width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .description-cell {
+      max-width: 0;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .description-cell {
+      max-width: 200px;
+    }
+  }
+
+  /* Fullscreen mode: expand description column */
+  .fullscreen-mode .description-cell {
+    min-width: 600px;
+    max-width: 600px;
+  }
 }
