@@ -1,7 +1,7 @@
 "use client";
 
-import { ThemeToggle } from "@/components/theme-toggle";
 import { TimeTrackerTable } from "@/components/time-tracker-table";
+import { AppSettings } from "@/components/app-settings";
 import { WelcomeForm } from "@/components/welcome-form";
 import Image from "next/image";
 import * as React from "react";
@@ -117,19 +117,11 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <ThemeToggle />
-            <button
-              onClick={handleCredentialsReset}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors duration-200 px-2 py-1 rounded hover:bg-accent/50"
-            >
-              Reset Credentials
-            </button>
+            <AppSettings showTogglKey={true} showLimitlessKey={true} onResetCredentials={handleCredentialsReset} />
           </div>
         </div>
 
-        <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
-          <TimeTrackerTable />
-        </div>
+        <TimeTrackerTable />
       </div>
     </main>
   );

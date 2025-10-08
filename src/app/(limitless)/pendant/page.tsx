@@ -1,7 +1,7 @@
 "use client";
 
 import { LimitlessTranscriptionTable } from "@/components/limitless-transcription-table";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppSettings } from "@/components/app-settings";
 import { WelcomeForm } from "@/components/welcome-form";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -110,19 +110,11 @@ function LimitlessPageContent() {
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <ThemeToggle />
-            <button
-              onClick={handleCredentialsReset}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors duration-200 px-2 py-1 rounded hover:bg-accent/50"
-            >
-              Reset Credentials
-            </button>
+            <AppSettings showLimitlessKey={true} showTogglKey={true} onResetCredentials={handleCredentialsReset} />
           </div>
         </div>
 
-        <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
-          <LimitlessTranscriptionTable initialQuery={query} />
-        </div>
+        <LimitlessTranscriptionTable initialQuery={query} />
       </div>
     </main>
   );

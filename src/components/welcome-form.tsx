@@ -144,7 +144,7 @@ export function WelcomeForm({
       <div className="w-full max-w-md space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
         {/* Logo and Title Section */}
         <div className="text-center space-y-4">
-          <div className="flex justify-center animate-in zoom-in-50 duration-1000 delay-200">
+          <div className="flex justify-center">
             <div className="relative">
               <Image
                 src="/deeplog.svg"
@@ -157,7 +157,7 @@ export function WelcomeForm({
             </div>
           </div>
 
-          <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-700 delay-400">
+          <div className="space-y-2">
             <h1 className="text-4xl font-bold tracking-tight text-foreground">
               {title}
             </h1>
@@ -171,7 +171,7 @@ export function WelcomeForm({
         </div>
 
         {/* Form Card */}
-        <Card className="border-border/60 shadow-lg shadow-black/5 animate-in slide-in-from-bottom-4 duration-700 delay-600">
+        <Card className="border-border/60 shadow-lg shadow-black/5">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-xl font-semibold">Welcome!</CardTitle>
             <CardDescription>
@@ -264,9 +264,9 @@ export function WelcomeForm({
             {/* Help Text */}
             {helpText && (
               <div className="mt-6 p-4 bg-accent/30 rounded-lg animate-in fade-in-0 duration-700 delay-1000">
-                <p className="text-xs text-muted-foreground leading-relaxed">
+                <div className="text-xs text-muted-foreground leading-relaxed">
                   {helpText}
-                </p>
+                </div>
               </div>
             )}
           </CardContent>
