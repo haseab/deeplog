@@ -202,7 +202,7 @@ export function ProjectSelector({
                   "hover:bg-accent/60 hover:text-accent-foreground",
                   "active:scale-[0.98] active:bg-accent/80",
                   index === highlightedIndex &&
-                    "bg-accent/40 text-accent-foreground",
+                    "bg-gray-200 dark:bg-gray-700 text-foreground",
                   option.name === currentProject && "font-medium bg-primary/5"
                 )}
                 onClick={() => handleSelect(option.name)}
@@ -215,8 +215,15 @@ export function ProjectSelector({
                     />
                   )}
                   <span
-                    className="transition-colors duration-200"
-                    style={{ color: option.color || "inherit" }}
+                    className={cn(
+                      "transition-colors duration-200",
+                      index === highlightedIndex && "text-foreground font-medium"
+                    )}
+                    style={{
+                      color: index === highlightedIndex
+                        ? undefined
+                        : (option.color || "inherit")
+                    }}
                   >
                     {option.name}
                   </span>

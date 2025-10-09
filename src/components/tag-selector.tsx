@@ -244,13 +244,18 @@ export function TagSelector({
                       "hover:bg-accent/60 hover:text-accent-foreground",
                       "active:scale-[0.98] active:bg-accent/80",
                       index === highlightedIndex &&
-                        "bg-accent/40 text-accent-foreground",
+                        "bg-gray-200 dark:bg-gray-700 text-foreground",
                       isSelected && "font-medium bg-primary/5"
                     )}
                     onClick={() => handleToggleTag(option.name)}
                   >
                     <div className="flex items-center w-full">
-                      <span className="transition-colors duration-200">
+                      <span
+                        className={cn(
+                          "transition-colors duration-200",
+                          index === highlightedIndex && "text-foreground font-medium"
+                        )}
+                      >
                         {option.name}
                       </span>
                     </div>
