@@ -380,6 +380,13 @@ export function ExpandableDescription({
     if (!isEditing) {
       setIsEditing(true);
       setCurrentCharCount(description.length);
+
+      // If description is empty, show recent timers popover
+      if (!description || description.trim() === '') {
+        setShowRecentTimers(true);
+        setHighlightedIndex(0);
+      }
+
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {
         editor?.commands.focus("end");
@@ -474,6 +481,7 @@ export function ExpandableDescription({
         searchQuery={searchQuery}
         projects={projects}
         availableTags={availableTags}
+        maxResults={5}
         onSelect={(entry) => {
           justSelectedTimerRef.current = true;
           onRecentTimerSelect?.(entry);

@@ -27,6 +27,7 @@ interface RecentTimersPopoverProps {
   searchQuery: string;
   projects: Project[];
   availableTags: Tag[];
+  maxResults?: number;
   onSelect: (entry: {
     description: string;
     projectId: number | null;
@@ -44,6 +45,7 @@ export function RecentTimersPopover({
   searchQuery,
   projects,
   availableTags,
+  maxResults = 10,
   onSelect,
   highlightedIndex,
   onHighlightedIndexChange,
@@ -54,7 +56,7 @@ export function RecentTimersPopover({
 
   React.useEffect(() => {
     if (open) {
-      const results = searchRecentTimers(searchQuery, 10);
+      const results = searchRecentTimers(searchQuery, maxResults);
       setRecentTimers(results);
 
       // Notify parent of the current timers
@@ -66,7 +68,7 @@ export function RecentTimersPopover({
         onOpenChange(false);
       }
     }
-  }, [open, searchQuery, onTimersChange, onOpenChange]);
+  }, [open, searchQuery, maxResults, onTimersChange, onOpenChange]);
 
   // Clamp highlighted index to valid range
   React.useEffect(() => {

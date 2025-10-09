@@ -827,16 +827,20 @@ export function TimeTrackerTable({
         let projectColor = entry.project_color;
 
         if (updates.projectName !== undefined) {
+          console.log('[handleBulkEntryUpdate] Updating project. updates.projectName:', updates.projectName);
           if (updates.projectName === "" || updates.projectName === "No Project") {
             projectId = null;
             projectName = "";
             projectColor = "#6b7280";
+            console.log('[handleBulkEntryUpdate] Cleared project');
           } else {
             const project = projects.find((p) => p.name === updates.projectName);
+            console.log('[handleBulkEntryUpdate] Found project:', project);
             if (project) {
               projectId = project.id;
               projectName = project.name;
               projectColor = project.color;
+              console.log('[handleBulkEntryUpdate] Set projectId to:', projectId);
             }
           }
         }
@@ -866,8 +870,9 @@ export function TimeTrackerTable({
             if (updates.description !== undefined) {
               payload.description = updates.description;
             }
-            if (projectId !== undefined) {
-              payload.project_id = projectId;
+            if (updates.projectName !== undefined) {
+              console.log('[handleBulkEntryUpdate] Adding project_name to payload:', updates.projectName);
+              payload.project_name = updates.projectName;
             }
             if (updates.tags !== undefined) {
               // Convert tag names to IDs
@@ -877,6 +882,7 @@ export function TimeTrackerTable({
               payload.tag_ids = tagIds;
             }
 
+            console.log('[handleBulkEntryUpdate] Sending payload:', payload);
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
@@ -886,11 +892,15 @@ export function TimeTrackerTable({
               body: JSON.stringify(payload),
             });
 
+            console.log('[handleBulkEntryUpdate] Response status:', response.status);
             if (!response.ok) {
               const errorText = await response.text();
               console.error("API Error:", response.status, errorText);
               throw new Error(`Failed to update entry (${response.status})`);
             }
+
+            const responseData = await response.json();
+            console.log('[handleBulkEntryUpdate] Response data:', responseData);
           }
         );
 
