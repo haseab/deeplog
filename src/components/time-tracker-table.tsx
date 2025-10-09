@@ -1843,9 +1843,10 @@ export function TimeTrackerTable({
   );
 
   // Keyboard navigation
+  const awaitingPinnedNumberRef = React.useRef(false);
+  const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
+
   React.useEffect(() => {
-    let awaitingPinnedNumber = false;
-    let pinnedTimeoutId: NodeJS.Timeout | null = null;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
@@ -1871,25 +1872,25 @@ export function TimeTrackerTable({
         e.preventDefault();
 
         // If already showing pinned entries and waiting for number, create empty timer
-        if (awaitingPinnedNumber) {
-          awaitingPinnedNumber = false;
+        if (awaitingPinnedNumberRef.current) {
+          awaitingPinnedNumberRef.current = false;
           setShowPinnedEntries(false);
-          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
           handleNewEntry();
           return;
         }
 
         // If we have pinned entries, show them and wait for number selection
         if (pinnedEntries.length > 0) {
-          awaitingPinnedNumber = true;
+          awaitingPinnedNumberRef.current = true;
           setShowPinnedEntries(true);
 
           // Clear any existing timeout
-          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
 
           // Reset after 3 seconds if no number is pressed
-          pinnedTimeoutId = setTimeout(() => {
-            awaitingPinnedNumber = false;
+          pinnedTimeoutIdRef.current = setTimeout(() => {
+            awaitingPinnedNumberRef.current = false;
             setShowPinnedEntries(false);
           }, 3000);
           return;
@@ -1901,13 +1902,13 @@ export function TimeTrackerTable({
       }
 
       // If waiting for a number after 'n'
-      if (awaitingPinnedNumber && !isInInput) {
+      if (awaitingPinnedNumberRef.current && !isInInput) {
         const num = parseInt(e.key);
         if (!isNaN(num) && num >= 1 && num <= 9) {
           e.preventDefault();
-          awaitingPinnedNumber = false;
+          awaitingPinnedNumberRef.current = false;
           setShowPinnedEntries(false);
-          if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
 
           const index = num - 1;
           if (index < pinnedEntries.length) {
@@ -1954,9 +1955,9 @@ export function TimeTrackerTable({
 
           // If showing pinned entries, hide them
           if (showPinnedEntries) {
-            awaitingPinnedNumber = false;
+            awaitingPinnedNumberRef.current = false;
             setShowPinnedEntries(false);
-            if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+            if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
             return;
           }
 
@@ -2127,7 +2128,7 @@ export function TimeTrackerTable({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (pinnedTimeoutId) clearTimeout(pinnedTimeoutId);
+      if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
     };
   }, [
     // Essential dependencies only - remove functions that don't need to be in deps
