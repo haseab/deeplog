@@ -14,12 +14,32 @@ import StarterKit from "@tiptap/starter-kit";
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
+import { RecentTimersPopover } from "./recent-timers-popover";
+
+type Project = {
+  id: number;
+  name: string;
+  color: string;
+};
+
+type Tag = {
+  id: number;
+  name: string;
+};
 
 interface ExpandableDescriptionProps {
   description: string;
   onSave?: (newDescription: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
+  onNavigateDown?: () => void;
+  projects?: Project[];
+  availableTags?: Tag[];
+  onRecentTimerSelect?: (entry: {
+    description: string;
+    projectId: number | null;
+    tagIds: number[];
+  }) => void;
   "data-testid"?: string;
 }
 
@@ -28,6 +48,10 @@ export function ExpandableDescription({
   onSave,
   onEditingChange,
   onNavigateNext,
+  onNavigateDown,
+  projects = [],
+  availableTags = [],
+  onRecentTimerSelect,
   "data-testid": dataTestId,
 }: ExpandableDescriptionProps) {
   const [isEditing, setIsEditing] = React.useState(false);
@@ -36,6 +60,15 @@ export function ExpandableDescription({
   const [linkText, setLinkText] = React.useState("");
   const [triggerPosition, setTriggerPosition] = React.useState({ x: 0, y: 0 });
   const [currentCharCount, setCurrentCharCount] = React.useState(0);
+  const [showRecentTimers, setShowRecentTimers] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const justSelectedTimerRef = React.useRef(false);
+  const recentTimersRef = React.useRef<Array<{
+    description: string;
+    projectId: number | null;
+    tagIds: number[];
+  }>>([]);
 
   const MAX_CHARS = 3000;
 
@@ -99,6 +132,7 @@ export function ExpandableDescription({
 
   // Notify parent of editing state changes
   React.useEffect(() => {
+    console.log('[ExpandableDescription] isEditing changed to:', isEditing);
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
 
@@ -143,6 +177,8 @@ export function ExpandableDescription({
     if (editorRef.current) {
       const content = getMarkdownContent();
       setCurrentCharCount(content.length);
+      // Update search query for recent timers
+      setSearchQuery(content);
     }
   }, [getMarkdownContent]);
 
@@ -165,6 +201,12 @@ export function ExpandableDescription({
       }),
     ],
     content: markdownToHtml(description),
+    onBlur: () => {
+      console.log('[ExpandableDescription] Editor onBlur fired');
+    },
+    onFocus: () => {
+      console.log('[ExpandableDescription] Editor onFocus fired');
+    },
     editorProps: {
       attributes: {
         class: `prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border rounded-md resize-none leading-tight transition-all duration-200 ${
@@ -174,6 +216,69 @@ export function ExpandableDescription({
         }`,
       },
       handleKeyDown: (view, event) => {
+        console.log('[ExpandableDescription] Key pressed:', event.key, 'showRecentTimers:', showRecentTimers);
+
+        // Handle arrow keys when recent timers popover is open
+        if (showRecentTimers) {
+          if (event.key === "ArrowDown") {
+            console.log('[ExpandableDescription] ArrowDown - preventing default');
+            event.preventDefault();
+            setHighlightedIndex((prev) => {
+              // Need to get count from the popover, but we'll handle it there
+              return prev + 1;
+            });
+            return true;
+          } else if (event.key === "ArrowUp") {
+            console.log('[ExpandableDescription] ArrowUp - preventing default');
+            event.preventDefault();
+            setHighlightedIndex((prev) => Math.max(0, prev - 1));
+            return true;
+          } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
+            console.log('[ExpandableDescription] Enter - selecting timer');
+            event.preventDefault();
+            // Trigger selection of highlighted item
+            const selectedTimer = recentTimersRef.current[highlightedIndex];
+            if (selectedTimer && onRecentTimerSelect) {
+              console.log('[ExpandableDescription] About to call onRecentTimerSelect');
+              justSelectedTimerRef.current = true;
+              onRecentTimerSelect(selectedTimer);
+              console.log('[ExpandableDescription] Called onRecentTimerSelect, now setting states');
+              setShowRecentTimers(false);
+              console.log('[ExpandableDescription] Set showRecentTimers to false');
+              setIsEditing(false);
+              console.log('[ExpandableDescription] Set isEditing to false');
+              setHighlightedIndex(0);
+              // Stay in current cell, don't navigate down
+            }
+            return true;
+          } else if (event.key === "Escape") {
+            console.log('[ExpandableDescription] Escape - closing popover');
+            event.preventDefault();
+            setShowRecentTimers(false);
+            setHighlightedIndex(0);
+            return true;
+          }
+          // For any other key when popover is open, let it through to the editor
+          // so user can continue typing
+          console.log('[ExpandableDescription] Other key - letting through to editor');
+          return false;
+        }
+
+        // Handle Space to show recent timers
+        if (event.key === " " && !showRecentTimers) {
+          console.log('[ExpandableDescription] Space pressed - showing recent timers');
+          setShowRecentTimers(true);
+          setHighlightedIndex(0);
+          // Maintain focus on the editor after popover opens
+          setTimeout(() => {
+            console.log('[ExpandableDescription] Refocusing editor after popover open');
+            editor?.commands.focus();
+          }, 0);
+          // Don't prevent default - let the space be typed
+          console.log('[ExpandableDescription] Returning false to allow space character');
+          return false;
+        }
+
         // Handle Command/Ctrl + Enter to save and exit
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
@@ -252,6 +357,26 @@ export function ExpandableDescription({
     // Remove onBlur - we handle closing via click outside detection now
   });
 
+  // Log when showRecentTimers changes
+  React.useEffect(() => {
+    console.log('[ExpandableDescription] showRecentTimers changed to:', showRecentTimers, 'isEditing:', isEditing, 'justSelectedTimer:', justSelectedTimerRef.current);
+    // If popover closes due to no results, refocus the editor ONLY if still in editing mode
+    // But don't refocus if we just selected a timer (we want to exit editing mode)
+    if (!showRecentTimers && isEditing && editor && !justSelectedTimerRef.current) {
+      console.log('[ExpandableDescription] Popover closed - refocusing editor');
+      setTimeout(() => {
+        editor.commands.focus();
+      }, 0);
+    }
+    // Reset the flag after a delay to allow the click handler to check it
+    if (!showRecentTimers && justSelectedTimerRef.current) {
+      setTimeout(() => {
+        console.log('[ExpandableDescription] Resetting justSelectedTimer flag');
+        justSelectedTimerRef.current = false;
+      }, 300);
+    }
+  }, [showRecentTimers, isEditing, editor]);
+
   React.useEffect(() => {
     // Set the editor ref for markdown conversion
     editorRef.current = editor;
@@ -272,8 +397,17 @@ export function ExpandableDescription({
     updateCharCount,
   ]);
 
-  const handleClick = () => {
+  const handleClick = (e?: React.MouseEvent) => {
+    console.log('[ExpandableDescription] handleClick called, isEditing:', isEditing, 'event:', e?.type, 'justSelectedTimer:', justSelectedTimerRef.current);
+
+    // Don't reopen if we just selected a timer
+    if (justSelectedTimerRef.current) {
+      console.log('[ExpandableDescription] Ignoring click because we just selected a timer');
+      return;
+    }
+
     if (!isEditing) {
+      console.log('[ExpandableDescription] handleClick setting isEditing to true');
       setIsEditing(true);
       setCurrentCharCount(description.length);
       // Focus the editor after a short delay to ensure it's rendered
@@ -364,12 +498,36 @@ export function ExpandableDescription({
 
   if (isEditing && editor) {
     return (
-      <div className="w-full editor-container" data-testid={dataTestId}>
-        <div className="relative">
-          <EditorContent
-            editor={editor}
-            className="w-full"
-          />
+      <RecentTimersPopover
+        open={showRecentTimers}
+        onOpenChange={setShowRecentTimers}
+        searchQuery={searchQuery}
+        projects={projects}
+        availableTags={availableTags}
+        onSelect={(entry) => {
+          console.log('[RecentTimersPopover] Selected entry:', entry);
+          console.log('[RecentTimersPopover] About to call onRecentTimerSelect');
+          justSelectedTimerRef.current = true;
+          onRecentTimerSelect?.(entry);
+          console.log('[RecentTimersPopover] Called onRecentTimerSelect, now setting states');
+          setShowRecentTimers(false);
+          console.log('[RecentTimersPopover] Set showRecentTimers to false');
+          setIsEditing(false);
+          console.log('[RecentTimersPopover] Set isEditing to false');
+          // Stay in current cell, don't navigate down
+        }}
+        highlightedIndex={highlightedIndex}
+        onHighlightedIndexChange={setHighlightedIndex}
+        onTimersChange={(timers) => {
+          recentTimersRef.current = timers;
+        }}
+      >
+        <div className="w-full editor-container" data-testid={dataTestId}>
+          <div className="relative">
+            <EditorContent
+              editor={editor}
+              className="w-full"
+            />
 
           {/* Character Counter */}
           <div
@@ -468,8 +626,9 @@ export function ExpandableDescription({
               </div>
             </PopoverContent>
           </Popover>
+          </div>
         </div>
-      </div>
+      </RecentTimersPopover>
     );
   }
 

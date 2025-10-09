@@ -43,6 +43,7 @@ import { ProjectSelector } from "./project-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
+import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -53,6 +54,7 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
+    onBulkEntryUpdate,
     onTimeChange,
     onDurationChange,
     onDurationChangeWithStartTimeAdjustment,
@@ -84,6 +86,11 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
+    onBulkEntryUpdate: (entryId: number) => (updates: {
+      description?: string;
+      projectName?: string;
+      tags?: string[];
+    }) => void;
     onTimeChange: (
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
@@ -203,6 +210,23 @@ const MemoizedTableRow = React.memo(
                 }
                 onEditingChange={setIsEditingCell}
                 onNavigateNext={navigateToNextCell}
+                onNavigateDown={navigateToNextRow}
+                projects={projects}
+                availableTags={availableTags}
+                onRecentTimerSelect={(selected) => {
+                  // Update all fields in a single API call
+                  const tagNames = availableTags
+                    .filter(tag => selected.tagIds.includes(tag.id))
+                    .map(tag => tag.name);
+
+                  const project = projects.find(p => p.id === selected.projectId);
+
+                  onBulkEntryUpdate(entry.id)({
+                    description: selected.description,
+                    projectName: project?.name,
+                    tags: tagNames,
+                  });
+                }}
                 data-testid="expandable-description"
               />
             </TableCell>
@@ -225,6 +249,23 @@ const MemoizedTableRow = React.memo(
                 }
                 onEditingChange={setIsEditingCell}
                 onNavigateNext={navigateToNextCell}
+                onNavigateDown={navigateToNextRow}
+                projects={projects}
+                availableTags={availableTags}
+                onRecentTimerSelect={(selected) => {
+                  // Update all fields in a single API call
+                  const tagNames = availableTags
+                    .filter(tag => selected.tagIds.includes(tag.id))
+                    .map(tag => tag.name);
+
+                  const project = projects.find(p => p.id === selected.projectId);
+
+                  onBulkEntryUpdate(entry.id)({
+                    description: selected.description,
+                    projectName: project?.name,
+                    tags: tagNames,
+                  });
+                }}
                 data-testid="expandable-description"
               />
             </TableCell>
@@ -767,6 +808,96 @@ export function TimeTrackerTable({
       });
     },
     [showUpdateToast, availableTags]
+  );
+
+  const handleBulkEntryUpdate = React.useCallback(
+    (entryId: number) => (updates: {
+      description?: string;
+      projectName?: string;
+      tags?: string[];
+    }) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+        const entry = currentEntries.find((e) => e.id === entryId);
+        if (!entry) return currentEntries;
+
+        // Find project ID if project name provided
+        let projectId = entry.project_id;
+        let projectName = entry.project_name;
+        let projectColor = entry.project_color;
+
+        if (updates.projectName !== undefined) {
+          if (updates.projectName === "" || updates.projectName === "No Project") {
+            projectId = null;
+            projectName = "";
+            projectColor = "#6b7280";
+          } else {
+            const project = projects.find((p) => p.name === updates.projectName);
+            if (project) {
+              projectId = project.id;
+              projectName = project.name;
+              projectColor = project.color;
+            }
+          }
+        }
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((e) =>
+          e.id === entryId
+            ? {
+                ...e,
+                description: updates.description !== undefined ? updates.description : e.description,
+                project_id: projectId,
+                project_name: projectName,
+                project_color: projectColor,
+                tags: updates.tags !== undefined ? updates.tags : e.tags,
+              }
+            : e
+        );
+
+        showUpdateToast(
+          "Entry updated.",
+          entryId,
+          () => setTimeEntries(originalEntries),
+          async () => {
+            const sessionToken = localStorage.getItem("toggl_session_token");
+            const payload: Record<string, any> = {};
+
+            if (updates.description !== undefined) {
+              payload.description = updates.description;
+            }
+            if (projectId !== undefined) {
+              payload.project_id = projectId;
+            }
+            if (updates.tags !== undefined) {
+              // Convert tag names to IDs
+              const tagIds = updates.tags
+                .map((tagName) => availableTags.find((t) => t.name === tagName)?.id)
+                .filter((id): id is number => id !== null);
+              payload.tag_ids = tagIds;
+            }
+
+            const response = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+              throw new Error(`Failed to update entry (${response.status})`);
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast, projects, availableTags]
   );
 
   const handleTimeChange = React.useCallback(
@@ -1336,12 +1467,6 @@ export function TimeTrackerTable({
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
 
-      console.log('[fetchData] Fetching with date range:', {
-        from: fromISO,
-        to: toISO,
-        fromLocal: date.from.toString(),
-        toLocal: date.to.toString(),
-      });
 
       // Use consistent limit to avoid pagination issues
       const limit = 100;
@@ -1377,6 +1502,9 @@ export function TimeTrackerTable({
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
+            // Update recent timers cache with new entries
+            updateRecentTimersCache(data.timeEntries);
+
             // Preserve entries that have errors - don't overwrite with server data
             setTimeEntries((prevEntries) => {
               const erroredEntryIds = Array.from(entrySyncStatusRef.current.entries())
@@ -1524,59 +1652,117 @@ export function TimeTrackerTable({
 
       // Use requestAnimationFrame to defer DOM queries to next tick
       requestAnimationFrame(() => {
-        switch (cellIndex) {
-          case 1: // Project
-            const projectElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
-            ) as HTMLElement;
-            if (projectElement) {
-              projectElement.click();
-            }
-            break;
-          case 2: // Tags
-            const tagElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
-            ) as HTMLElement;
-            if (tagElement) {
-              tagElement.click();
-            }
-            break;
-          case 3: // Description
-            const descriptionElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
-            ) as HTMLElement;
-            if (descriptionElement) {
-              descriptionElement.click();
-            }
-            break;
-          case 4: // Time
-            const timeElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
-            ) as HTMLElement;
-            if (timeElement) {
-              timeElement.click();
-            }
-            break;
-          case 5: // Duration
-            const durationElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
-            ) as HTMLElement;
-            if (durationElement) {
-              durationElement.click();
-            }
-            break;
-          case 6: // Actions menu
-            const menuElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
-            ) as HTMLElement;
-            if (menuElement) {
-              menuElement.click();
-            }
-            break;
+        // Column mapping depends on fullscreen mode
+        // Normal mode: Date(0), Description(1), Project(2), Tags(3), Time(4), Duration(5), Actions(6)
+        // Fullscreen mode: Date(0), Project(1), Tags(2), Description(3), Time(4), Duration(5), Actions(6)
+
+        if (isFullscreen) {
+          switch (cellIndex) {
+            case 1: // Project (fullscreen)
+              const projectElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+              ) as HTMLElement;
+              if (projectElementFS) {
+                projectElementFS.click();
+              }
+              break;
+            case 2: // Tags (fullscreen)
+              const tagElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
+              ) as HTMLElement;
+              if (tagElementFS) {
+                tagElementFS.click();
+              }
+              break;
+            case 3: // Description (fullscreen)
+              const descriptionElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+              ) as HTMLElement;
+              if (descriptionElementFS) {
+                descriptionElementFS.click();
+              }
+              break;
+            case 4: // Time (fullscreen)
+              const timeElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
+              ) as HTMLElement;
+              if (timeElementFS) {
+                timeElementFS.click();
+              }
+              break;
+            case 5: // Duration (fullscreen)
+              const durationElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
+              ) as HTMLElement;
+              if (durationElementFS) {
+                durationElementFS.click();
+              }
+              break;
+            case 6: // Actions (fullscreen)
+              const menuElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+              ) as HTMLElement;
+              if (menuElementFS) {
+                menuElementFS.click();
+              }
+              break;
+          }
+        } else {
+          // Normal mode
+          switch (cellIndex) {
+            case 1: // Description (normal)
+              const descriptionElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+              ) as HTMLElement;
+              if (descriptionElement) {
+                descriptionElement.click();
+              }
+              break;
+            case 2: // Project (normal)
+              const projectElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+              ) as HTMLElement;
+              if (projectElement) {
+                projectElement.click();
+              }
+              break;
+            case 3: // Tags (normal)
+              const tagElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
+              ) as HTMLElement;
+              if (tagElement) {
+                tagElement.click();
+              }
+              break;
+            case 4: // Time (normal)
+              const timeElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
+              ) as HTMLElement;
+              if (timeElement) {
+                timeElement.click();
+              }
+              break;
+            case 5: // Duration (normal)
+              const durationElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
+              ) as HTMLElement;
+              if (durationElement) {
+                durationElement.click();
+              }
+              break;
+            case 6: // Actions (normal)
+              const menuElement = document.querySelector(
+                `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+              ) as HTMLElement;
+              if (menuElement) {
+                menuElement.click();
+              }
+              break;
+          }
         }
       });
     },
-    [] // No dependencies - use ref for timeEntries
+    [isFullscreen] // Need isFullscreen to determine column mapping
   );
 
   const navigateToNextCell = React.useCallback(() => {
@@ -2530,6 +2716,7 @@ export function TimeTrackerTable({
                   onDescriptionSave={handleDescriptionSave}
                   onProjectChange={handleProjectChange}
                   onTagsChange={handleTagsChange}
+                  onBulkEntryUpdate={handleBulkEntryUpdate}
                   onTimeChange={handleTimeChange}
                   onDurationChange={handleDurationChange}
                   onDurationChangeWithStartTimeAdjustment={handleDurationChangeWithStartTimeAdjustment}
