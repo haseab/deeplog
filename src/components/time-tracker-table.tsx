@@ -861,7 +861,7 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            const payload: Record<string, any> = {};
+            const payload: Record<string, string | number | number[] | null> = {};
 
             if (updates.description !== undefined) {
               payload.description = updates.description;

@@ -32,7 +32,6 @@ interface ExpandableDescriptionProps {
   onSave?: (newDescription: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
-  onNavigateDown?: () => void;
   projects?: Project[];
   availableTags?: Tag[];
   onRecentTimerSelect?: (entry: {
@@ -48,7 +47,6 @@ export function ExpandableDescription({
   onSave,
   onEditingChange,
   onNavigateNext,
-  onNavigateDown,
   projects = [],
   availableTags = [],
   onRecentTimerSelect,
@@ -373,7 +371,7 @@ export function ExpandableDescription({
     updateCharCount,
   ]);
 
-  const handleClick = (e?: React.MouseEvent) => {
+  const handleClick = () => {
     // Don't reopen if we just selected a timer
     if (justSelectedTimerRef.current) {
       return;
