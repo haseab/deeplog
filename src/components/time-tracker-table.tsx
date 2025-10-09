@@ -416,6 +416,7 @@ export function TimeTrackerTable({
           try {
             await apiCall();
             setTimeout(() => {
+              // Call fetchData from the current scope (closure)
               fetchData(false, false);
             }, FETCH_DELAY_AFTER_TOAST);
           } catch (error) {
@@ -430,7 +431,7 @@ export function TimeTrackerTable({
         },
       });
     },
-    [toastDuration, FETCH_DELAY_AFTER_TOAST, fetchData]
+    [toastDuration, FETCH_DELAY_AFTER_TOAST]
   );
 
   const handleDescriptionSave = React.useCallback(
