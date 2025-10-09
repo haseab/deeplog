@@ -27,6 +27,15 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get("end_date");
     const page = parseInt(searchParams.get("page") || "0");
     const limit = parseInt(searchParams.get("limit") || "100");
+    const timezoneOffset = parseInt(searchParams.get("timezone_offset") || "0");
+
+    console.log('[API] Received date range:', {
+      startDate,
+      endDate,
+      timezoneOffset,
+      startDateParsed: startDate ? new Date(startDate).toString() : null,
+      endDateParsed: endDate ? new Date(endDate).toString() : null,
+    });
 
     if (!startDate || !endDate) {
       return createErrorResponse("start_date and end_date are required", 400);
@@ -95,6 +104,55 @@ export async function GET(request: NextRequest) {
     );
 
     // Fetch time entries using Analytics API - single call, no pagination needed!
+    // The Analytics API expects dates in YYYY-MM-DD format
+    // We need to convert the UTC ISO strings to the user's local timezone
+    // timezoneOffset is in minutes (e.g., PDT is 420 minutes = UTC-7)
+
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+
+    // Apply timezone offset to get local time
+    // Note: getTimezoneOffset() returns positive for west of UTC, so we subtract
+    const startLocal = new Date(startDateObj.getTime() - timezoneOffset * 60 * 1000);
+    const endLocal = new Date(endDateObj.getTime() - timezoneOffset * 60 * 1000);
+
+    // Extract YYYY-MM-DD in the user's local timezone
+    const fromDate = startLocal.toISOString().split('T')[0];
+    const toDate = endLocal.toISOString().split('T')[0];
+
+    const analyticsPayload = {
+      period: {
+        from: fromDate,
+        to: toDate,
+      },
+      filters: [
+        {
+          property: "workspace_id",
+          operator: "=",
+          value: parseInt(workspaceId.toString()),
+        },
+        {
+          property: "user_id",
+          operator: "=",
+          value: parseInt(userId.toString()),
+        },
+      ],
+      attributes: [
+        { property: "time_entry_id" },
+        { property: "description" },
+        { property: "start_date" },
+        { property: "start_time" },
+        { property: "stop_time" },
+        { property: "duration" },
+        { property: "project_id" },
+        { property: "tag_ids" },
+      ],
+      limit: 5000, // Analytics API can handle large limits
+      offset: 0,
+    };
+
+    console.log('[API] Sending to Analytics API:', analyticsPayload);
+
     const analyticsResponse = await fetch(
       `https://track.toggl.com/analytics/api/organizations/${organizationId}/query?response_format=json&include_dicts=true`,
       {
@@ -104,36 +162,7 @@ export async function GET(request: NextRequest) {
           Accept: "application/json",
           Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({
-          period: {
-            from: startDate.split("T")[0], // Extract date part only
-            to: endDate.split("T")[0], // Extract date part only
-          },
-          filters: [
-            {
-              property: "workspace_id",
-              operator: "=",
-              value: parseInt(workspaceId.toString()),
-            },
-            {
-              property: "user_id",
-              operator: "=",
-              value: parseInt(userId.toString()),
-            },
-          ],
-          attributes: [
-            { property: "time_entry_id" },
-            { property: "description" },
-            { property: "start_date" },
-            { property: "start_time" },
-            { property: "stop_time" },
-            { property: "duration" },
-            { property: "project_id" },
-            { property: "tag_ids" },
-          ],
-          limit: 5000, // Analytics API can handle large limits
-          offset: 0,
-        }),
+        body: JSON.stringify(analyticsPayload),
       }
     );
 
@@ -154,6 +183,12 @@ export async function GET(request: NextRequest) {
     const analyticsData = await analyticsResponse.json();
     let enrichedEntries = transformAnalyticsData(analyticsData);
 
+    console.log('[API] Got entries from Analytics API:', {
+      count: enrichedEntries.length,
+      firstEntry: enrichedEntries[0]?.start,
+      lastEntry: enrichedEntries[enrichedEntries.length - 1]?.start,
+    });
+
     // Fetch current running task
     const currentTaskResponse = await fetch(
       "https://track.toggl.com/api/v9/me/time_entries/current",
@@ -173,27 +208,35 @@ export async function GET(request: NextRequest) {
         // REMOVE any matching entry from Analytics API (it's stale/cached)
         enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
 
-        // Find project info for the current task
-        const project = currentTask.project_id
-          ? activeProjects.find((p) => p.id === currentTask.project_id)
-          : null;
+        // Check if the running task's start time is within the requested date range
+        const taskStartDate = new Date(currentTask.start);
+        const rangeStartDate = new Date(startDate);
+        const rangeEndDate = new Date(endDate);
 
-        // Create the running entry with v9 API data (source of truth)
-        const runningEntry = {
-          id: currentTask.id,
-          description: currentTask.description || "",
-          project_id: currentTask.project_id,
-          project_name: project?.name || "",
-          project_color: project?.color || "#6b7280",
-          start: currentTask.start,
-          stop: null, // Running tasks have no stop time
-          duration: -1, // Always use -1 for running tasks
-          tags: currentTask.tags || [],
-          tag_ids: currentTask.tag_ids || [],
-        };
+        // Only include the running task if it started within the date range
+        if (taskStartDate >= rangeStartDate && taskStartDate <= rangeEndDate) {
+          // Find project info for the current task
+          const project = currentTask.project_id
+            ? activeProjects.find((p) => p.id === currentTask.project_id)
+            : null;
 
-        // Always add the v9 current entry
-        enrichedEntries.unshift(runningEntry);
+          // Create the running entry with v9 API data (source of truth)
+          const runningEntry = {
+            id: currentTask.id,
+            description: currentTask.description || "",
+            project_id: currentTask.project_id,
+            project_name: project?.name || "",
+            project_color: project?.color || "#6b7280",
+            start: currentTask.start,
+            stop: null, // Running tasks have no stop time
+            duration: -1, // Always use -1 for running tasks
+            tags: currentTask.tags || [],
+            tag_ids: currentTask.tag_ids || [],
+          };
+
+          // Add the v9 current entry only if it's within date range
+          enrichedEntries.unshift(runningEntry);
+        }
       }
     }
 

@@ -1251,6 +1251,13 @@ export function TimeTrackerTable({
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
 
+      console.log('[fetchData] Fetching with date range:', {
+        from: fromISO,
+        to: toISO,
+        fromLocal: date.from.toString(),
+        toLocal: date.to.toString(),
+      });
+
       // Use consistent limit to avoid pagination issues
       const limit = 100;
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
@@ -1260,8 +1267,10 @@ export function TimeTrackerTable({
 
       try {
         setSyncStatus("syncing");
+        // Get user's timezone offset in minutes
+        const timezoneOffset = new Date().getTimezoneOffset();
         const response = await fetch(
-          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}`,
+          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}&timezone_offset=${timezoneOffset}`,
           {
             headers: {
               "x-toggl-session-token": sessionToken || "",
@@ -2303,11 +2312,23 @@ export function TimeTrackerTable({
                 defaultMonth={date?.from}
                 selected={date}
                 onSelect={(selectedRange) => {
+                  console.log('[Calendar] Selected range:', {
+                    from: selectedRange?.from?.toISOString(),
+                    to: selectedRange?.to?.toISOString(),
+                    fromLocal: selectedRange?.from?.toString(),
+                    toLocal: selectedRange?.to?.toString(),
+                  });
+
                   if (selectedRange?.from && selectedRange?.to) {
                     // Set end date to end of day
                     const endOfDayTo = endOfDay(selectedRange.to);
+                    console.log('[Calendar] Setting date range:', {
+                      from: selectedRange.from.toISOString(),
+                      to: endOfDayTo.toISOString(),
+                    });
                     setDate({ from: selectedRange.from, to: endOfDayTo });
                   } else {
+                    console.log('[Calendar] Partial selection, setting as-is');
                     setDate(selectedRange);
                   }
                 }}

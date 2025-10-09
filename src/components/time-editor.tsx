@@ -343,7 +343,7 @@ export function TimeEditor({
     const endDateObj = endTime ? new Date(endTime) : null;
 
     if (isRunning) {
-      return `${format(startDateObj, "MMM d, HH:mm")} - Now`;
+      return `${format(startDateObj, "HH:mm")} - Now`;
     }
 
     if (endDateObj && !isSameDay(startDateObj, endDateObj)) {
