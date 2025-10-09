@@ -568,66 +568,89 @@ export function TimeTrackerTable({
       // Store the retry function for this entry
       entryRetryFunctions.current.set(entryId, apiCall);
 
+      let toastDismissed = false;
+      const startTime = Date.now();
+
+      // console.log('[showUpdateToast] Starting toast for entry', entryId, 'with duration', toastDuration, 'at', new Date().toISOString());
+
       toast(message, {
         action: {
           label: "Undo",
-          onClick: undoAction,
+          onClick: () => {
+            // console.log('[showUpdateToast] Undo clicked for entry', entryId, 'at', new Date().toISOString());
+            toastDismissed = true;
+            undoAction();
+          },
         },
         duration: toastDuration,
-        onAutoClose: async () => {
-          // Mark as syncing
+      });
+
+      // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
+      setTimeout(async () => {
+        const elapsed = Date.now() - startTime;
+        // console.log('[showUpdateToast] setTimeout fired for entry', entryId, 'after', elapsed, 'ms, dismissed:', toastDismissed, 'at', new Date().toISOString());
+
+        if (toastDismissed) {
+          // console.log('[showUpdateToast] Skipping API call - toast was dismissed', 'at', new Date().toISOString());
+          return;
+        }
+
+        // console.log('[showUpdateToast] Starting API call for entry', entryId, 'at', new Date().toISOString());
+
+        // Mark as syncing
+        setEntrySyncStatus((prev) => {
+          const next = new Map(prev);
+          next.set(entryId, 'syncing');
+          return next;
+        });
+
+        try {
+          await apiCall();
+
+          // console.log('[showUpdateToast] API call succeeded for entry', entryId, 'at', new Date().toISOString());
+
+          // Mark as synced and clear retry function
           setEntrySyncStatus((prev) => {
             const next = new Map(prev);
-            next.set(entryId, 'syncing');
+            next.set(entryId, 'synced');
+            return next;
+          });
+          entryRetryFunctions.current.delete(entryId);
+
+          // Clear synced status after 2 seconds
+          setTimeout(() => {
+            setEntrySyncStatus((prev) => {
+              const next = new Map(prev);
+              next.delete(entryId);
+              return next;
+            });
+          }, 2000);
+        } catch (error) {
+          console.error("API call failed:", error);
+          const errorMessage =
+            error instanceof Error && error.message
+              ? error.message
+              : "Failed to update entry. Please try again.";
+
+          // Mark as error - DON'T revert the UI, let user see the error and retry
+          setEntrySyncStatus((prev) => {
+            const next = new Map(prev);
+            next.set(entryId, 'error');
             return next;
           });
 
-          try {
-            await apiCall();
-
-            // Mark as synced and clear retry function
-            setEntrySyncStatus((prev) => {
-              const next = new Map(prev);
-              next.set(entryId, 'synced');
-              return next;
-            });
-            entryRetryFunctions.current.delete(entryId);
-
-            // Clear synced status after 2 seconds
-            setTimeout(() => {
-              setEntrySyncStatus((prev) => {
-                const next = new Map(prev);
-                next.delete(entryId);
-                return next;
-              });
-            }, 2000);
-          } catch (error) {
-            console.error("API call failed:", error);
-            const errorMessage =
-              error instanceof Error && error.message
-                ? error.message
-                : "Failed to update entry. Please try again.";
-
-            // Mark as error - DON'T revert the UI, let user see the error and retry
-            setEntrySyncStatus((prev) => {
-              const next = new Map(prev);
-              next.set(entryId, 'error');
-              return next;
-            });
-
-            toast.error(errorMessage);
-            // Don't call undoAction() - keep the optimistic update visible with error indicator
-            // Retry function is already stored in entryRetryFunctions
-          }
-        },
-      });
+          toast.error(errorMessage);
+          // Don't call undoAction() - keep the optimistic update visible with error indicator
+          // Retry function is already stored in entryRetryFunctions
+        }
+      }, toastDuration);
     },
     [toastDuration]
   );
 
   const handleDescriptionSave = React.useCallback(
     (entryId: number) => (newDescription: string) => {
-      console.log('[handleDescriptionSave] Saving description for entry', entryId, ':', newDescription);
+      // console.log('[handleDescriptionSave] Saving description for entry', entryId, ':', newDescription);
       // Use functional update to avoid dependency on timeEntries
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
@@ -645,6 +668,9 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
+            // const fetchStartTime = Date.now();
+            // console.log('[handleDescriptionSave API] Starting fetch for entry', entryId, 'description:', newDescription);
+
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
@@ -653,6 +679,9 @@ export function TimeTrackerTable({
               },
               body: JSON.stringify({ description: newDescription }),
             });
+
+            // const fetchElapsed = Date.now() - fetchStartTime;
+            // console.log('[handleDescriptionSave API] Fetch completed for entry', entryId, 'in', fetchElapsed, 'ms, status:', response.status);
 
             if (!response.ok) {
               const errorText = await response.text();
@@ -673,6 +702,9 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
+
+            await response.json();
+            // console.log('[handleDescriptionSave API] Response data:', responseData);
           }
         );
 
@@ -737,6 +769,8 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
+
+            await response.json();
           }
         );
 

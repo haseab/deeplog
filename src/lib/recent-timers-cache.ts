@@ -67,7 +67,6 @@ export function updateRecentTimersCache(
 
   // Add each valid entry to the cache
   validEntries.forEach((entry) => {
-    console.log('[updateRecentTimersCache] Adding entry:', entry.id, 'description:', entry.description);
     addToRecentTimers({
       id: entry.id,
       description: entry.description,
