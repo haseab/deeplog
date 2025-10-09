@@ -125,7 +125,16 @@ export function ExpandableDescription({
   const getMarkdownContent = React.useCallback(() => {
     if (!editorRef.current) return "";
     const html = editorRef.current.getHTML();
-    return turndownService.turndown(html);
+    const markdown = turndownService.turndown(html);
+    // Unescape markdown special characters that Turndown escapes
+    // We want to keep the plain text as-is
+    return markdown
+      .replace(/\\_/g, '_')  // Unescape underscores
+      .replace(/\\\*/g, '*')  // Unescape asterisks
+      .replace(/\\\[/g, '[')  // Unescape brackets
+      .replace(/\\\]/g, ']')
+      .replace(/\\#/g, '#')   // Unescape hashes
+      .replace(/\\`/g, '`');  // Unescape backticks
   }, [turndownService]);
 
   // Notify parent of editing state changes

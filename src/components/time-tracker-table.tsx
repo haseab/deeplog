@@ -210,7 +210,6 @@ const MemoizedTableRow = React.memo(
                 }
                 onEditingChange={setIsEditingCell}
                 onNavigateNext={navigateToNextCell}
-                onNavigateDown={navigateToNextRow}
                 projects={projects}
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
@@ -249,7 +248,6 @@ const MemoizedTableRow = React.memo(
                 }
                 onEditingChange={setIsEditingCell}
                 onNavigateNext={navigateToNextCell}
-                onNavigateDown={navigateToNextRow}
                 projects={projects}
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
@@ -629,6 +627,7 @@ export function TimeTrackerTable({
 
   const handleDescriptionSave = React.useCallback(
     (entryId: number) => (newDescription: string) => {
+      console.log('[handleDescriptionSave] Saving description for entry', entryId, ':', newDescription);
       // Use functional update to avoid dependency on timeEntries
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];

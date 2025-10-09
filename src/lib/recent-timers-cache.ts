@@ -1,4 +1,5 @@
 export type RecentTimerEntry = {
+  id: number; // Time entry ID
   description: string;
   projectId: number | null;
   tagIds: number[];
@@ -21,16 +22,25 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
   try {
     const timers = getRecentTimers();
 
-    // Check if this exact combination already exists
-    const isDuplicate = timers.some(
+    // First check if this exact combination (description, project, tags) already exists
+    const duplicateIndex = timers.findIndex(
       (t) =>
         t.description === entry.description &&
         t.projectId === entry.projectId &&
         JSON.stringify(t.tagIds.sort()) === JSON.stringify(entry.tagIds.sort())
     );
 
-    if (isDuplicate) {
-      return; // Don't add duplicates
+    if (duplicateIndex !== -1) {
+      // Remove the duplicate and add the new one at the front
+      // This ensures we have the latest ID and data
+      timers.splice(duplicateIndex, 1);
+    } else {
+      // Check if this entry ID already exists with different data (corrected entry)
+      const existingIdIndex = timers.findIndex((t) => t.id === entry.id);
+      if (existingIdIndex !== -1) {
+        // Remove the old version of this entry
+        timers.splice(existingIdIndex, 1);
+      }
     }
 
     // Add to the beginning (most recent first)
@@ -44,6 +54,7 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
 
 export function updateRecentTimersCache(
   entries: Array<{
+    id: number;
     description: string;
     project_id: number | null;
     tag_ids: number[];
@@ -56,7 +67,9 @@ export function updateRecentTimersCache(
 
   // Add each valid entry to the cache
   validEntries.forEach((entry) => {
+    console.log('[updateRecentTimersCache] Adding entry:', entry.id, 'description:', entry.description);
     addToRecentTimers({
+      id: entry.id,
       description: entry.description,
       projectId: entry.project_id,
       tagIds: entry.tag_ids || [],
@@ -64,21 +77,41 @@ export function updateRecentTimersCache(
   });
 }
 
-export function fuzzyMatch(query: string, text: string): boolean {
-  if (!query) return true;
+export function fuzzyMatch(query: string, text: string): { matches: boolean; score: number } {
+  if (!query) return { matches: true, score: 0 };
 
   const queryLower = query.toLowerCase();
   const textLower = text.toLowerCase();
 
   let queryIndex = 0;
+  let score = 0;
+  let lastMatchIndex = -1;
 
   for (let i = 0; i < textLower.length && queryIndex < queryLower.length; i++) {
     if (textLower[i] === queryLower[queryIndex]) {
+      // Check if this is the start of a word (after space, dash, or beginning)
+      const isWordStart = i === 0 || textLower[i - 1] === ' ' || textLower[i - 1] === '-';
+
+      if (isWordStart) {
+        score += 10; // Bonus for word start
+      } else {
+        score += 1; // Regular match
+      }
+
+      // Bonus for consecutive matches
+      if (lastMatchIndex === i - 1) {
+        score += 5;
+      }
+
+      lastMatchIndex = i;
       queryIndex++;
     }
   }
 
-  return queryIndex === queryLower.length;
+  return {
+    matches: queryIndex === queryLower.length,
+    score: queryIndex === queryLower.length ? score : 0
+  };
 }
 
 export function searchRecentTimers(
@@ -91,9 +124,19 @@ export function searchRecentTimers(
     return timers.slice(0, limit);
   }
 
-  const matches = timers.filter((timer) =>
-    fuzzyMatch(query, timer.description)
-  );
+  // Score and filter matches
+  const scoredMatches = timers
+    .map((timer) => {
+      const result = fuzzyMatch(query, timer.description);
+      return {
+        timer,
+        score: result.score,
+        matches: result.matches
+      };
+    })
+    .filter((item) => item.matches)
+    .sort((a, b) => b.score - a.score) // Sort by score descending
+    .map((item) => item.timer);
 
-  return matches.slice(0, limit);
+  return scoredMatches.slice(0, limit);
 }
