@@ -75,6 +75,7 @@ const MemoizedTableRow = React.memo(
     isNewlyLoaded,
     syncStatus,
     onRetrySync,
+    isFullscreen,
   }: {
     entry: TimeEntry;
     rowIndex: number;
@@ -107,6 +108,7 @@ const MemoizedTableRow = React.memo(
     isNewlyLoaded: boolean;
     syncStatus?: 'syncing' | 'synced' | 'error';
     onRetrySync: (entryId: number) => void;
+    isFullscreen: boolean;
   }) {
     return (
       <TableRow
@@ -141,67 +143,135 @@ const MemoizedTableRow = React.memo(
         >
           {format(new Date(entry.start), "yyyy-MM-dd")}
         </TableCell>
-        <TableCell
-          className={cn(
-            "px-4 pr-2 pl-2 cursor-pointer description-cell",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 1 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 1)}
-        >
-          <ExpandableDescription
-            description={entry.description || ""}
-            onSave={(newDescription) =>
-              onDescriptionSave(entry.id)(newDescription)
-            }
-            onEditingChange={setIsEditingCell}
-            onNavigateNext={navigateToNextCell}
-            data-testid="expandable-description"
-          />
-        </TableCell>
-        <TableCell
-          className={cn(
-            "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 2 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 2)}
-        >
-          <ProjectSelector
-            currentProject={entry.project_name || ""}
-            currentProjectColor={entry.project_color}
-            onProjectChange={(newProject) =>
-              onProjectChange(entry.id)(newProject)
-            }
-            projects={projects}
-            onOpenChange={setIsProjectSelectorOpen}
-            onNavigateNext={navigateToNextCell}
-            onNavigatePrev={navigateToPrevCell}
-            onNavigateDown={navigateToNextRow}
-            data-testid="project-selector"
-          />
-        </TableCell>
-        <TableCell
-          className={cn(
-            "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 3 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 3)}
-        >
-          <TagSelector
-            currentTags={entry.tags || []}
-            onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-            availableTags={availableTags}
-            onOpenChange={setIsTagSelectorOpen}
-            onNavigateNext={navigateToNextCell}
-            onNavigatePrev={navigateToPrevCell}
-            data-testid="tag-selector"
-          />
-        </TableCell>
+        {isFullscreen ? (
+          <>
+            <TableCell
+              className={cn(
+                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 1 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 1)}
+            >
+              <ProjectSelector
+                currentProject={entry.project_name || ""}
+                currentProjectColor={entry.project_color}
+                onProjectChange={(newProject) =>
+                  onProjectChange(entry.id)(newProject)
+                }
+                projects={projects}
+                onOpenChange={setIsProjectSelectorOpen}
+                onNavigateNext={navigateToNextCell}
+                onNavigatePrev={navigateToPrevCell}
+                onNavigateDown={navigateToNextRow}
+                data-testid="project-selector"
+              />
+            </TableCell>
+            <TableCell
+              className={cn(
+                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 2 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 2)}
+            >
+              <TagSelector
+                currentTags={entry.tags || []}
+                onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                availableTags={availableTags}
+                onOpenChange={setIsTagSelectorOpen}
+                onNavigateNext={navigateToNextCell}
+                onNavigatePrev={navigateToPrevCell}
+                data-testid="tag-selector"
+              />
+            </TableCell>
+            <TableCell
+              className={cn(
+                "px-4 pr-2 pl-2 cursor-pointer description-cell",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 3 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 3)}
+            >
+              <ExpandableDescription
+                description={entry.description || ""}
+                onSave={(newDescription) =>
+                  onDescriptionSave(entry.id)(newDescription)
+                }
+                onEditingChange={setIsEditingCell}
+                onNavigateNext={navigateToNextCell}
+                data-testid="expandable-description"
+              />
+            </TableCell>
+          </>
+        ) : (
+          <>
+            <TableCell
+              className={cn(
+                "px-4 pr-2 pl-2 cursor-pointer description-cell",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 1 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 1)}
+            >
+              <ExpandableDescription
+                description={entry.description || ""}
+                onSave={(newDescription) =>
+                  onDescriptionSave(entry.id)(newDescription)
+                }
+                onEditingChange={setIsEditingCell}
+                onNavigateNext={navigateToNextCell}
+                data-testid="expandable-description"
+              />
+            </TableCell>
+            <TableCell
+              className={cn(
+                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 2 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 2)}
+            >
+              <ProjectSelector
+                currentProject={entry.project_name || ""}
+                currentProjectColor={entry.project_color}
+                onProjectChange={(newProject) =>
+                  onProjectChange(entry.id)(newProject)
+                }
+                projects={projects}
+                onOpenChange={setIsProjectSelectorOpen}
+                onNavigateNext={navigateToNextCell}
+                onNavigatePrev={navigateToPrevCell}
+                onNavigateDown={navigateToNextRow}
+                data-testid="project-selector"
+              />
+            </TableCell>
+            <TableCell
+              className={cn(
+                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                selectedCell?.rowIndex === rowIndex &&
+                  selectedCell?.cellIndex === 3 &&
+                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+              )}
+              onClick={() => onSelectCell(rowIndex, 3)}
+            >
+              <TagSelector
+                currentTags={entry.tags || []}
+                onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                availableTags={availableTags}
+                onOpenChange={setIsTagSelectorOpen}
+                onNavigateNext={navigateToNextCell}
+                onNavigatePrev={navigateToPrevCell}
+                data-testid="tag-selector"
+              />
+            </TableCell>
+          </>
+        )}
         <TableCell
           className={cn(
             "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
@@ -334,6 +404,7 @@ const MemoizedTableRow = React.memo(
       prevProps.navigateToNextRow === nextProps.navigateToNextRow;
     const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
     const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
+    const isFullscreenEqual = prevProps.isFullscreen === nextProps.isFullscreen;
 
     const shouldNotRerender =
       entryEqual &&
@@ -357,7 +428,8 @@ const MemoizedTableRow = React.memo(
       navigateToPrevCellEqual &&
       navigateToNextRowEqual &&
       syncStatusEqual &&
-      onRetrySyncEqual;
+      onRetrySyncEqual &&
+      isFullscreenEqual;
 
     return shouldNotRerender;
   }
@@ -369,10 +441,23 @@ export function TimeTrackerTable({
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [isTransitioning, setIsTransitioning] = React.useState(false);
 
   React.useEffect(() => {
     onFullscreenChange?.(isFullscreen);
   }, [isFullscreen, onFullscreenChange]);
+
+  const handleFullscreenToggle = React.useCallback(() => {
+    setIsTransitioning(true);
+    // Brief delay to show animation
+    setTimeout(() => {
+      setIsFullscreen((prev) => !prev);
+      // End transition after columns have reorganized
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 600);
+    }, 0);
+  }, []);
 
   const getDefaultDateRange = (): DateRange => {
     const today = new Date();
@@ -1440,15 +1525,7 @@ export function TimeTrackerTable({
       // Use requestAnimationFrame to defer DOM queries to next tick
       requestAnimationFrame(() => {
         switch (cellIndex) {
-          case 1: // Description
-            const descriptionElement = document.querySelector(
-              `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
-            ) as HTMLElement;
-            if (descriptionElement) {
-              descriptionElement.click();
-            }
-            break;
-          case 2: // Project
+          case 1: // Project
             const projectElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
             ) as HTMLElement;
@@ -1456,12 +1533,20 @@ export function TimeTrackerTable({
               projectElement.click();
             }
             break;
-          case 3: // Tags
+          case 2: // Tags
             const tagElement = document.querySelector(
               `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
             ) as HTMLElement;
             if (tagElement) {
               tagElement.click();
+            }
+            break;
+          case 3: // Description
+            const descriptionElement = document.querySelector(
+              `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+            ) as HTMLElement;
+            if (descriptionElement) {
+              descriptionElement.click();
             }
             break;
           case 4: // Time
@@ -1503,14 +1588,14 @@ export function TimeTrackerTable({
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      const maxCellIndex = 6; // 7 columns: date, description, project, tags, time, duration, actions
+      const maxCellIndex = 6; // 7 columns: date, project, tags, description, time, duration, actions
       const currentEntriesLength = timeEntriesRef.current.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
         const nextCellIndex = currentSelectedCell.cellIndex + 1;
 
-        // Check if we should auto-open project selector, tag selector, time editor, or duration editor
-        if (nextCellIndex === 2 || nextCellIndex === 3 || nextCellIndex === 4 || nextCellIndex === 5) {
+        // Check if we should auto-open project selector (1), tag selector (2), description (3), time editor (4), or duration editor (5)
+        if (nextCellIndex === 1 || nextCellIndex === 2 || nextCellIndex === 3 || nextCellIndex === 4 || nextCellIndex === 5) {
           shouldAutoOpen = true;
           targetRowIndex = currentSelectedCell.rowIndex;
           targetCellIndex = nextCellIndex;
@@ -1953,7 +2038,7 @@ export function TimeTrackerTable({
 
       if (e.key === "f" && !isInInput) {
         e.preventDefault();
-        setIsFullscreen((prev) => !prev);
+        handleFullscreenToggle();
         return;
       }
 
@@ -2165,6 +2250,7 @@ export function TimeTrackerTable({
     handleStartTimerFromPinned,
     handleSplit,
     handleCopyAndStartEntry,
+    handleFullscreenToggle,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -2346,13 +2432,14 @@ export function TimeTrackerTable({
         </div>
         <div className="flex items-center gap-3">
           <Button
-            onClick={() => setIsFullscreen(!isFullscreen)}
+            onClick={handleFullscreenToggle}
             size="icon"
             variant="outline"
             className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
             title={
               isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"
             }
+            disabled={isTransitioning}
           >
             {isFullscreen ? (
               <Minimize2 className="w-4 h-4" />
@@ -2384,10 +2471,11 @@ export function TimeTrackerTable({
       ) : (
         <div
           className={cn(
-            "bg-card",
+            "bg-card transition-opacity duration-500",
             isFullscreen
               ? "overflow-x-auto"
-              : "rounded-lg border border-border/60 shadow-sm overflow-hidden"
+              : "rounded-lg border border-border/60 shadow-sm overflow-hidden",
+            isTransitioning && "opacity-30"
           )}
         >
           <Table>
@@ -2397,15 +2485,31 @@ export function TimeTrackerTable({
                 <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
                   Date
                 </TableHead>
-                <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                  Description
-                </TableHead>
-                <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                  Project
-                </TableHead>
-                <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                  Tags
-                </TableHead>
+                {isFullscreen ? (
+                  <>
+                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                      Project
+                    </TableHead>
+                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                      Tags
+                    </TableHead>
+                    <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+                      Description
+                    </TableHead>
+                  </>
+                ) : (
+                  <>
+                    <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+                      Description
+                    </TableHead>
+                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                      Project
+                    </TableHead>
+                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                      Tags
+                    </TableHead>
+                  </>
+                )}
                 <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
                   Time
                 </TableHead>
@@ -2448,6 +2552,7 @@ export function TimeTrackerTable({
                   isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                   syncStatus={entrySyncStatus.get(entry.id)}
                   onRetrySync={handleRetrySync}
+                  isFullscreen={isFullscreen}
                 />
               ))}
               {hasMore && (
