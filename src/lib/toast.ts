@@ -60,6 +60,11 @@ export const triggerUndo = () => {
   }
 };
 
+// Export function to check if there's an active toast
+export const hasActiveToast = () => {
+  return currentUndoAction !== null;
+};
+
 // Re-export other toast methods
 toast.success = sonnerToast.success;
 toast.error = sonnerToast.error;

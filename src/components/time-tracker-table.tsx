@@ -1,7 +1,7 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
-import { toast, triggerUndo } from "@/lib/toast";
+import { toast, triggerUndo, hasActiveToast } from "@/lib/toast";
 import type { PinnedEntry } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import {
@@ -754,7 +754,6 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [showUpdateToast]
   );
 
@@ -846,7 +845,6 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [showUpdateToast]
   );
 
@@ -925,7 +923,6 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [showUpdateToast]
   );
 
@@ -1289,8 +1286,8 @@ export function TimeTrackerTable({
             // Preserve entries that have errors - don't overwrite with server data
             setTimeEntries((prevEntries) => {
               const erroredEntryIds = Array.from(entrySyncStatusRef.current.entries())
-                .filter(([_, status]) => status === 'error')
-                .map(([id, _]) => id);
+                .filter(([, status]) => status === 'error')
+                .map(([id]) => id);
 
               // If no errored entries, just use the new data
               if (erroredEntryIds.length === 0) {
@@ -1498,7 +1495,7 @@ export function TimeTrackerTable({
       if (!currentSelectedCell) return null;
 
       const maxCellIndex = 6; // 7 columns: date, description, project, tags, time, duration, actions
-      const currentEntriesLength = timeEntries.length;
+      const currentEntriesLength = timeEntriesRef.current.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
         const nextCellIndex = currentSelectedCell.cellIndex + 1;
@@ -1525,7 +1522,7 @@ export function TimeTrackerTable({
     if (shouldAutoOpen) {
       setTimeout(() => activateCell(targetRowIndex, targetCellIndex), 0);
     }
-  }, [timeEntries.length, activateCell]);
+  }, [activateCell]);
 
   const navigateToPrevCell = React.useCallback(() => {
     setSelectedCell((currentSelectedCell) => {
@@ -1545,13 +1542,13 @@ export function TimeTrackerTable({
 
       return currentSelectedCell; // No change if at the beginning
     });
-  }, [timeEntries.length]);
+  }, []);
 
   const navigateToNextRow = React.useCallback(() => {
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      const currentEntriesLength = timeEntries.length;
+      const currentEntriesLength = timeEntriesRef.current.length;
 
       // Move to same column in next row
       if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
@@ -1568,7 +1565,7 @@ export function TimeTrackerTable({
 
       return currentSelectedCell; // No change if at the end
     });
-  }, [timeEntries.length, activateCell]);
+  }, [activateCell]);
 
   // Keep refs in sync with state
   React.useEffect(() => {
@@ -1921,7 +1918,13 @@ export function TimeTrackerTable({
       }
 
       // Only handle plain 'r' for refresh, allow Cmd+R/Ctrl+R for browser refresh
+      // Block refresh if there's an active toast to prevent accidental data loss
       if (e.key === "r" && !isInInput && !e.ctrlKey && !e.metaKey) {
+        const toastActive = hasActiveToast();
+        if (toastActive) {
+          // Don't refresh while toast is showing
+          return;
+        }
         e.preventDefault();
         handleRefreshData();
         return;
