@@ -933,7 +933,7 @@ export function TimeTrackerTable({
     (offsetMinutes: number) => {
       if (!entryToSplit) return;
 
-      const originalEntries = [...timeEntries];
+      let originalEntries: TimeEntry[] = [];
       const startTime = new Date(entryToSplit.start);
       const endTime = new Date(entryToSplit.stop!);
       const offsetMs = offsetMinutes * 60 * 1000;
@@ -963,6 +963,8 @@ export function TimeTrackerTable({
 
       // Update UI optimistically
       setTimeEntries((currentEntries) => {
+        originalEntries = [...currentEntries];
+
         const entriesWithoutOriginal = currentEntries.filter(
           (entry) => entry.id !== entryToSplit.id
         );
@@ -1020,8 +1022,7 @@ export function TimeTrackerTable({
           setTimeEntries(originalEntries);
         });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entryToSplit, timeEntries, toastDuration]
+    [entryToSplit, toastDuration]
   );
 
   const startNewTimeEntry = React.useCallback(
@@ -1061,7 +1062,7 @@ export function TimeTrackerTable({
         // Optimistically stop the previous running timer and add new entry
         const updatedEntries = runningEntry
           ? currentEntries.map((entry) => {
-              if (entry.id === runningEntry.id) {
+              if (runningEntry && entry.id === runningEntry.id) {
                 const startDate = new Date(entry.start);
                 const stopDate = new Date(now);
                 const calculatedDuration = Math.floor(
@@ -1174,8 +1175,7 @@ export function TimeTrackerTable({
         },
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [timeEntries, availableTags]
+    []
   );
 
   const handleCopyAndStartEntry = React.useCallback(
