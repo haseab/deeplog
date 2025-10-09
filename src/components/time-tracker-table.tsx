@@ -9,6 +9,9 @@ import {
   Maximize2,
   Minimize2,
   Plus,
+  Loader2,
+  Check,
+  AlertCircle,
 } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
@@ -70,6 +73,8 @@ const MemoizedTableRow = React.memo(
     navigateToPrevCell,
     navigateToNextRow,
     isNewlyLoaded,
+    syncStatus,
+    onRetrySync,
   }: {
     entry: TimeEntry;
     rowIndex: number;
@@ -100,6 +105,8 @@ const MemoizedTableRow = React.memo(
     navigateToPrevCell: () => void;
     navigateToNextRow: () => void;
     isNewlyLoaded: boolean;
+    syncStatus?: 'syncing' | 'synced' | 'error';
+    onRetrySync: (entryId: number) => void;
   }) {
     return (
       <TableRow
@@ -110,6 +117,23 @@ const MemoizedTableRow = React.memo(
           isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
         )}
       >
+        <TableCell className="px-2 w-8">
+          {syncStatus === 'syncing' && (
+            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+          )}
+          {syncStatus === 'synced' && (
+            <Check className="w-4 h-4 text-green-500" />
+          )}
+          {syncStatus === 'error' && (
+            <button
+              onClick={() => onRetrySync(entry.id)}
+              className="hover:opacity-70 transition-opacity"
+              title="Click to retry"
+            >
+              <AlertCircle className="w-4 h-4 text-red-500" />
+            </button>
+          )}
+        </TableCell>
         <TableCell
           className={cn(
             "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24"
@@ -308,6 +332,8 @@ const MemoizedTableRow = React.memo(
       prevProps.navigateToPrevCell === nextProps.navigateToPrevCell;
     const navigateToNextRowEqual =
       prevProps.navigateToNextRow === nextProps.navigateToNextRow;
+    const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
+    const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
 
     const shouldNotRerender =
       entryEqual &&
@@ -329,7 +355,9 @@ const MemoizedTableRow = React.memo(
       setIsTimeEditorOpenEqual &&
       navigateToNextCellEqual &&
       navigateToPrevCellEqual &&
-      navigateToNextRowEqual;
+      navigateToNextRowEqual &&
+      syncStatusEqual &&
+      onRetrySyncEqual;
 
     return shouldNotRerender;
   }
@@ -392,6 +420,7 @@ export function TimeTrackerTable({
     "synced" | "syncing" | "error" | "session_expired" | "offline"
   >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
+  const [entrySyncStatus, setEntrySyncStatus] = React.useState<Map<number, 'syncing' | 'synced' | 'error'>>(new Map());
 
   // Toast duration - read from localStorage (default 4000ms)
   const toastDuration = React.useMemo(() => {
@@ -401,11 +430,10 @@ export function TimeTrackerTable({
     }
     return 4000;
   }, []);
-  const FETCH_DELAY_AFTER_TOAST = toastDuration + 500; // Add 500ms buffer
 
 
   const showUpdateToast = React.useCallback(
-    (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
+    (message: string, entryId: number, undoAction: () => void, apiCall: () => Promise<void>) => {
       toast(message, {
         action: {
           label: "Undo",
@@ -413,25 +441,52 @@ export function TimeTrackerTable({
         },
         duration: toastDuration,
         onAutoClose: async () => {
+          // Mark as syncing
+          setEntrySyncStatus((prev) => {
+            const next = new Map(prev);
+            next.set(entryId, 'syncing');
+            return next;
+          });
+
           try {
             await apiCall();
+
+            // Mark as synced
+            setEntrySyncStatus((prev) => {
+              const next = new Map(prev);
+              next.set(entryId, 'synced');
+              return next;
+            });
+
+            // Clear synced status after 2 seconds
             setTimeout(() => {
-              // Call fetchData from the current scope (closure)
-              fetchData(false, false);
-            }, FETCH_DELAY_AFTER_TOAST);
+              setEntrySyncStatus((prev) => {
+                const next = new Map(prev);
+                next.delete(entryId);
+                return next;
+              });
+            }, 2000);
           } catch (error) {
             console.error("API call failed:", error);
             const errorMessage =
               error instanceof Error && error.message
                 ? error.message
                 : "Failed to update entry. Please try again.";
+
+            // Mark as error
+            setEntrySyncStatus((prev) => {
+              const next = new Map(prev);
+              next.set(entryId, 'error');
+              return next;
+            });
+
             toast.error(errorMessage);
             undoAction();
           }
         },
       });
     },
-    [toastDuration, FETCH_DELAY_AFTER_TOAST]
+    [toastDuration]
   );
 
   const handleDescriptionSave = React.useCallback(
@@ -449,6 +504,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Description updated.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -515,6 +571,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Project updated.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -569,6 +626,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Tags updated.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             // Convert tag names to tag IDs using cached mapping
@@ -645,6 +703,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Time updated.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -677,11 +736,6 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
-
-            // After successful API call, refresh to get accurate duration from Toggl
-            setTimeout(() => {
-              fetchData(false, false);
-            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -733,6 +787,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Duration updated.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -773,11 +828,6 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
-
-            // After successful API call, refresh to get accurate duration from Toggl
-            setTimeout(() => {
-              fetchData(false, false);
-            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -831,6 +881,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Start time adjusted.",
+          entryId,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -856,10 +907,6 @@ export function TimeTrackerTable({
               console.error("API Error:", response.status, errorText);
               throw new Error("Failed to update start time");
             }
-
-            setTimeout(() => {
-              fetchData(false, false);
-            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -882,6 +929,7 @@ export function TimeTrackerTable({
 
         showUpdateToast(
           "Time entry deleted.",
+          entryToDelete.id,
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
@@ -1006,15 +1054,7 @@ export function TimeTrackerTable({
         })
         .then((data) => {
           console.log("[Split] API response:", data);
-
-          // Instead of trying to merge API data (which lacks enriched fields),
-          // just refresh the data to get the properly enriched entries
           toast.success(data.message || "Entry split successfully");
-
-          // Refresh data to get properly enriched entries with project names, colors, tags, etc.
-          setTimeout(() => {
-            fetchData(false);
-          }, FETCH_DELAY_AFTER_TOAST);
         })
         .catch((error) => {
           console.error("Failed to split time entry:", error);
@@ -1128,11 +1168,6 @@ export function TimeTrackerTable({
               )
             );
           }
-
-          // Refresh data to get the updated state (including stopped timer)
-          setTimeout(() => {
-            fetchData(false);
-          }, FETCH_DELAY_AFTER_TOAST);
         } catch (error) {
           console.error("Failed to create time entry:", error);
           toast.error("Failed to create time entry. Please try again.");
@@ -1159,19 +1194,9 @@ export function TimeTrackerTable({
                     "x-toggl-session-token": sessionToken || "",
                   },
                 });
-
-                // Refresh data to restore any stopped timer
-                setTimeout(() => {
-                  fetchData(false);
-                }, FETCH_DELAY_AFTER_TOAST);
               } catch (error) {
                 console.error("Failed to undo time entry creation:", error);
-                // UI is already reverted, just refresh to get accurate state
-                fetchData(false);
               }
-            } else {
-              // API call hasn't completed yet or failed, just refresh
-              fetchData(false);
             }
           },
         },
@@ -1708,6 +1733,18 @@ export function TimeTrackerTable({
     window.location.reload(); // This will trigger the welcome form
   }, []);
 
+  const handleRetrySync = React.useCallback((entryId: number) => {
+    // Clear error status and trigger a refetch
+    setEntrySyncStatus((prev) => {
+      const next = new Map(prev);
+      next.delete(entryId);
+      return next;
+    });
+
+    // Refetch data to get the latest state
+    fetchData(false, false);
+  }, [fetchData]);
+
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
     (rowIndex: number, cellIndex: number) => {
@@ -2242,6 +2279,7 @@ export function TimeTrackerTable({
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-muted/30 transition-colors duration-200 border-border/60">
+                <TableHead className="px-2 w-8"></TableHead>
                 <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
                   Date
                 </TableHead>
@@ -2294,11 +2332,13 @@ export function TimeTrackerTable({
                   navigateToPrevCell={navigateToPrevCell}
                   navigateToNextRow={navigateToNextRow}
                   isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
+                  syncStatus={entrySyncStatus.get(entry.id)}
+                  onRetrySync={handleRetrySync}
                 />
               ))}
               {hasMore && (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-20 text-center">
+                  <TableCell colSpan={8} className="h-20 text-center">
                     <div className="flex items-center justify-center my-4 mb-8">
                       {isLoadingMore ? (
                         <div className="flex items-center justify-center space-x-2">
