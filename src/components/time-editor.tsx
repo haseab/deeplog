@@ -18,7 +18,9 @@ interface TimeEditorProps {
   endTime: string | null;
   onSave?: (startTime: string, endTime: string | null) => void;
   onEditingChange?: (isEditing: boolean) => void;
+  onNavigateNext?: () => void;
   onNavigateDown?: () => void;
+  onNavigatePrev?: () => void;
   "data-testid"?: string;
 }
 
@@ -27,7 +29,9 @@ export function TimeEditor({
   endTime,
   onSave,
   onEditingChange,
+  onNavigateNext,
   onNavigateDown,
+  onNavigatePrev,
   "data-testid": dataTestId,
 }: TimeEditorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -294,8 +298,13 @@ export function TimeEditor({
             startDateInputRef.current?.focus();
             startDateInputRef.current?.select();
           }, 0);
+        } else if (field === "startHours") {
+          // Shift+Tab from first field: close and navigate to previous cell
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(false);
+          onNavigatePrev?.();
         }
-        // For startHours, let Shift+Tab go back naturally (don't preventDefault)
       } else {
         // Tab (forward): start hours → start minutes → end hours → end minutes → start date → end date → save
         if (field === "startHours") {
@@ -529,7 +538,19 @@ export function TimeEditor({
               >
                 Save
               </Button>
-              <Button size="sm" variant="outline" onClick={handleCancel}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCancel}
+                onKeyDown={(e) => {
+                  if (e.key === "Tab" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsOpen(false);
+                    onNavigateNext?.();
+                  }
+                }}
+              >
                 Cancel
               </Button>
             </div>

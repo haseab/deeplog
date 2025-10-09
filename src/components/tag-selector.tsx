@@ -18,6 +18,7 @@ interface TagSelectorProps {
   availableTags: Tag[];
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
+  onNavigatePrev?: () => void;
   "data-testid"?: string;
 }
 
@@ -27,6 +28,7 @@ export function TagSelector({
   availableTags,
   onOpenChange,
   onNavigateNext,
+  onNavigatePrev,
   "data-testid": dataTestId,
 }: TagSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -120,12 +122,16 @@ export function TagSelector({
       case "Tab":
         e.preventDefault();
         e.stopPropagation();
-        // Close dropdown and move to next cell
+        // Close dropdown and move to next/previous cell
         setIsOpen(false);
         setSearchTerm("");
         setHighlightedIndex(0);
         setTimeout(() => {
-          onNavigateNext?.();
+          if (e.shiftKey) {
+            onNavigatePrev?.();
+          } else {
+            onNavigateNext?.();
+          }
         }, 100);
         break;
       case "Escape":

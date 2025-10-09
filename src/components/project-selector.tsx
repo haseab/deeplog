@@ -19,6 +19,7 @@ interface ProjectSelectorProps {
   projects: Project[];
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
+  onNavigatePrev?: () => void;
   onNavigateDown?: () => void;
   "data-testid"?: string;
 }
@@ -30,6 +31,7 @@ export function ProjectSelector({
   projects,
   onOpenChange,
   onNavigateNext,
+  onNavigatePrev,
   onNavigateDown,
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
@@ -107,11 +109,15 @@ export function ProjectSelector({
       case "Tab":
         e.preventDefault();
         e.stopPropagation();
-        // Close dropdown and move to next cell
+        // Close dropdown and move to next/previous cell
         setIsOpen(false);
         setSearchTerm("");
         setHighlightedIndex(0);
-        onNavigateNext?.();
+        if (e.shiftKey) {
+          onNavigatePrev?.();
+        } else {
+          onNavigateNext?.();
+        }
         break;
       case "Escape":
         e.preventDefault();

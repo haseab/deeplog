@@ -67,6 +67,7 @@ const MemoizedTableRow = React.memo(
     setIsActionsMenuOpen,
     setIsTimeEditorOpen,
     navigateToNextCell,
+    navigateToPrevCell,
     navigateToNextRow,
     isNewlyLoaded,
   }: {
@@ -96,6 +97,7 @@ const MemoizedTableRow = React.memo(
     setIsActionsMenuOpen: (open: boolean) => void;
     setIsTimeEditorOpen: (open: boolean) => void;
     navigateToNextCell: () => void;
+    navigateToPrevCell: () => void;
     navigateToNextRow: () => void;
     isNewlyLoaded: boolean;
   }) {
@@ -152,6 +154,7 @@ const MemoizedTableRow = React.memo(
             projects={projects}
             onOpenChange={setIsProjectSelectorOpen}
             onNavigateNext={navigateToNextCell}
+            onNavigatePrev={navigateToPrevCell}
             onNavigateDown={navigateToNextRow}
             data-testid="project-selector"
           />
@@ -171,6 +174,7 @@ const MemoizedTableRow = React.memo(
             availableTags={availableTags}
             onOpenChange={setIsTagSelectorOpen}
             onNavigateNext={navigateToNextCell}
+            onNavigatePrev={navigateToPrevCell}
             data-testid="tag-selector"
           />
         </TableCell>
@@ -190,7 +194,9 @@ const MemoizedTableRow = React.memo(
               onTimeChange(entry.id)(startTime, endTime)
             }
             onEditingChange={setIsTimeEditorOpen}
+            onNavigateNext={navigateToNextCell}
             onNavigateDown={navigateToNextRow}
+            onNavigatePrev={navigateToPrevCell}
             data-testid="time-editor"
           />
         </TableCell>
@@ -298,6 +304,8 @@ const MemoizedTableRow = React.memo(
       prevProps.setIsTimeEditorOpen === nextProps.setIsTimeEditorOpen;
     const navigateToNextCellEqual =
       prevProps.navigateToNextCell === nextProps.navigateToNextCell;
+    const navigateToPrevCellEqual =
+      prevProps.navigateToPrevCell === nextProps.navigateToPrevCell;
     const navigateToNextRowEqual =
       prevProps.navigateToNextRow === nextProps.navigateToNextRow;
 
@@ -320,6 +328,7 @@ const MemoizedTableRow = React.memo(
       setIsActionsMenuOpenEqual &&
       setIsTimeEditorOpenEqual &&
       navigateToNextCellEqual &&
+      navigateToPrevCellEqual &&
       navigateToNextRowEqual;
 
     return shouldNotRerender;
@@ -1408,6 +1417,11 @@ export function TimeTrackerTable({
   );
 
   const navigateToNextCell = React.useCallback(() => {
+    // Store current cell info before updating state
+    let shouldAutoOpen = false;
+    let targetRowIndex = 0;
+    let targetCellIndex = 0;
+
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
@@ -1415,15 +1429,51 @@ export function TimeTrackerTable({
       const currentEntriesLength = timeEntries.length;
 
       if (currentSelectedCell.cellIndex < maxCellIndex) {
+        const nextCellIndex = currentSelectedCell.cellIndex + 1;
+
+        // Check if we should auto-open project selector, tag selector, time editor, or duration editor
+        if (nextCellIndex === 2 || nextCellIndex === 3 || nextCellIndex === 4 || nextCellIndex === 5) {
+          shouldAutoOpen = true;
+          targetRowIndex = currentSelectedCell.rowIndex;
+          targetCellIndex = nextCellIndex;
+        }
+
         return {
           ...currentSelectedCell,
-          cellIndex: currentSelectedCell.cellIndex + 1,
+          cellIndex: nextCellIndex,
         };
       } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
         return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 0 };
       }
 
       return currentSelectedCell; // No change if at the end
+    });
+
+    // Call activateCell AFTER state update, outside the callback
+    if (shouldAutoOpen) {
+      setTimeout(() => activateCell(targetRowIndex, targetCellIndex), 0);
+    }
+  }, [timeEntries.length, activateCell]);
+
+  const navigateToPrevCell = React.useCallback(() => {
+    setSelectedCell((currentSelectedCell) => {
+      if (!currentSelectedCell) return null;
+
+      const currentEntriesLength = timeEntries.length;
+
+      if (currentSelectedCell.cellIndex > 0) {
+        return {
+          ...currentSelectedCell,
+          cellIndex: currentSelectedCell.cellIndex - 1,
+        };
+      } else if (currentSelectedCell.rowIndex > 0) {
+        return {
+          rowIndex: currentSelectedCell.rowIndex - 1,
+          cellIndex: 6, // Move to last cell of previous row
+        };
+      }
+
+      return currentSelectedCell; // No change if at the beginning
     });
   }, [timeEntries.length]);
 
@@ -2233,6 +2283,7 @@ export function TimeTrackerTable({
                   setIsActionsMenuOpen={setIsActionsMenuOpen}
                   setIsTimeEditorOpen={setIsTimeEditorOpen}
                   navigateToNextCell={navigateToNextCell}
+                  navigateToPrevCell={navigateToPrevCell}
                   navigateToNextRow={navigateToNextRow}
                   isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                 />
