@@ -1,12 +1,14 @@
 export type TimeEntry = {
   id: number;
   description: string;
+  project_id: number | null;
   project_name: string;
   project_color: string;
   start: string;
   stop: string;
   duration: number;
   tags: string[];
+  tag_ids: number[];
 };
 
 export type PinnedEntry = {
