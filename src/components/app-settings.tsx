@@ -44,6 +44,9 @@ export function AppSettings({
   const [showTodoistKey, setShowTodoistKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
+  // Toast duration setting
+  const [toastDuration, setToastDuration] = useState(4000);
+
   useEffect(() => {
     setMounted(true);
 
@@ -57,6 +60,12 @@ export function AppSettings({
       }
       setTodoistApiKey(localStorage.getItem("todoist_api_key") || "");
       setOpenaiApiKey(localStorage.getItem("openai_api_key") || "");
+
+      // Load toast duration setting (default 4000ms)
+      const savedDuration = localStorage.getItem("toast_duration");
+      if (savedDuration) {
+        setToastDuration(parseInt(savedDuration, 10));
+      }
     }
   }, [showLimitlessKey, showTogglKey]);
 
@@ -64,6 +73,15 @@ export function AppSettings({
     const newTheme = checked ? "dark" : "light";
     setTheme(newTheme);
     toast.success(`Theme changed to ${newTheme} mode`);
+  };
+
+  const handleToastDurationChange = (value: string) => {
+    const duration = parseInt(value, 10);
+    if (!isNaN(duration) && duration >= 0 && duration <= 10000) {
+      setToastDuration(duration);
+      localStorage.setItem("toast_duration", duration.toString());
+      toast.success(`Toast duration set to ${duration / 1000}s`);
+    }
   };
 
   const handleApiKeyChange = (key: string, value: string) => {
@@ -165,6 +183,34 @@ export function AppSettings({
                           onCheckedChange={handleThemeChange}
                         />
                       )}
+                    </div>
+
+                    {/* Toast Duration Setting */}
+                    <div className="space-y-3 p-4 rounded-lg border bg-card">
+                      <div>
+                        <Label htmlFor="toast-duration" className="text-base font-medium">
+                          Undo Toast Duration
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          How long undo toasts stay visible (0-10 seconds)
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Input
+                          id="toast-duration"
+                          type="number"
+                          min="0"
+                          max="10000"
+                          step="500"
+                          value={toastDuration}
+                          onChange={(e) => setToastDuration(parseInt(e.target.value, 10) || 4000)}
+                          onBlur={(e) => handleToastDurationChange(e.target.value)}
+                          className="w-32"
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {(toastDuration / 1000).toFixed(1)}s
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

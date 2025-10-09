@@ -362,6 +362,7 @@ export function TimeTrackerTable({
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [availableTags, setAvailableTags] = React.useState<Tag[]>([]);
+  const availableTagsRef = React.useRef<Tag[]>([]);
   const [loading, setLoading] = React.useState(false);
   const currentPageRef = React.useRef(0);
   const [hasMore, setHasMore] = React.useState(true);
@@ -392,6 +393,17 @@ export function TimeTrackerTable({
   >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
 
+  // Toast duration - read from localStorage (default 4000ms)
+  const [toastDuration, setToastDuration] = React.useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("toast_duration");
+      return saved ? parseInt(saved, 10) : 4000;
+    }
+    return 4000;
+  });
+  const FETCH_DELAY_AFTER_TOAST = toastDuration + 500; // Add 500ms buffer
+
+
   const showUpdateToast = React.useCallback(
     (message: string, undoAction: () => void, apiCall: () => Promise<void>) => {
       toast(message, {
@@ -399,10 +411,13 @@ export function TimeTrackerTable({
           label: "Undo",
           onClick: undoAction,
         },
-        duration: 4000,
+        duration: toastDuration,
         onAutoClose: async () => {
           try {
             await apiCall();
+            setTimeout(() => {
+              fetchData(false, false);
+            }, FETCH_DELAY_AFTER_TOAST);
           } catch (error) {
             console.error("API call failed:", error);
             const errorMessage =
@@ -415,7 +430,7 @@ export function TimeTrackerTable({
         },
       });
     },
-    []
+    [toastDuration, FETCH_DELAY_AFTER_TOAST]
   );
 
   const handleDescriptionSave = React.useCallback(
@@ -665,7 +680,7 @@ export function TimeTrackerTable({
             // After successful API call, refresh to get accurate duration from Toggl
             setTimeout(() => {
               fetchData(false, false);
-            }, 1500);
+            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -758,10 +773,10 @@ export function TimeTrackerTable({
               throw new Error(errorMessage);
             }
 
-            // After successful API call, refresh to get accurate data from Toggl
+            // After successful API call, refresh to get accurate duration from Toggl
             setTimeout(() => {
               fetchData(false, false);
-            }, 1500);
+            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -843,7 +858,7 @@ export function TimeTrackerTable({
 
             setTimeout(() => {
               fetchData(false, false);
-            }, 1500);
+            }, FETCH_DELAY_AFTER_TOAST);
           }
         );
 
@@ -964,7 +979,7 @@ export function TimeTrackerTable({
       const sessionToken = localStorage.getItem("toggl_session_token");
 
       toast(`Splitting entry with ${offsetMinutes} minute offset...`, {
-        duration: 2000,
+        duration: toastDuration,
       });
 
       fetch("/api/time-entries/split", {
@@ -996,7 +1011,7 @@ export function TimeTrackerTable({
           // Refresh data to get properly enriched entries with project names, colors, tags, etc.
           setTimeout(() => {
             fetchData(false);
-          }, 300);
+          }, FETCH_DELAY_AFTER_TOAST);
         })
         .catch((error) => {
           console.error("Failed to split time entry:", error);
@@ -1005,7 +1020,7 @@ export function TimeTrackerTable({
         });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entryToSplit, timeEntries]
+    [entryToSplit, timeEntries, toastDuration]
   );
 
   const startNewTimeEntry = React.useCallback(
@@ -1015,79 +1030,54 @@ export function TimeTrackerTable({
       projectColor: string = "#6b7280",
       tags: string[] = []
     ) => {
-      console.log("[StartNewTimer] === START ===");
-      console.log("[StartNewTimer] Current timeEntries count:", timeEntries.length);
-      console.log("[StartNewTimer] All entries:", timeEntries.map(e => ({
-        id: e.id,
-        desc: e.description,
-        start: e.start,
-        stop: e.stop,
-        duration: e.duration,
-        isRunning: !e.stop || e.stop === ""
-      })));
+      let originalEntries: TimeEntry[] = [];
+      let tempId = 0;
+      let newEntry: TimeEntry | null = null;
+      let runningEntry: TimeEntry | null = null;
 
-      const originalEntries = [...timeEntries];
-
-      // Create new time entry starting now
+      // Create timestamp once at the start
       const now = new Date().toISOString();
-      const tempId = -Date.now(); // Temporary negative ID
 
-      // Find currently running entry (no stop time) for UI feedback
-      const runningEntry = timeEntries.find((entry) => !entry.stop);
-      console.log("[StartNewTimer] Running entry found:", runningEntry ? {
-        id: runningEntry.id,
-        desc: runningEntry.description,
-        start: runningEntry.start,
-        stop: runningEntry.stop,
-        duration: runningEntry.duration
-      } : "NONE");
+      setTimeEntries((currentEntries) => {
+        originalEntries = [...currentEntries];
 
-      const newEntry: TimeEntry = {
-        id: tempId,
-        description,
-        project_name: projectName,
-        project_color: projectColor,
-        start: now,
-        stop: "", // Empty stop means it's running
-        duration: 0,
-        tags,
-      };
+        tempId = -Date.now(); // Temporary negative ID
 
-      console.log("[StartNewTimer] New entry created:", {
-        id: newEntry.id,
-        desc: newEntry.description,
-        start: newEntry.start,
-        stop: newEntry.stop,
-        duration: newEntry.duration
+        // Find currently running entry (no stop time) for UI feedback
+        runningEntry = currentEntries.find((entry) => !entry.stop) || null;
+
+        newEntry = {
+          id: tempId,
+          description,
+          project_name: projectName,
+          project_color: projectColor,
+          start: now,
+          stop: "", // Empty stop means it's running
+          duration: 0,
+          tags,
+        };
+
+        // Optimistically stop the previous running timer and add new entry
+        const updatedEntries = runningEntry
+          ? currentEntries.map((entry) => {
+              if (entry.id === runningEntry.id) {
+                const startDate = new Date(entry.start);
+                const stopDate = new Date(now);
+                const calculatedDuration = Math.floor(
+                  (stopDate.getTime() - startDate.getTime()) / 1000
+                );
+                return {
+                  ...entry,
+                  stop: now,
+                  duration: calculatedDuration,
+                };
+              }
+              return entry;
+            })
+          : currentEntries;
+
+        return [newEntry, ...updatedEntries];
       });
-
-      // Optimistically stop the previous running timer and add new entry
-      const updatedEntries = runningEntry
-        ? timeEntries.map((entry) => {
-            if (entry.id === runningEntry.id) {
-              const startDate = new Date(entry.start);
-              const stopDate = new Date(now);
-              const calculatedDuration = Math.floor(
-                (stopDate.getTime() - startDate.getTime()) / 1000
-              );
-              console.log("[StartNewTimer] Stopping previous running timer:", {
-                id: entry.id,
-                oldStop: entry.stop,
-                newStop: now,
-                calculatedDuration
-              });
-              return {
-                ...entry,
-                stop: now,
-                duration: calculatedDuration,
-              };
-            }
-            return entry;
-          })
-        : timeEntries;
-
-      console.log("[StartNewTimer] About to setTimeEntries with new entry at beginning and previous timer stopped");
-      setTimeEntries([newEntry, ...updatedEntries]);
 
       // Select the new entry's description field for immediate editing
       setTimeout(() => {
@@ -1112,7 +1102,7 @@ export function TimeTrackerTable({
               project_name: projectName,
               tag_ids: tags
                 .map((tagName) => {
-                  const tag = availableTags.find((t) => t.name === tagName);
+                  const tag = availableTagsRef.current.find((t) => t.name === tagName);
                   return tag ? tag.id : null;
                 })
                 .filter((id): id is number => id !== null),
@@ -1138,7 +1128,7 @@ export function TimeTrackerTable({
           // Refresh data to get the updated state (including stopped timer)
           setTimeout(() => {
             fetchData(false);
-          }, 500);
+          }, FETCH_DELAY_AFTER_TOAST);
         } catch (error) {
           console.error("Failed to create time entry:", error);
           toast.error("Failed to create time entry. Please try again.");
@@ -1169,7 +1159,7 @@ export function TimeTrackerTable({
                 // Refresh data to restore any stopped timer
                 setTimeout(() => {
                   fetchData(false);
-                }, 500);
+                }, FETCH_DELAY_AFTER_TOAST);
               } catch (error) {
                 console.error("Failed to undo time entry creation:", error);
                 // UI is already reverted, just refresh to get accurate state
@@ -1259,9 +1249,14 @@ export function TimeTrackerTable({
             setTimeEntries(data.timeEntries);
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
-            // Set tags from the response
+            // Set tags from the response - only update if they actually changed
             if (data.tags) {
-              setAvailableTags(data.tags);
+              setAvailableTags((currentTags) => {
+                if (JSON.stringify(currentTags) === JSON.stringify(data.tags)) {
+                  return currentTags; // Keep same reference
+                }
+                return data.tags;
+              });
             }
           } else {
             // Filter out duplicates by ID to prevent React key conflicts
@@ -1288,7 +1283,15 @@ export function TimeTrackerTable({
             });
             currentPageRef.current = pageToFetch;
           }
-          setProjects(data.projects);
+
+          // Only update projects if they actually changed
+          setProjects((currentProjects) => {
+            if (JSON.stringify(currentProjects) === JSON.stringify(data.projects)) {
+              return currentProjects; // Keep same reference
+            }
+            return data.projects;
+          });
+
           setHasMore(data.pagination.hasMore);
           setSyncStatus("synced");
           setLastSyncTime(new Date());
@@ -1500,10 +1503,14 @@ export function TimeTrackerTable({
     });
   }, [timeEntries.length, activateCell]);
 
-  // Keep ref in sync with state
+  // Keep refs in sync with state
   React.useEffect(() => {
     timeEntriesRef.current = timeEntries;
   }, [timeEntries]);
+
+  React.useEffect(() => {
+    availableTagsRef.current = availableTags;
+  }, [availableTags]);
 
   React.useEffect(() => {
     currentPageRef.current = 0;
