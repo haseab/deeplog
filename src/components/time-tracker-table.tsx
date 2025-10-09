@@ -1121,11 +1121,13 @@ export function TimeTrackerTable({
           createdEntryId = createdEntry.id;
 
           // Replace the temporary entry with the real one from the server
-          setTimeEntries((prev) =>
-            prev.map((entry) =>
-              entry.id === tempId ? { ...newEntry, id: createdEntry.id } : entry
-            )
-          );
+          if (newEntry) {
+            setTimeEntries((prev) =>
+              prev.map((entry) =>
+                entry.id === tempId ? { ...newEntry, id: createdEntry.id } as TimeEntry : entry
+              )
+            );
+          }
 
           // Refresh data to get the updated state (including stopped timer)
           setTimeout(() => {
