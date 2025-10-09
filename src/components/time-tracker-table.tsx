@@ -122,7 +122,7 @@ const MemoizedTableRow = React.memo(
             "px-4 pr-2 pl-2 cursor-pointer description-cell",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 1 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 1)}
         >
@@ -141,7 +141,7 @@ const MemoizedTableRow = React.memo(
             "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 2 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 2)}
         >
@@ -164,7 +164,7 @@ const MemoizedTableRow = React.memo(
             "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 3 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 3)}
         >
@@ -183,7 +183,7 @@ const MemoizedTableRow = React.memo(
             "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 4 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 4)}
         >
@@ -205,7 +205,7 @@ const MemoizedTableRow = React.memo(
             "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 5 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 5)}
         >
@@ -225,7 +225,7 @@ const MemoizedTableRow = React.memo(
             "px-4 py-2 cursor-pointer sm:w-16 w-12",
             selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 6 &&
-              "ring-1 ring-gray-300 dark:ring-gray-600 bg-gray-50 dark:bg-gray-800/50 rounded-md"
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
           onClick={() => onSelectCell(rowIndex, 6)}
         >
