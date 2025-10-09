@@ -421,6 +421,13 @@ export function TimeTrackerTable({
   >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
   const [entrySyncStatus, setEntrySyncStatus] = React.useState<Map<number, 'syncing' | 'synced' | 'error'>>(new Map());
+  const entrySyncStatusRef = React.useRef<Map<number, 'syncing' | 'synced' | 'error'>>(new Map());
+  const entryRetryFunctions = React.useRef<Map<number, () => Promise<void>>>(new Map());
+
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    entrySyncStatusRef.current = entrySyncStatus;
+  }, [entrySyncStatus]);
 
   // Toast duration - read from localStorage (default 4000ms)
   const toastDuration = React.useMemo(() => {
@@ -434,6 +441,9 @@ export function TimeTrackerTable({
 
   const showUpdateToast = React.useCallback(
     (message: string, entryId: number, undoAction: () => void, apiCall: () => Promise<void>) => {
+      // Store the retry function for this entry
+      entryRetryFunctions.current.set(entryId, apiCall);
+
       toast(message, {
         action: {
           label: "Undo",
@@ -451,12 +461,13 @@ export function TimeTrackerTable({
           try {
             await apiCall();
 
-            // Mark as synced
+            // Mark as synced and clear retry function
             setEntrySyncStatus((prev) => {
               const next = new Map(prev);
               next.set(entryId, 'synced');
               return next;
             });
+            entryRetryFunctions.current.delete(entryId);
 
             // Clear synced status after 2 seconds
             setTimeout(() => {
@@ -473,7 +484,7 @@ export function TimeTrackerTable({
                 ? error.message
                 : "Failed to update entry. Please try again.";
 
-            // Mark as error
+            // Mark as error - DON'T revert the UI, let user see the error and retry
             setEntrySyncStatus((prev) => {
               const next = new Map(prev);
               next.set(entryId, 'error');
@@ -481,7 +492,8 @@ export function TimeTrackerTable({
             });
 
             toast.error(errorMessage);
-            undoAction();
+            // Don't call undoAction() - keep the optimistic update visible with error indicator
+            // Retry function is already stored in entryRetryFunctions
           }
         },
       });
@@ -1274,7 +1286,36 @@ export function TimeTrackerTable({
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
-            setTimeEntries(data.timeEntries);
+            // Preserve entries that have errors - don't overwrite with server data
+            setTimeEntries((prevEntries) => {
+              const erroredEntryIds = Array.from(entrySyncStatusRef.current.entries())
+                .filter(([_, status]) => status === 'error')
+                .map(([id, _]) => id);
+
+              // If no errored entries, just use the new data
+              if (erroredEntryIds.length === 0) {
+                return data.timeEntries;
+              }
+
+              // Keep errored entries from previous state, use server data for rest
+              const erroredEntries = prevEntries.filter(entry =>
+                erroredEntryIds.includes(entry.id)
+              );
+
+              // Merge: use server data, but override with errored entries
+              const serverEntryIds = new Set(data.timeEntries.map((e: TimeEntry) => e.id));
+              const mergedEntries = [
+                ...data.timeEntries.map((serverEntry: TimeEntry) => {
+                  // If this entry has an error, use the local version instead
+                  const erroredVersion = erroredEntries.find(e => e.id === serverEntry.id);
+                  return erroredVersion || serverEntry;
+                }),
+                // Add any errored entries that aren't in the server response
+                ...erroredEntries.filter(e => !serverEntryIds.has(e.id))
+              ];
+
+              return mergedEntries;
+            });
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = 0;
             // Set tags from the response - only update if they actually changed
@@ -1733,17 +1774,65 @@ export function TimeTrackerTable({
     window.location.reload(); // This will trigger the welcome form
   }, []);
 
-  const handleRetrySync = React.useCallback((entryId: number) => {
-    // Clear error status and trigger a refetch
+  const handleRetrySync = React.useCallback(async (entryId: number) => {
+    // Get the stored retry function
+    const retryFn = entryRetryFunctions.current.get(entryId);
+
+    if (!retryFn) {
+      console.warn(`No retry function found for entry ${entryId}`);
+      // Clear error status if no retry function
+      setEntrySyncStatus((prev) => {
+        const next = new Map(prev);
+        next.delete(entryId);
+        return next;
+      });
+      return;
+    }
+
+    // Mark as syncing
     setEntrySyncStatus((prev) => {
       const next = new Map(prev);
-      next.delete(entryId);
+      next.set(entryId, 'syncing');
       return next;
     });
 
-    // Refetch data to get the latest state
-    fetchData(false, false);
-  }, [fetchData]);
+    try {
+      // Retry the API call
+      await retryFn();
+
+      // Mark as synced and clear retry function
+      setEntrySyncStatus((prev) => {
+        const next = new Map(prev);
+        next.set(entryId, 'synced');
+        return next;
+      });
+      entryRetryFunctions.current.delete(entryId);
+
+      // Clear synced status after 2 seconds
+      setTimeout(() => {
+        setEntrySyncStatus((prev) => {
+          const next = new Map(prev);
+          next.delete(entryId);
+          return next;
+        });
+      }, 2000);
+    } catch (error) {
+      console.error("Retry failed:", error);
+      const errorMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : "Retry failed. Please try again.";
+
+      // Mark as error again
+      setEntrySyncStatus((prev) => {
+        const next = new Map(prev);
+        next.set(entryId, 'error');
+        return next;
+      });
+
+      toast.error(errorMessage);
+    }
+  }, []);
 
   // Stable cell selection callback
   const handleSelectCell = React.useCallback(
