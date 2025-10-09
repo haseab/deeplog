@@ -1708,7 +1708,6 @@ export function TimeTrackerTable({
               break;
           }
         } else {
-          // Normal mode
           switch (cellIndex) {
             case 1: // Description (normal)
               const descriptionElement = document.querySelector(
@@ -1792,7 +1791,8 @@ export function TimeTrackerTable({
           cellIndex: nextCellIndex,
         };
       } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
-        return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 0 };
+        // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
+        return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
       }
 
       return currentSelectedCell; // No change if at the end
@@ -1808,16 +1808,22 @@ export function TimeTrackerTable({
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      if (currentSelectedCell.cellIndex > 0) {
+      // cellIndex 0 = date (not editable, skip it)
+      // cellIndex 1 = first editable cell
+      if (currentSelectedCell.cellIndex > 1) {
+        const prevCellIndex = currentSelectedCell.cellIndex - 1;
         return {
           ...currentSelectedCell,
-          cellIndex: currentSelectedCell.cellIndex - 1,
+          cellIndex: prevCellIndex,
         };
-      } else if (currentSelectedCell.rowIndex > 0) {
-        return {
-          rowIndex: currentSelectedCell.rowIndex - 1,
-          cellIndex: 6, // Move to last cell of previous row
-        };
+      } else if (currentSelectedCell.cellIndex === 1) {
+        // At first editable cell, wrap to previous row's last cell
+        if (currentSelectedCell.rowIndex > 0) {
+          return {
+            rowIndex: currentSelectedCell.rowIndex - 1,
+            cellIndex: 6, // Move to last cell of previous row
+          };
+        }
       }
 
       return currentSelectedCell; // No change if at the beginning
@@ -2331,7 +2337,8 @@ export function TimeTrackerTable({
 
         case "ArrowLeft":
           e.preventDefault();
-          if (selectedCell && selectedCell.cellIndex > 0) {
+          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
+          if (selectedCell && selectedCell.cellIndex > 1) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex - 1,
@@ -2345,7 +2352,8 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            // Start at cellIndex 1 (skip date column at 0)
+            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
           } else if (
             selectedCell &&
             selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
