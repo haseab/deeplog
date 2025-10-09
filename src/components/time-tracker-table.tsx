@@ -394,13 +394,13 @@ export function TimeTrackerTable({
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
 
   // Toast duration - read from localStorage (default 4000ms)
-  const [toastDuration, setToastDuration] = React.useState(() => {
+  const toastDuration = React.useMemo(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("toast_duration");
       return saved ? parseInt(saved, 10) : 4000;
     }
     return 4000;
-  });
+  }, []);
   const FETCH_DELAY_AFTER_TOAST = toastDuration + 500; // Add 500ms buffer
 
 
@@ -430,7 +430,7 @@ export function TimeTrackerTable({
         },
       });
     },
-    [toastDuration, FETCH_DELAY_AFTER_TOAST]
+    [toastDuration, FETCH_DELAY_AFTER_TOAST, fetchData]
   );
 
   const handleDescriptionSave = React.useCallback(
@@ -1461,8 +1461,6 @@ export function TimeTrackerTable({
   const navigateToPrevCell = React.useCallback(() => {
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
-
-      const currentEntriesLength = timeEntries.length;
 
       if (currentSelectedCell.cellIndex > 0) {
         return {
