@@ -1314,6 +1314,18 @@ export function TimeTrackerTable({
       // Create timestamp once at the start
       const now = new Date().toISOString();
 
+      // Get project_id from projectName
+      const project = projects.find((p) => p.name === projectName);
+      const project_id = project ? project.id : null;
+
+      // Convert tag names to tag IDs
+      const tag_ids = tags
+        .map((tagName) => {
+          const tag = availableTags.find((t) => t.name === tagName);
+          return tag ? tag.id : null;
+        })
+        .filter((id): id is number => id !== null);
+
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
 
@@ -1325,12 +1337,14 @@ export function TimeTrackerTable({
         newEntry = {
           id: tempId,
           description,
+          project_id,
           project_name: projectName,
           project_color: projectColor,
           start: now,
           stop: "", // Empty stop means it's running
           duration: 0,
           tags,
+          tag_ids,
         };
 
         // Optimistically stop the previous running timer and add new entry
@@ -1436,7 +1450,7 @@ export function TimeTrackerTable({
         },
       });
     },
-    []
+    [projects, availableTags]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
