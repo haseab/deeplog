@@ -248,6 +248,18 @@ export function ExpandableDescription({
             setShowRecentTimers(false);
             setHighlightedIndex(0);
             return true;
+          } else if (event.key === "Tab") {
+            event.preventDefault();
+            event.stopPropagation();
+            // Close popover first
+            setShowRecentTimers(false);
+            setHighlightedIndex(0);
+            // Then navigate to next cell (same as normal Tab behavior)
+            saveAndExit();
+            setTimeout(() => {
+              onNavigateNext?.();
+            }, 100);
+            return true;
           }
           // For any other key when popover is open, let it through to the editor
           // so user can continue typing
