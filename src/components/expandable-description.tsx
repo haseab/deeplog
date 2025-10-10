@@ -340,6 +340,14 @@ export function ExpandableDescription({
     },
     onUpdate: () => {
       updateCharCount();
+      // Show recent timers if content becomes empty
+      if (editor && isEditing) {
+        const currentContent = getMarkdownContent();
+        if (!currentContent || currentContent.trim() === '') {
+          setShowRecentTimers(true);
+          setHighlightedIndex(0);
+        }
+      }
     },
     // Remove onBlur - we handle closing via click outside detection now
   });
