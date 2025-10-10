@@ -1,3 +1,5 @@
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'error';
+
 export type TimeEntry = {
   id: number;
   description: string;
@@ -9,6 +11,8 @@ export type TimeEntry = {
   duration: number;
   tags: string[];
   tag_ids: number[];
+  syncStatus?: SyncStatus;
+  tempId?: number; // Preserved after ID replacement for tracking
 };
 
 export type PinnedEntry = {

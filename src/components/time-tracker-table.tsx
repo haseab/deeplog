@@ -1,13 +1,15 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
+import { SyncQueueManager, type QueuedOperation } from "@/lib/sync-queue";
 import { hasActiveToast, toast, triggerUndo } from "@/lib/toast";
-import type { PinnedEntry } from "@/types";
+import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import {
   AlertCircle,
   Calendar as CalendarIcon,
   Check,
+  Clock,
   Loader2,
   Maximize2,
   Minimize2,
@@ -54,7 +56,9 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
-    onBulkEntryUpdate,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    onBulkEntryUpdate: _onBulkEntryUpdate,
+    onBulkEntryUpdateByRowIndex,
     onTimeChange,
     onDurationChange,
     onDurationChangeWithStartTimeAdjustment,
@@ -93,6 +97,13 @@ const MemoizedTableRow = React.memo(
       projectName?: string;
       tags?: string[];
     }) => void;
+    onBulkEntryUpdateByRowIndex: (
+      capturedId: number
+    ) => (updates: {
+      description?: string;
+      projectName?: string;
+      tags?: string[];
+    }) => void;
     onTimeChange: (
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
@@ -117,13 +128,22 @@ const MemoizedTableRow = React.memo(
     navigateToPrevCell: () => void;
     navigateToNextRow: () => void;
     isNewlyLoaded: boolean;
-    syncStatus?: "syncing" | "synced" | "error";
+    syncStatus?: SyncStatus;
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
   }) {
+    // Debug: Log when component renders to see entry IDs
+    if (entry.id && entry.id < 0 && rowIndex === 0) {
+      console.log(
+        `[TableRowComponent] 🎨 RENDER - rowIndex ${rowIndex}, entry.id: ${
+          entry.id
+        }, tempId: ${entry.tempId || "undefined"}`
+      );
+    }
+
     return (
       <TableRow
-        key={entry.id}
+        key={entry.tempId || entry.id}
         data-entry-id={entry.id}
         className={cn(
           "hover:bg-accent/20 border-border/40 group hover:shadow-sm",
@@ -131,6 +151,11 @@ const MemoizedTableRow = React.memo(
         )}
       >
         <TableCell className="px-2 w-8">
+          {syncStatus === "pending" && (
+            <div title="Update queued">
+              <Clock className="w-4 h-4 text-yellow-500" />
+            </div>
+          )}
           {syncStatus === "syncing" && (
             <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
           )}
@@ -217,7 +242,11 @@ const MemoizedTableRow = React.memo(
                 projects={projects}
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
-                  // Update all fields in a single API call
+                  // Pass the captured entry.id - helper will resolve to current ID
+                  console.log(
+                    `[TableRowComponent] 🎯 CALLBACK CREATED - Capturing entry.id: ${entry.id} for rowIndex ${rowIndex}`
+                  );
+
                   const tagNames = availableTags
                     .filter((tag) => selected.tagIds.includes(tag.id))
                     .map((tag) => tag.name);
@@ -226,7 +255,7 @@ const MemoizedTableRow = React.memo(
                     (p) => p.id === selected.projectId
                   );
 
-                  onBulkEntryUpdate(entry.id)({
+                  onBulkEntryUpdateByRowIndex(entry.id)({
                     description: selected.description,
                     projectName: project?.name,
                     tags: tagNames,
@@ -257,7 +286,11 @@ const MemoizedTableRow = React.memo(
                 projects={projects}
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
-                  // Update all fields in a single API call
+                  // Pass the captured entry.id - helper will resolve to current ID
+                  console.log(
+                    `[TableRowComponent] 🎯 CALLBACK CREATED - Capturing entry.id: ${entry.id} for rowIndex ${rowIndex}`
+                  );
+
                   const tagNames = availableTags
                     .filter((tag) => selected.tagIds.includes(tag.id))
                     .map((tag) => tag.name);
@@ -266,7 +299,7 @@ const MemoizedTableRow = React.memo(
                     (p) => p.id === selected.projectId
                   );
 
-                  onBulkEntryUpdate(entry.id)({
+                  onBulkEntryUpdateByRowIndex(entry.id)({
                     description: selected.description,
                     projectName: project?.name,
                     tags: tagNames,
@@ -427,6 +460,11 @@ const MemoizedTableRow = React.memo(
     const onProjectChangeEqual =
       prevProps.onProjectChange === nextProps.onProjectChange;
     const onTagsChangeEqual = prevProps.onTagsChange === nextProps.onTagsChange;
+    const onBulkEntryUpdateEqual =
+      prevProps.onBulkEntryUpdate === nextProps.onBulkEntryUpdate;
+    const onBulkEntryUpdateByRowIndexEqual =
+      prevProps.onBulkEntryUpdateByRowIndex ===
+      nextProps.onBulkEntryUpdateByRowIndex;
     const onTimeChangeEqual = prevProps.onTimeChange === nextProps.onTimeChange;
     const onDurationChangeEqual =
       prevProps.onDurationChange === nextProps.onDurationChange;
@@ -462,6 +500,8 @@ const MemoizedTableRow = React.memo(
       onDescriptionSaveEqual &&
       onProjectChangeEqual &&
       onTagsChangeEqual &&
+      onBulkEntryUpdateEqual &&
+      onBulkEntryUpdateByRowIndexEqual &&
       onTimeChangeEqual &&
       onDurationChangeEqual &&
       onDeleteEqual &&
@@ -555,14 +595,15 @@ export function TimeTrackerTable({
   >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
   const [entrySyncStatus, setEntrySyncStatus] = React.useState<
-    Map<number, "syncing" | "synced" | "error">
+    Map<number, SyncStatus>
   >(new Map());
-  const entrySyncStatusRef = React.useRef<
-    Map<number, "syncing" | "synced" | "error">
-  >(new Map());
+  const entrySyncStatusRef = React.useRef<Map<number, SyncStatus>>(new Map());
   const entryRetryFunctions = React.useRef<Map<number, () => Promise<void>>>(
     new Map()
   );
+
+  // Sync queue manager for handling operations on temp IDs
+  const syncQueueRef = React.useRef<SyncQueueManager>(new SyncQueueManager());
 
   // Keep ref in sync with state
   React.useEffect(() => {
@@ -585,7 +626,17 @@ export function TimeTrackerTable({
       undoAction: () => void,
       apiCall: () => Promise<void>
     ) => {
+      console.log(
+        `[showUpdateToast] 📢 Toast shown for entry ${entryId}: "${message}"`
+      );
+
       // Store the retry function for this entry
+      const existingRetry = entryRetryFunctions.current.get(entryId);
+      if (existingRetry) {
+        console.log(
+          `[showUpdateToast] ⚠️ WARNING - Overwriting existing retry function for entry ${entryId}`
+        );
+      }
       entryRetryFunctions.current.set(entryId, apiCall);
 
       let toastDismissed = false;
@@ -594,6 +645,9 @@ export function TimeTrackerTable({
         action: {
           label: "Undo",
           onClick: () => {
+            console.log(
+              `[showUpdateToast] 🔄 UNDO clicked for entry ${entryId}`
+            );
             toastDismissed = true;
             undoAction();
           },
@@ -604,8 +658,15 @@ export function TimeTrackerTable({
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
       setTimeout(async () => {
         if (toastDismissed) {
+          console.log(
+            `[showUpdateToast] ⏭️ Toast was dismissed (undone) for entry ${entryId}, skipping API call`
+          );
           return;
         }
+
+        console.log(
+          `[showUpdateToast] ⏰ Toast duration expired for entry ${entryId}, executing API call`
+        );
 
         // Mark as syncing
         setEntrySyncStatus((prev) => {
@@ -656,8 +717,97 @@ export function TimeTrackerTable({
     [toastDuration]
   );
 
+  // Reusable helper to handle updates on temp IDs (queues them) or real IDs (uses showUpdateToast)
+  const handleUpdateWithQueue = React.useCallback(
+    <T extends Record<string, any>>(
+      entryId: number,
+      updates: T,
+      operationType: string,
+      optimisticUpdate: (entry: TimeEntry) => Partial<TimeEntry>,
+      apiCall: (realId: number, sessionToken: string) => Promise<Response>,
+      successMessage: string
+    ): boolean => {
+      const syncQueue = syncQueueRef.current;
+      const isTempId = syncQueue.isTempId(entryId);
+
+      if (isTempId) {
+        console.log(
+          `[${operationType}] Temp ID detected (${entryId}), queueing operation`
+        );
+
+        // Apply optimistic update
+        setTimeEntries((currentEntries) =>
+          currentEntries.map((entry) =>
+            entry.id === entryId
+              ? {
+                  ...entry,
+                  ...optimisticUpdate(entry),
+                  syncStatus: "pending" as SyncStatus,
+                }
+              : entry
+          )
+        );
+
+        // Queue the operation
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const operation: QueuedOperation = {
+          type: operationType,
+          tempId: entryId,
+          payload: updates,
+          retryCount: 0,
+          timestamp: Date.now(),
+          execute: async (realId: number) => {
+            const response = await apiCall(realId, sessionToken || "");
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+              throw new Error(`${operationType} failed (${response.status})`);
+            }
+
+            return response.json();
+          },
+        };
+
+        syncQueue.queueOperation(operation);
+        setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
+
+        toast("Update queued", {
+          description: "Changes will sync once entry is created",
+          duration: 2000,
+        });
+
+        return true; // Indicates operation was queued
+      }
+
+      return false; // Indicates should continue with normal flow
+    },
+    []
+  );
+
   const handleDescriptionSave = React.useCallback(
     (entryId: number) => (newDescription: string) => {
+      // Try to queue if temp ID
+      const wasQueued = handleUpdateWithQueue(
+        entryId,
+        { description: newDescription },
+        "UPDATE_DESCRIPTION",
+        () => ({ description: newDescription }),
+        (realId, sessionToken) =>
+          fetch(`/api/time-entries/${realId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify({ description: newDescription }),
+          }),
+        "Description updated."
+      );
+
+      if (wasQueued) return;
+
+      // Original logic for real IDs
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
@@ -709,11 +859,42 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast]
+    [showUpdateToast, handleUpdateWithQueue]
   );
 
   const handleProjectChange = React.useCallback(
     (entryId: number) => (newProject: string) => {
+      // Try to queue if temp ID
+      const wasQueued = handleUpdateWithQueue(
+        entryId,
+        { project_name: newProject },
+        "UPDATE_PROJECT",
+        (entry) => {
+          const selectedProject = projects.find((p) => p.name === newProject);
+          const newProjectColor =
+            newProject === "No Project" || newProject === ""
+              ? "#6b7280"
+              : selectedProject?.color || "#6b7280";
+          return {
+            project_name: newProject || "No Project",
+            project_color: newProjectColor,
+          };
+        },
+        (realId, sessionToken) =>
+          fetch(`/api/time-entries/${realId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify({ project_name: newProject }),
+          }),
+        "Project updated."
+      );
+
+      if (wasQueued) return;
+
+      // Original logic for real IDs
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
@@ -775,11 +956,40 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [projects, showUpdateToast]
+    [projects, showUpdateToast, handleUpdateWithQueue]
   );
 
   const handleTagsChange = React.useCallback(
     (entryId: number) => (newTags: string[]) => {
+      // Convert tag names to tag IDs for API payload
+      const tagIds = newTags
+        .map((tagName) => {
+          const tag = availableTags.find((t) => t.name === tagName);
+          return tag ? tag.id : null;
+        })
+        .filter((id): id is number => id !== null);
+
+      // Try to queue if temp ID
+      const wasQueued = handleUpdateWithQueue(
+        entryId,
+        { tag_ids: tagIds },
+        "UPDATE_TAGS",
+        () => ({ tags: newTags }),
+        (realId, sessionToken) =>
+          fetch(`/api/time-entries/${realId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify({ tag_ids: tagIds }),
+          }),
+        "Tags updated."
+      );
+
+      if (wasQueued) return;
+
+      // Original logic for real IDs
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
@@ -798,14 +1008,6 @@ export function TimeTrackerTable({
           entryId,
           () => setTimeEntries(originalEntries),
           async () => {
-            // Convert tag names to tag IDs using cached mapping
-            const tagIds = newTags
-              .map((tagName) => {
-                const tag = availableTags.find((t) => t.name === tagName);
-                return tag ? tag.id : null;
-              })
-              .filter((id): id is number => id !== null);
-
             const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
@@ -838,7 +1040,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, availableTags]
+    [showUpdateToast, availableTags, handleUpdateWithQueue]
   );
 
   const handleBulkEntryUpdate = React.useCallback(
@@ -848,6 +1050,129 @@ export function TimeTrackerTable({
         projectName?: string;
         tags?: string[];
       }) => {
+        // Check if this is a temp ID
+        const syncQueue = syncQueueRef.current;
+        const isTempId = syncQueue.isTempId(entryId);
+
+        if (isTempId) {
+          console.log(
+            `[handleBulkEntryUpdate] Temp ID detected (${entryId}), queueing operation`
+          );
+
+          // Still apply optimistic update to UI
+          setTimeEntries((currentEntries) => {
+            const entry = currentEntries.find((e) => e.id === entryId);
+            if (!entry) return currentEntries;
+
+            // Find project ID if project name provided
+            let projectId = entry.project_id;
+            let projectName = entry.project_name;
+            let projectColor = entry.project_color;
+
+            if (updates.projectName !== undefined) {
+              if (
+                updates.projectName === "" ||
+                updates.projectName === "No Project"
+              ) {
+                projectId = null;
+                projectName = "";
+                projectColor = "#6b7280";
+              } else {
+                const project = projects.find(
+                  (p) => p.name === updates.projectName
+                );
+                if (project) {
+                  projectId = project.id;
+                  projectName = project.name;
+                  projectColor = project.color;
+                }
+              }
+            }
+
+            return currentEntries.map((e) =>
+              e.id === entryId
+                ? {
+                    ...e,
+                    description:
+                      updates.description !== undefined
+                        ? updates.description
+                        : e.description,
+                    project_id: projectId,
+                    project_name: projectName,
+                    project_color: projectColor,
+                    tags: updates.tags !== undefined ? updates.tags : e.tags,
+                    syncStatus: "pending" as SyncStatus,
+                  }
+                : e
+            );
+          });
+
+          // Queue the operation
+          const operation: QueuedOperation = {
+            type: "UPDATE_BULK",
+            tempId: entryId,
+            payload: { ...updates },
+            retryCount: 0,
+            timestamp: Date.now(),
+            execute: async (realId: number) => {
+              const sessionToken = localStorage.getItem("toggl_session_token");
+              const payload: Record<string, string | number | number[] | null> =
+                {};
+
+              if (updates.description !== undefined) {
+                payload.description = updates.description;
+              }
+              if (updates.projectName !== undefined) {
+                payload.project_name = updates.projectName;
+              }
+              if (updates.tags !== undefined) {
+                const tagIds = updates.tags
+                  .map(
+                    (tagName) =>
+                      availableTagsRef.current.find((t) => t.name === tagName)
+                        ?.id
+                  )
+                  .filter((id): id is number => id !== null);
+                payload.tag_ids = tagIds;
+              }
+
+              console.log(
+                `[handleBulkEntryUpdate] Executing queued operation for real ID ${realId}:`,
+                payload
+              );
+              const response = await fetch(`/api/time-entries/${realId}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify(payload),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error("API Error:", response.status, errorText);
+                throw new Error(`Failed to update entry (${response.status})`);
+              }
+
+              return response.json();
+            },
+          };
+
+          syncQueue.queueOperation(operation);
+
+          // Update sync status
+          setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
+
+          toast("Update queued", {
+            description: "Changes will sync once entry is created",
+            duration: 2000,
+          });
+
+          return;
+        }
+
+        // Original logic for real IDs
         setTimeEntries((currentEntries) => {
           const originalEntries = [...currentEntries];
           const entry = currentEntries.find((e) => e.id === entryId);
@@ -969,17 +1294,107 @@ export function TimeTrackerTable({
     [showUpdateToast, projects, availableTags]
   );
 
+  // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)
+  const handleBulkEntryUpdateByRowIndex = React.useCallback(
+    (capturedId: number) =>
+      (updates: {
+        description?: string;
+        projectName?: string;
+        tags?: string[];
+      }) => {
+        console.log(
+          `[handleBulkEntryUpdateByRowIndex] 🔍 Called with captured ID: ${capturedId}`
+        );
+        console.log(
+          `[handleBulkEntryUpdateByRowIndex] 📋 Current timeEntriesRef has ${timeEntriesRef.current.length} entries`
+        );
+
+        // Find the entry - it might still have the temp ID or it might have been updated to real ID
+        let currentEntry = timeEntriesRef.current.find(
+          (e) => e.id === capturedId
+        );
+
+        if (currentEntry) {
+          console.log(
+            `[handleBulkEntryUpdateByRowIndex] ✅ Found entry directly by ID ${capturedId}`
+          );
+        }
+
+        // If not found by ID, try finding by tempId field (ID might have changed)
+        if (!currentEntry) {
+          console.log(
+            `[handleBulkEntryUpdateByRowIndex] ⚠️ Not found by ID, searching by tempId field...`
+          );
+          currentEntry = timeEntriesRef.current.find(
+            (e) => e.tempId === capturedId
+          );
+          if (currentEntry) {
+            console.log(
+              `[handleBulkEntryUpdateByRowIndex] ✅ Found by tempId field! Captured ID ${capturedId} is now real ID ${currentEntry.id}`
+            );
+          }
+        }
+
+        if (!currentEntry) {
+          console.error(
+            `[handleBulkEntryUpdateByRowIndex] ❌ No entry found with ID or tempId ${capturedId}`
+          );
+          console.log(
+            `[handleBulkEntryUpdateByRowIndex] 📋 Available entries:`,
+            timeEntriesRef.current.map((e) => ({ id: e.id, tempId: e.tempId }))
+          );
+          return;
+        }
+
+        console.log(
+          `[handleBulkEntryUpdateByRowIndex] 🎯 Resolved to entry ID ${currentEntry.id}, calling handleBulkEntryUpdate`
+        );
+
+        // Call the actual bulk update with the CURRENT entry ID
+        handleBulkEntryUpdate(currentEntry.id)(updates);
+      },
+    [handleBulkEntryUpdate]
+  );
+
   const handleTimeChange = React.useCallback(
     (entryId: number) => (startTime: string, endTime: string | null) => {
+      // Calculate duration for optimistic update
+      const start = new Date(startTime);
+      const end = endTime ? new Date(endTime) : null;
+      const duration = end
+        ? Math.floor((end.getTime() - start.getTime()) / 1000)
+        : -1;
+
+      // Try to queue if temp ID
+      const wasQueued = handleUpdateWithQueue(
+        entryId,
+        { start: startTime, stop: endTime || undefined },
+        "UPDATE_TIME",
+        () => ({
+          start: startTime,
+          stop: endTime || "",
+          duration: duration,
+        }),
+        (realId, sessionToken) =>
+          fetch(`/api/time-entries/${realId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify({
+              start: startTime,
+              stop: endTime || undefined,
+            }),
+          }),
+        "Time updated."
+      );
+
+      if (wasQueued) return;
+
+      // Original logic for real IDs
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
-
-        // Calculate new duration for optimistic UI update
-        const start = new Date(startTime);
-        const end = endTime ? new Date(endTime) : null;
-        const duration = end
-          ? Math.floor((end.getTime() - start.getTime()) / 1000)
-          : -1;
 
         // Create updated entries for optimistic update
         const updatedEntries = currentEntries.map((entry) =>
@@ -1039,17 +1454,69 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast]
+    [showUpdateToast, handleUpdateWithQueue]
   );
 
   const handleDurationChange = React.useCallback(
     (entryId: number) => (newDuration: number) => {
+      // Need to check if entry is running before queueing
+      const entry = timeEntriesRef.current.find((e) => e.id === entryId);
+      const isRunning = entry && (!entry.stop || entry.duration === -1);
+
+      // For running timers, send new start time instead of duration
+      const payload = isRunning
+        ? {
+            start: new Date(
+              new Date().getTime() - newDuration * 1000
+            ).toISOString(),
+          }
+        : {
+            duration: newDuration,
+          };
+
+      // Try to queue if temp ID
+      const wasQueued = handleUpdateWithQueue(
+        entryId,
+        payload,
+        "UPDATE_DURATION",
+        (entry) => {
+          if (isRunning) {
+            // For running timers, move start time backwards (now - duration)
+            const now = new Date();
+            const newStartDate = new Date(now.getTime() - newDuration * 1000);
+            return {
+              start: newStartDate.toISOString(),
+              duration: -1, // Keep it running
+            };
+          } else {
+            // For stopped timers, calculate new stop time based on start + duration
+            const startDate = new Date(entry.start);
+            const newStopDate = new Date(
+              startDate.getTime() + newDuration * 1000
+            );
+            return {
+              duration: newDuration,
+              stop: newStopDate.toISOString(),
+            };
+          }
+        },
+        (realId, sessionToken) =>
+          fetch(`/api/time-entries/${realId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify(payload),
+          }),
+        "Duration updated."
+      );
+
+      if (wasQueued) return;
+
+      // Original logic for real IDs
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
-
-        // Find the entry to check if it's running
-        const entry = currentEntries.find((e) => e.id === entryId);
-        const isRunning = entry && (!entry.stop || entry.duration === -1);
 
         // Create updated entries for optimistic update
         const updatedEntries = currentEntries.map((entry) => {
@@ -1088,17 +1555,6 @@ export function TimeTrackerTable({
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
 
-            // For running timers, send new start time instead of duration
-            const payload = isRunning
-              ? {
-                  start: new Date(
-                    new Date().getTime() - newDuration * 1000
-                  ).toISOString(),
-                }
-              : {
-                  duration: newDuration,
-                };
-
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
@@ -1130,7 +1586,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast]
+    [showUpdateToast, handleUpdateWithQueue]
   );
 
   const handleDurationChangeWithStartTimeAdjustment = React.useCallback(
@@ -1215,7 +1671,16 @@ export function TimeTrackerTable({
 
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
+      console.log(`[handleDelete] 🗑️ CALLED - Deleting entry:`, {
+        id: entryToDelete.id,
+        tempId: entryToDelete.tempId,
+        description: entryToDelete.description,
+      });
+
       setTimeEntries((currentEntries) => {
+        console.log(
+          `[handleDelete] 🔄 setTimeEntries CALLBACK EXECUTING for entry ${entryToDelete.id}`
+        );
         const originalEntries = [...currentEntries];
 
         // Create filtered entries
@@ -1223,11 +1688,22 @@ export function TimeTrackerTable({
           (entry) => entry.id !== entryToDelete.id
         );
 
+        console.log(
+          `[handleDelete] 📞 ABOUT TO CALL showUpdateToast for entry ${entryToDelete.id}`
+        );
         showUpdateToast(
           "Time entry deleted.",
           entryToDelete.id,
-          () => setTimeEntries(originalEntries),
+          () => {
+            console.log(
+              `[handleDelete] 🔄 UNDO - Restoring entry ${entryToDelete.id}`
+            );
+            setTimeEntries(originalEntries);
+          },
           async () => {
+            console.log(
+              `[handleDelete] 🚀 API CALL - Deleting entry ${entryToDelete.id} from server`
+            );
             const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(
               `/api/time-entries/${entryToDelete.id}`,
@@ -1241,7 +1717,11 @@ export function TimeTrackerTable({
 
             if (!response.ok) {
               const errorText = await response.text();
-              console.error("API Error:", response.status, errorText);
+              console.error(`[handleDelete] ❌ DELETE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entryToDelete.id,
+              });
 
               let errorMessage = `Failed to delete entry (${response.status})`;
               if (response.status === 401) {
@@ -1255,16 +1735,33 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
+
+            console.log(
+              `[handleDelete] ✅ DELETE SUCCESS - Entry ${entryToDelete.id} deleted from server`
+            );
           }
+        );
+        console.log(
+          `[handleDelete] ✅ showUpdateToast CALLED, returning filteredEntries for entry ${entryToDelete.id}`
         );
 
         return filteredEntries;
       });
+      console.log(
+        `[handleDelete] 🏁 FUNCTION COMPLETE for entry ${entryToDelete.id}`
+      );
     },
     [showUpdateToast]
   );
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
+    // Check if this is a temp ID
+    const syncQueue = syncQueueRef.current;
+    if (syncQueue.isTempId(entry.id)) {
+      toast.error("Cannot split an entry that hasn't been synced yet");
+      return;
+    }
+
     if (!entry.stop || entry.duration === -1) {
       toast.error("Cannot split a running time entry");
       return;
@@ -1285,6 +1782,12 @@ export function TimeTrackerTable({
       // Split point is offsetMinutes from the end
       const splitPoint = endTime.getTime() - offsetMs;
 
+      // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
+      const tempId = -Date.now();
+      console.log(
+        `[handleConfirmSplit] 🆕 Generated temp ID for second entry: ${tempId}`
+      );
+
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
 
@@ -1297,13 +1800,15 @@ export function TimeTrackerTable({
       splitEntries.push(firstEntry);
 
       // Create second entry (from split point to original end)
-      splitEntries.push({
+      const secondEntry: TimeEntry = {
         ...entryToSplit,
-        id: -Date.now(), // Temporary negative ID
+        id: tempId, // Use temp ID generated above
+        tempId: tempId, // Set tempId from the start so React key remains stable
         start: new Date(splitPoint).toISOString(),
         stop: endTime.toISOString(),
         duration: Math.floor(offsetMs / 1000),
-      });
+      };
+      splitEntries.push(secondEntry);
 
       // Update UI optimistically
       setTimeEntries((currentEntries) => {
@@ -1350,6 +1855,88 @@ export function TimeTrackerTable({
         })
         .then((data) => {
           console.log("[Split] API response:", data);
+
+          const { createdEntry } = data;
+          if (createdEntry && createdEntry.id) {
+            const realId = createdEntry.id;
+            console.log(
+              `[handleConfirmSplit] ✅ RECEIVED RESPONSE - Created entry with real ID ${realId}, replacing temp ID ${tempId}`
+            );
+
+            // Register ID mapping for the sync queue
+            const syncQueue = syncQueueRef.current;
+            console.log(
+              `[handleConfirmSplit] 🔄 REGISTERING ID MAPPING: ${tempId} → ${realId}`
+            );
+            syncQueue.registerIdMapping(tempId, realId);
+
+            // Replace the temporary entry with the real one from the server
+            console.log(
+              `[handleConfirmSplit] 🔄 UPDATING STATE: Replacing entry ID from ${tempId} to ${realId} and preserving tempId field`
+            );
+            setTimeEntries((prev) =>
+              prev.map((entry) =>
+                entry.id === tempId
+                  ? ({
+                      ...entry,
+                      id: realId,
+                      tempId,
+                      syncStatus: "syncing" as SyncStatus,
+                    } as TimeEntry)
+                  : entry
+              )
+            );
+
+            // Move sync status from temp ID to real ID
+            setEntrySyncStatus((prev) => {
+              const newMap = new Map(prev);
+              const tempStatus = newMap.get(tempId);
+              newMap.delete(tempId);
+              if (tempStatus) {
+                newMap.set(realId, "syncing");
+              }
+              return newMap;
+            });
+
+            // Move retry function from temp ID to real ID (if exists)
+            const tempRetryFn = entryRetryFunctions.current.get(tempId);
+            if (tempRetryFn) {
+              entryRetryFunctions.current.delete(tempId);
+              entryRetryFunctions.current.set(realId, tempRetryFn);
+            }
+
+            // Flush any queued operations for this entry
+            console.log(
+              `[handleConfirmSplit] 🚀 FLUSHING QUEUED OPERATIONS for temp ID ${tempId} / real ID ${realId}`
+            );
+            syncQueue.flushOperations(tempId, realId).then((results) => {
+              const allSucceeded = results.every((r) => r.success);
+              console.log(
+                `[handleConfirmSplit] ✅ FLUSH COMPLETE: ${results.length} operations executed, all succeeded: ${allSucceeded}`
+              );
+
+              // Update final sync status based on results
+              setEntrySyncStatus((prev) => {
+                const newMap = new Map(prev);
+                newMap.set(realId, allSucceeded ? "synced" : "error");
+                return newMap;
+              });
+
+              // Clear synced status after 2 seconds
+              setTimeout(() => {
+                setEntrySyncStatus((prev) => {
+                  const newMap = new Map(prev);
+                  newMap.delete(realId);
+                  return newMap;
+                });
+              }, 2000);
+            });
+
+            console.log(
+              `[handleConfirmSplit] ✅ ID REPLACEMENT COMPLETE: ${tempId} → ${realId}`
+            );
+          }
+
           toast.success(data.message || "Entry split successfully");
         })
         .catch((error) => {
@@ -1369,9 +1956,12 @@ export function TimeTrackerTable({
       tags: string[] = []
     ) => {
       let originalEntries: TimeEntry[] = [];
-      let tempId = 0;
       let newEntry: TimeEntry | null = null;
       let runningEntry: TimeEntry | null = null;
+
+      // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
+      const tempId = -Date.now();
+      console.log(`[startNewTimeEntry] 🆕 Generated temp ID: ${tempId}`);
 
       // Create timestamp once at the start
       const now = new Date().toISOString();
@@ -1391,13 +1981,14 @@ export function TimeTrackerTable({
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
 
-        tempId = -Date.now(); // Temporary negative ID
+        // Use the temp ID generated above (NOT -Date.now() again!)
 
         // Find currently running entry (no stop time) for UI feedback
         runningEntry = currentEntries.find((entry) => !entry.stop) || null;
 
         newEntry = {
           id: tempId,
+          tempId: tempId, // Set tempId from the start so React key remains stable
           description,
           project_id,
           project_name: projectName,
@@ -1436,11 +2027,11 @@ export function TimeTrackerTable({
         setSelectedCell({ rowIndex: 0, cellIndex: 0 });
       }, 50);
 
-      // Make the API call immediately to ensure precise timing
+      // Use the same toast + delayed API pattern as updates for consistency
       const sessionToken = localStorage.getItem("toggl_session_token");
       let createdEntryId: number | null = null;
 
-      (async () => {
+      const apiCall = async () => {
         try {
           const response = await fetch("/api/time-entries", {
             method: "POST",
@@ -1472,51 +2063,127 @@ export function TimeTrackerTable({
           const createdEntry = await response.json();
           createdEntryId = createdEntry.id;
 
-          // Replace the temporary entry with the real one from the server
-          if (newEntry) {
+          console.log(
+            `[startNewTimeEntry] ✅ RECEIVED RESPONSE - Created entry with real ID ${createdEntryId}, replacing temp ID ${tempId}`
+          );
+
+          // Register ID mapping for the sync queue
+          if (createdEntryId) {
+            const realId = createdEntryId; // Assign to const for TypeScript
+            const syncQueue = syncQueueRef.current;
+
+            console.log(
+              `[startNewTimeEntry] 🔄 REGISTERING ID MAPPING: ${tempId} → ${realId}`
+            );
+            syncQueue.registerIdMapping(tempId, realId);
+
+            // Update the entry's ID from temp to real, preserving any optimistic updates made to the entry
+            console.log(
+              `[startNewTimeEntry] 🔄 UPDATING STATE: Replacing entry ID from ${tempId} to ${realId} and preserving tempId field`
+            );
             setTimeEntries((prev) =>
               prev.map((entry) =>
                 entry.id === tempId
-                  ? ({ ...newEntry, id: createdEntry.id } as TimeEntry)
+                  ? ({
+                      ...entry,
+                      id: realId,
+                      tempId,
+                      syncStatus: "syncing" as SyncStatus,
+                    } as TimeEntry)
                   : entry
               )
+            );
+
+            // Move sync status from temp ID to real ID
+            setEntrySyncStatus((prev) => {
+              const newMap = new Map(prev);
+              const tempStatus = newMap.get(tempId);
+              newMap.delete(tempId);
+              if (tempStatus) {
+                newMap.set(realId, "syncing");
+              }
+              return newMap;
+            });
+
+            // Move retry function from temp ID to real ID (if exists)
+            const tempRetryFn = entryRetryFunctions.current.get(tempId);
+            if (tempRetryFn) {
+              entryRetryFunctions.current.delete(tempId);
+              entryRetryFunctions.current.set(realId, tempRetryFn);
+            }
+
+            // Flush any queued operations for this entry
+            console.log(
+              `[startNewTimeEntry] 🚀 FLUSHING QUEUED OPERATIONS for temp ID ${tempId} / real ID ${realId}`
+            );
+            const results = await syncQueue.flushOperations(tempId, realId);
+
+            const allSucceeded = results.every((r) => r.success);
+            console.log(
+              `[startNewTimeEntry] ✅ FLUSH COMPLETE: ${results.length} operations executed, all succeeded: ${allSucceeded}`
+            );
+            if (results.length > 0) {
+              results.forEach((result, i) => {
+                console.log(
+                  `  Operation ${i + 1}: ${result.success ? "✅" : "❌"} ${
+                    result.error || "Success"
+                  }`
+                );
+              });
+            }
+
+            // Update final sync status based on results
+            setEntrySyncStatus((prev) => {
+              const newMap = new Map(prev);
+              newMap.set(realId, allSucceeded ? "synced" : "error");
+              return newMap;
+            });
+
+            // Clear synced status after 2 seconds (same as showUpdateToast)
+            setTimeout(() => {
+              setEntrySyncStatus((prev) => {
+                const newMap = new Map(prev);
+                newMap.delete(realId);
+                return newMap;
+              });
+            }, 2000);
+
+            console.log(
+              `[startNewTimeEntry] ✅ ID REPLACEMENT COMPLETE: ${tempId} → ${realId}`
             );
           }
         } catch (error) {
           console.error("Failed to create time entry:", error);
-          toast.error("Failed to create time entry. Please try again.");
-          setTimeEntries(originalEntries);
+          throw error;
         }
-      })();
+      };
 
-      toast("New time entry started", {
-        description: runningEntry
-          ? `Stopped previous timer and started new one at ${new Date().toLocaleTimeString()}`
-          : `Started tracking time at ${new Date().toLocaleTimeString()}`,
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            // Revert UI immediately
-            setTimeEntries(originalEntries);
+      const undoAction = () => {
+        setTimeEntries(originalEntries);
 
-            // If the API call succeeded, delete the created entry
-            if (createdEntryId) {
-              try {
-                await fetch(`/api/time-entries/${createdEntryId}`, {
-                  method: "DELETE",
-                  headers: {
-                    "x-toggl-session-token": sessionToken || "",
-                  },
-                });
-              } catch (error) {
-                console.error("Failed to undo time entry creation:", error);
-              }
-            }
-          },
-        },
-      });
+        // If the API call succeeded, delete the created entry
+        if (createdEntryId) {
+          fetch(`/api/time-entries/${createdEntryId}`, {
+            method: "DELETE",
+            headers: {
+              "x-toggl-session-token": sessionToken || "",
+            },
+          }).catch((error) => {
+            console.error("Failed to undo time entry creation:", error);
+          });
+        }
+      };
+
+      showUpdateToast(
+        runningEntry
+          ? "Stopped previous timer and started new one"
+          : "New time entry started",
+        tempId,
+        undoAction,
+        apiCall
+      );
     },
-    [projects, availableTags]
+    [projects, availableTags, showUpdateToast]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
@@ -2160,7 +2827,57 @@ export function TimeTrackerTable({
   }, []);
 
   const handleRetrySync = React.useCallback(async (entryId: number) => {
-    // Get the stored retry function
+    const syncQueue = syncQueueRef.current;
+
+    // Check if this entry has queued operations that failed
+    if (syncQueue.hasPendingOperations(entryId)) {
+      console.log(
+        `[handleRetrySync] Retrying queued operations for entry ${entryId}`
+      );
+
+      setEntrySyncStatus((prev) => {
+        const next = new Map(prev);
+        next.set(entryId, "syncing");
+        return next;
+      });
+
+      try {
+        const results = await syncQueue.retryFailedOperations(entryId);
+        const allSucceeded = results.every((r) => r.success);
+
+        setEntrySyncStatus((prev) => {
+          const next = new Map(prev);
+          next.set(entryId, allSucceeded ? "synced" : "error");
+          return next;
+        });
+
+        if (allSucceeded) {
+          toast.success("Operations synced successfully");
+          // Clear synced status after 2 seconds
+          setTimeout(() => {
+            setEntrySyncStatus((prev) => {
+              const next = new Map(prev);
+              next.delete(entryId);
+              return next;
+            });
+          }, 2000);
+        } else {
+          toast.error("Some operations failed to sync");
+        }
+      } catch (error) {
+        console.error("Retry failed:", error);
+        setEntrySyncStatus((prev) => {
+          const next = new Map(prev);
+          next.set(entryId, "error");
+          return next;
+        });
+        toast.error("Retry failed. Please try again.");
+      }
+
+      return;
+    }
+
+    // Get the stored retry function (existing logic)
     const retryFn = entryRetryFunctions.current.get(entryId);
 
     if (!retryFn) {
@@ -2821,7 +3538,7 @@ export function TimeTrackerTable({
             <TableBody>
               {timeEntries.map((entry, rowIndex) => (
                 <MemoizedTableRow
-                  key={entry.id}
+                  key={entry.tempId || entry.id}
                   entry={entry}
                   rowIndex={rowIndex}
                   selectedCell={selectedCell}
@@ -2830,6 +3547,7 @@ export function TimeTrackerTable({
                   onProjectChange={handleProjectChange}
                   onTagsChange={handleTagsChange}
                   onBulkEntryUpdate={handleBulkEntryUpdate}
+                  onBulkEntryUpdateByRowIndex={handleBulkEntryUpdateByRowIndex}
                   onTimeChange={handleTimeChange}
                   onDurationChange={handleDurationChange}
                   onDurationChangeWithStartTimeAdjustment={
