@@ -39,19 +39,20 @@ export function ActionsMenu({
   "data-testid": dataTestId,
 }: ActionsMenuProps) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const [isPersistent, setIsPersistent] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const menuRef = React.useRef<HTMLDivElement>(null);
+  const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Menu options array for easier navigation
   const menuOptions = [
-    { label: "▶︎ Start", action: onStartEntry || (() => {}) },
+    { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true },
+    { label: "✂️ Split", action: onSplit || (() => {}) },
+    { label: "🔗 Combine", action: onCombine || (() => {}) },
     isPinned
       ? { label: "📌 Unpin", action: onUnpin || (() => {}) }
       : { label: "📌 Pin", action: onPin || (() => {}) },
-    { label: "✂️ Split", action: onSplit || (() => {}) },
-    { label: "🔗 Combine", action: onCombine || (() => {}) },
-    { label: "📋 Copy ID", action: onCopyId || (() => {}) },
-    { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true },
+    { label: "▶︎ Start", action: onStartEntry || (() => {}) },
   ];
 
   // Notify parent of open state changes
@@ -60,6 +61,11 @@ export function ActionsMenu({
   }, [isOpen, onOpenChange]);
 
   const handleOpenChange = (open: boolean) => {
+    // If closing and menu is persistent, don't close
+    if (!open && isPersistent) {
+      return;
+    }
+
     setIsOpen(open);
     if (open) {
       // Focus the menu content when opening and reset highlighted index
@@ -70,11 +76,58 @@ export function ActionsMenu({
     } else {
       // Reset any state when closing (similar to ProjectSelector)
       setHighlightedIndex(0);
+      setIsPersistent(false);
+    }
+  };
+
+  const handleTriggerClick = () => {
+    // Click makes it persistent
+    setIsPersistent(true);
+    setIsOpen(true);
+  };
+
+  const handleTriggerHover = () => {
+    // Clear any pending close timeout
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+
+    // Open on hover if not already persistent
+    if (!isPersistent) {
+      setIsOpen(true);
+    }
+  };
+
+  const handleTriggerLeave = () => {
+    // Only close on hover leave if not persistent
+    if (!isPersistent) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        setIsOpen(false);
+      }, 200);
+    }
+  };
+
+  const handleContentHover = () => {
+    // Clear close timeout when hovering over content
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  };
+
+  const handleContentLeave = () => {
+    // Close when leaving content if not persistent
+    if (!isPersistent) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        setIsOpen(false);
+      }, 200);
     }
   };
 
   const handleAction = (action: () => void) => {
     action();
+    setIsPersistent(false);
     setIsOpen(false); // Close menu after action
   };
 
@@ -123,12 +176,13 @@ export function ActionsMenu({
         <Button
           variant="ghost"
           className={cn(
-            "h-8 w-8 p-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0",
-            isSelected
-              ? "opacity-100 bg-accent/20 ring-1 ring-accent/30"
-              : "opacity-0 group-hover:opacity-100"
+            "h-8 w-8 p-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 opacity-100",
+            isSelected && "bg-accent/20 ring-1 ring-accent/30"
           )}
           data-testid={dataTestId}
+          onClick={handleTriggerClick}
+          onMouseEnter={handleTriggerHover}
+          onMouseLeave={handleTriggerLeave}
         >
           <span className="sr-only">Open menu</span>
           <MoreVertical className="h-4 w-4" />
@@ -136,7 +190,11 @@ export function ActionsMenu({
       </PopoverTrigger>
       <PopoverContent
         align="end"
+        side="left"
+        sideOffset={0}
         className="w-40 p-1 focus:outline-none focus:ring-0 focus-visible:ring-0"
+        onMouseEnter={handleContentHover}
+        onMouseLeave={handleContentLeave}
       >
         <div
           ref={menuRef}
@@ -148,13 +206,13 @@ export function ActionsMenu({
             <button
               key={option.label}
               onClick={() => handleAction(option.action)}
+              onMouseEnter={() => setHighlightedIndex(index)}
               className={cn(
                 "px-3 py-2 text-sm text-left transition-colors duration-150 rounded-md cursor-pointer focus:outline-none focus:ring-0 focus-visible:ring-0",
-                option.isDestructive
-                  ? "text-destructive hover:bg-destructive/10"
-                  : "hover:bg-accent/60",
+                "hover:bg-accent/60 hover:text-accent-foreground",
+                option.isDestructive && "text-destructive",
                 index === highlightedIndex &&
-                  "bg-accent/40 text-accent-foreground"
+                  "bg-gray-200 dark:bg-gray-700 text-foreground"
               )}
             >
               {option.label}
