@@ -1,7 +1,7 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
-import { SyncQueueManager, type QueuedOperation } from "@/lib/sync-queue";
+import { SyncQueueManager, type QueuedOperation, type OperationType } from "@/lib/sync-queue";
 import { hasActiveToast, toast, triggerUndo } from "@/lib/toast";
 import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
@@ -719,13 +719,12 @@ export function TimeTrackerTable({
 
   // Reusable helper to handle updates on temp IDs (queues them) or real IDs (uses showUpdateToast)
   const handleUpdateWithQueue = React.useCallback(
-    <T extends Record<string, any>>(
+    <T extends Record<string, unknown>>(
       entryId: number,
       updates: T,
-      operationType: string,
+      operationType: OperationType,
       optimisticUpdate: (entry: TimeEntry) => Partial<TimeEntry>,
-      apiCall: (realId: number, sessionToken: string) => Promise<Response>,
-      successMessage: string
+      apiCall: (realId: number, sessionToken: string) => Promise<Response>
     ): boolean => {
       const syncQueue = syncQueueRef.current;
       const isTempId = syncQueue.isTempId(entryId);
@@ -801,8 +800,7 @@ export function TimeTrackerTable({
               "x-toggl-session-token": sessionToken,
             },
             body: JSON.stringify({ description: newDescription }),
-          }),
-        "Description updated."
+          })
       );
 
       if (wasQueued) return;
@@ -869,7 +867,7 @@ export function TimeTrackerTable({
         entryId,
         { project_name: newProject },
         "UPDATE_PROJECT",
-        (entry) => {
+        () => {
           const selectedProject = projects.find((p) => p.name === newProject);
           const newProjectColor =
             newProject === "No Project" || newProject === ""
@@ -888,8 +886,7 @@ export function TimeTrackerTable({
               "x-toggl-session-token": sessionToken,
             },
             body: JSON.stringify({ project_name: newProject }),
-          }),
-        "Project updated."
+          })
       );
 
       if (wasQueued) return;
@@ -983,8 +980,7 @@ export function TimeTrackerTable({
               "x-toggl-session-token": sessionToken,
             },
             body: JSON.stringify({ tag_ids: tagIds }),
-          }),
-        "Tags updated."
+          })
       );
 
       if (wasQueued) return;
@@ -1386,8 +1382,7 @@ export function TimeTrackerTable({
               start: startTime,
               stop: endTime || undefined,
             }),
-          }),
-        "Time updated."
+          })
       );
 
       if (wasQueued) return;
@@ -1508,8 +1503,7 @@ export function TimeTrackerTable({
               "x-toggl-session-token": sessionToken,
             },
             body: JSON.stringify(payload),
-          }),
-        "Duration updated."
+          })
       );
 
       if (wasQueued) return;
