@@ -35,16 +35,13 @@ export async function POST(request: NextRequest) {
       return createErrorResponse("Entry start time is undefined", 400);
     }
 
-    if (!entry.stop) {
-      return createErrorResponse("Cannot split a running time entry", 400);
-    }
-
+    const isRunning = !entry.stop || entry.duration === -1;
     const startTime = new Date(entry.start);
-    const endTime = new Date(entry.stop);
+    const endTime = isRunning ? new Date() : new Date(entry.stop);
     const duration = endTime.getTime() - startTime.getTime();
     const offsetMs = offsetMinutes * 60 * 1000;
 
-    // Split point is offsetMinutes from the end
+    // Split point is offsetMinutes from the end (or from now if running)
     const splitPoint = endTime.getTime() - offsetMs;
 
     console.log(`[Split API] Original entry:`, {
@@ -120,15 +117,22 @@ export async function POST(request: NextRequest) {
     const updatedEntry = await updateResponse.json();
     console.log(`[Split API] Successfully updated original entry:`, updatedEntry);
 
-    // Create the second part (from split point to original end)
+    // Create the second part (from split point to original end or running)
     const requestBody: Record<string, string | number | boolean | number[] | undefined> = {
       description: entry.description,
       start: new Date(splitPoint).toISOString(),
-      stop: entry.stop,
       billable: entry.billable,
       wid: workspaceId,
       created_with: "deeplog",
     };
+
+    if (isRunning) {
+      // Make the second part a running timer
+      requestBody.duration = -1;
+    } else {
+      // Make the second part end at the original stop time
+      requestBody.stop = entry.stop;
+    }
 
     // Only include project_id if it exists and is valid
     if (entry.project_id) {

@@ -139,7 +139,6 @@ export function ExpandableDescription({
 
   // Notify parent of editing state changes
   React.useEffect(() => {
-    console.log(`[ExpandableDescription] 📝 isEditing state changed:`, isEditing);
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
 
@@ -388,17 +387,8 @@ export function ExpandableDescription({
     const currentContent = getMarkdownContent();
     const contentMismatch = description !== currentContent;
 
-    console.log(`[ExpandableDescription] 🔄 useEffect triggered:`, {
-      isEditing,
-      descriptionProp: description,
-      currentEditorContent: currentContent,
-      contentMismatch,
-      willUpdate: editor && !isEditing && contentMismatch,
-    });
-
     // Don't update editor content if user is actively editing (prevents interrupting typing)
     if (editor && !isEditing && contentMismatch) {
-      console.log(`[ExpandableDescription] ⚠️ REPLACING EDITOR CONTENT with:`, description);
       // Convert markdown to HTML before setting content
       editor.commands.setContent(markdownToHtml(description));
       // Update character count after setting content

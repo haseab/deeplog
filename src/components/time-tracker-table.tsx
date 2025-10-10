@@ -1774,10 +1774,6 @@ export function TimeTrackerTable({
       return;
     }
 
-    if (!entry.stop || entry.duration === -1) {
-      toast.error("Cannot split a running time entry");
-      return;
-    }
     setEntryToSplit(entry);
     setSplitDialogOpen(true);
   }, []);
@@ -1787,18 +1783,16 @@ export function TimeTrackerTable({
       if (!entryToSplit) return;
 
       let originalEntries: TimeEntry[] = [];
+      const isRunning = !entryToSplit.stop || entryToSplit.duration === -1;
       const startTime = new Date(entryToSplit.start);
-      const endTime = new Date(entryToSplit.stop!);
+      const endTime = isRunning ? new Date() : new Date(entryToSplit.stop!);
       const offsetMs = offsetMinutes * 60 * 1000;
 
-      // Split point is offsetMinutes from the end
+      // Split point is offsetMinutes from the end (or from now if running)
       const splitPoint = endTime.getTime() - offsetMs;
 
-      // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
+      // Generate temp ID for the second entry
       const tempId = -Date.now();
-      console.log(
-        `[handleConfirmSplit] 🆕 Generated temp ID for second entry: ${tempId}`
-      );
 
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
@@ -1811,14 +1805,14 @@ export function TimeTrackerTable({
       };
       splitEntries.push(firstEntry);
 
-      // Create second entry (from split point to original end)
+      // Create second entry (from split point to original end or running)
       const secondEntry: TimeEntry = {
         ...entryToSplit,
-        id: tempId, // Use temp ID generated above
-        tempId: tempId, // Set tempId from the start so React key remains stable
+        id: tempId,
+        tempId: tempId,
         start: new Date(splitPoint).toISOString(),
-        stop: endTime.toISOString(),
-        duration: Math.floor(offsetMs / 1000),
+        stop: isRunning ? null : endTime.toISOString(),
+        duration: isRunning ? -1 : Math.floor(offsetMs / 1000),
       };
       splitEntries.push(secondEntry);
 
@@ -1866,26 +1860,15 @@ export function TimeTrackerTable({
           return response.json();
         })
         .then((data) => {
-          console.log("[Split] API response:", data);
-
           const { createdEntry } = data;
           if (createdEntry && createdEntry.id) {
             const realId = createdEntry.id;
-            console.log(
-              `[handleConfirmSplit] ✅ RECEIVED RESPONSE - Created entry with real ID ${realId}, replacing temp ID ${tempId}`
-            );
 
             // Register ID mapping for the sync queue
             const syncQueue = syncQueueRef.current;
-            console.log(
-              `[handleConfirmSplit] 🔄 REGISTERING ID MAPPING: ${tempId} → ${realId}`
-            );
             syncQueue.registerIdMapping(tempId, realId);
 
             // Replace the temporary entry with the real one from the server
-            console.log(
-              `[handleConfirmSplit] 🔄 UPDATING STATE: Replacing entry ID from ${tempId} to ${realId} and preserving tempId field`
-            );
             setTimeEntries((prev) =>
               prev.map((entry) =>
                 entry.id === tempId
@@ -1918,14 +1901,8 @@ export function TimeTrackerTable({
             }
 
             // Flush any queued operations for this entry
-            console.log(
-              `[handleConfirmSplit] 🚀 FLUSHING QUEUED OPERATIONS for temp ID ${tempId} / real ID ${realId}`
-            );
             syncQueue.flushOperations(tempId, realId).then((results) => {
               const allSucceeded = results.every((r) => r.success);
-              console.log(
-                `[handleConfirmSplit] ✅ FLUSH COMPLETE: ${results.length} operations executed, all succeeded: ${allSucceeded}`
-              );
 
               // Update final sync status based on results
               setEntrySyncStatus((prev) => {
@@ -1943,10 +1920,6 @@ export function TimeTrackerTable({
                 });
               }, 2000);
             });
-
-            console.log(
-              `[handleConfirmSplit] ✅ ID REPLACEMENT COMPLETE: ${tempId} → ${realId}`
-            );
           }
 
           toast.success(data.message || "Entry split successfully");
@@ -2022,7 +1995,7 @@ export function TimeTrackerTable({
               // Make older entry a running timer
               return {
                 ...e,
-                stop: "",
+                stop: null,
                 duration: -1,
               };
             } else {
@@ -3214,7 +3187,6 @@ export function TimeTrackerTable({
 
       // Navigation shortcuts (only when not in input)
       if (isInInput) {
-        console.log("[Keyboard] Ignoring key because in input:", e.key);
         return;
       }
 
@@ -3227,20 +3199,7 @@ export function TimeTrackerTable({
         splitDialogOpenRef.current ||
         combineDialogOpenRef.current;
 
-      console.log("[Keyboard] Key pressed:", e.key, {
-        deleteDialogOpen,
-        deleteDialogOpenRef: deleteDialogOpenRef.current,
-        splitDialogOpen,
-        splitDialogOpenRef: splitDialogOpenRef.current,
-        combineDialogOpen,
-        combineDialogOpenRef: combineDialogOpenRef.current,
-        anyDialogOpen,
-        activeElement: document.activeElement?.tagName,
-        selectedCell,
-      });
-
       if (anyDialogOpen) {
-        console.log("[Keyboard] Dialog is open, returning early");
         return;
       }
 
@@ -3835,7 +3794,6 @@ export function TimeTrackerTable({
       <SplitEntryDialog
         open={splitDialogOpen}
         onOpenChange={(open) => {
-          console.log("[SplitDialog] onOpenChange called with:", open);
           splitDialogOpenRef.current = open;
           setSplitDialogOpen(open);
         }}
