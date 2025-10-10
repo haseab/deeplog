@@ -14,6 +14,7 @@ interface ActionsMenuProps {
   onUnpin?: () => void;
   isPinned?: boolean;
   onSplit?: () => void;
+  onCombine?: () => void;
   onStartEntry?: () => void;
   onCopyId?: () => void;
   onDelete?: () => void;
@@ -28,6 +29,7 @@ export function ActionsMenu({
   onUnpin,
   isPinned = false,
   onSplit,
+  onCombine,
   onStartEntry,
   onCopyId,
   onDelete,
@@ -47,6 +49,7 @@ export function ActionsMenu({
       ? { label: "📌 Unpin", action: onUnpin || (() => {}) }
       : { label: "📌 Pin", action: onPin || (() => {}) },
     { label: "✂️ Split", action: onSplit || (() => {}) },
+    { label: "🔗 Combine", action: onCombine || (() => {}) },
     { label: "📋 Copy ID", action: onCopyId || (() => {}) },
     { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true },
   ];

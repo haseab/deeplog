@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AlertTriangle } from "lucide-react";
+import { format } from "date-fns";
 import type { TimeEntry } from "../types";
 
 interface DeleteConfirmationDialogProps {
@@ -28,31 +29,24 @@ export function DeleteConfirmationDialog({
 }: DeleteConfirmationDialogProps) {
   const deleteButtonRef = React.useRef<HTMLButtonElement>(null);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
-  const [focusedButton, setFocusedButton] = React.useState<'delete' | 'cancel'>('delete');
 
-  // Focus the delete button when dialog opens
   React.useEffect(() => {
-    if (open && deleteButtonRef.current) {
-      // Small delay to ensure dialog is fully mounted
+    if (open) {
       setTimeout(() => {
         deleteButtonRef.current?.focus();
-        setFocusedButton('delete');
       }, 100);
     }
   }, [open]);
 
-  // Handle focus changes
-  React.useEffect(() => {
-    if (!open) return;
-
-    if (focusedButton === 'delete') {
-      deleteButtonRef.current?.focus();
-    } else {
-      cancelButtonRef.current?.focus();
-    }
-  }, [focusedButton, open]);
-
   if (!entry) return null;
+
+  const formatTime = (dateStr: string) => {
+    try {
+      return format(new Date(dateStr), "h:mm a");
+    } catch {
+      return dateStr;
+    }
+  };
 
   const handleConfirm = () => {
     onConfirm();
@@ -60,29 +54,23 @@ export function DeleteConfirmationDialog({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      if (focusedButton === 'delete') {
-        handleConfirm();
+      e.stopPropagation();
+      // Switch focus between buttons
+      if (document.activeElement === deleteButtonRef.current) {
+        cancelButtonRef.current?.focus();
       } else {
-        onOpenChange(false);
+        deleteButtonRef.current?.focus();
       }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onOpenChange(false);
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      setFocusedButton(prev => prev === 'delete' ? 'cancel' : 'delete');
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      setFocusedButton(prev => prev === 'delete' ? 'cancel' : 'delete');
+    } else if (e.key === "Enter" || e.key === "Escape") {
+      e.stopPropagation();
     }
   };
 
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]" onKeyDown={handleKeyDown}>
+      <DialogContent className="sm:max-w-[425px] overflow-hidden" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/20">
@@ -96,24 +84,26 @@ export function DeleteConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div className="rounded-lg bg-gray-100 dark:bg-gray-900/50 p-4 space-y-2">
-            <div>
-              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
-                Description:
-              </span>
-              <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">
-                {entry.description || "(no description)"}
-              </p>
-            </div>
-            <div>
-              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
-                Project:
-              </span>
-              <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+        <div className="space-y-1">
+          <span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase block">
+            Entry to Delete
+          </span>
+          <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 overflow-hidden">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {entry.description || "(no description)"}
+            </p>
+            <div className="flex items-center gap-1.5 mt-1 min-w-0">
+              <div
+                className="w-2 h-2 rounded-sm flex-shrink-0"
+                style={{ backgroundColor: entry.project_color || "#6b7280" }}
+              />
+              <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
                 {entry.project_name || "No Project"}
               </p>
             </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">
+              {formatTime(entry.start)} → {entry.stop ? formatTime(entry.stop) : "Running"}
+            </p>
           </div>
         </div>
 

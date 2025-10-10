@@ -39,6 +39,7 @@ import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
+import { CombineEntryDialog } from "./combine-entry-dialog";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { DurationEditor } from "./duration-editor";
 import { ExpandableDescription } from "./expandable-description";
@@ -66,6 +67,7 @@ const MemoizedTableRow = React.memo(
     onPin,
     onUnpin,
     onSplit,
+    onCombine,
     onStartEntry,
     isPinned,
     projects,
@@ -115,6 +117,7 @@ const MemoizedTableRow = React.memo(
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
     onSplit: (entry: TimeEntry) => void;
+    onCombine: (entry: TimeEntry) => void;
     onStartEntry: (entry: TimeEntry) => void;
     isPinned: boolean;
     projects: Project[];
@@ -410,6 +413,7 @@ const MemoizedTableRow = React.memo(
             onUnpin={() => onUnpin(entry.id.toString())}
             isPinned={isPinned}
             onSplit={() => onSplit(entry)}
+            onCombine={() => onCombine(entry)}
             onStartEntry={() => onStartEntry(entry)}
             onCopyId={() => {
               // Implement copy ID logic
@@ -583,11 +587,18 @@ export function TimeTrackerTable({
   >(new Set());
   const tableRef = React.useRef<HTMLDivElement>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const deleteDialogOpenRef = React.useRef(false);
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
     null
   );
   const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
+  const splitDialogOpenRef = React.useRef(false);
   const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
+    null
+  );
+  const [combineDialogOpen, setCombineDialogOpen] = React.useState(false);
+  const combineDialogOpenRef = React.useRef(false);
+  const [entryToCombine, setEntryToCombine] = React.useState<TimeEntry | null>(
     null
   );
   const [syncStatus, setSyncStatus] = React.useState<
@@ -1942,6 +1953,144 @@ export function TimeTrackerTable({
     [entryToSplit, toastDuration]
   );
 
+  const handleCombine = React.useCallback(
+    (entry: TimeEntry) => {
+      // Check if this is a temp ID
+      const syncQueue = syncQueueRef.current;
+      if (syncQueue.isTempId(entry.id)) {
+        toast.error("Cannot combine an entry that hasn't been synced yet");
+        return;
+      }
+
+      // Find chronologically previous entry (older entry, which is at HIGHER index since list is sorted newest first)
+      const currentIndex = timeEntries.findIndex((e) => e.id === entry.id);
+      if (currentIndex === timeEntries.length - 1) {
+        toast.error("Cannot combine the last entry (oldest entry)");
+        return;
+      }
+
+      const olderEntry = timeEntries[currentIndex + 1];
+
+      // Check if older entry is also a temp ID
+      if (syncQueue.isTempId(olderEntry.id)) {
+        toast.error("Cannot combine with an entry that hasn't been synced yet");
+        return;
+      }
+
+      setEntryToCombine(entry);
+      combineDialogOpenRef.current = true;
+      setCombineDialogOpen(true);
+    },
+    [timeEntries]
+  );
+
+  const handleConfirmCombine = React.useCallback(() => {
+    if (!entryToCombine) return;
+
+    // Find the older entry again (chronologically previous, at higher index)
+    const currentIndex = timeEntries.findIndex(
+      (e) => e.id === entryToCombine.id
+    );
+    if (currentIndex === timeEntries.length - 1) {
+      toast.error("Cannot combine the last entry (oldest entry)");
+      return;
+    }
+
+    const olderEntry = timeEntries[currentIndex + 1];
+    const isCurrentEntryRunning = !entryToCombine.stop || entryToCombine.duration === -1;
+
+    let originalEntries: TimeEntry[] = [];
+
+    // Optimistically update UI
+    setTimeEntries((currentEntries) => {
+      originalEntries = [...currentEntries];
+
+      // Remove current entry and update older entry
+      const updatedEntries = currentEntries
+        .filter((e) => e.id !== entryToCombine.id)
+        .map((e) => {
+          if (e.id === olderEntry.id) {
+            if (isCurrentEntryRunning) {
+              // Make older entry a running timer
+              return {
+                ...e,
+                stop: "",
+                duration: -1,
+              };
+            } else {
+              // Extend older entry to current entry's stop time
+              const start = new Date(e.start);
+              const stop = new Date(entryToCombine.stop!);
+              const newDuration = Math.floor(
+                (stop.getTime() - start.getTime()) / 1000
+              );
+              return {
+                ...e,
+                stop: entryToCombine.stop!,
+                duration: newDuration,
+              };
+            }
+          }
+          return e;
+        });
+
+      return updatedEntries;
+    });
+
+    // Make API call
+    const sessionToken = localStorage.getItem("toggl_session_token");
+
+    toast(
+      `Combining entries...`,
+      {
+        duration: toastDuration,
+      }
+    );
+
+    fetch("/api/time-entries/combine", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-toggl-session-token": sessionToken || "",
+      },
+      body: JSON.stringify({
+        currentEntryId: entryToCombine.id,
+        olderEntryId: olderEntry.id,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API Error:", response.status, errorText);
+          throw new Error("Failed to combine entries");
+        }
+        return response.json();
+      })
+      .then((data) => {
+        console.log("[handleConfirmCombine] Successfully combined entries:", data);
+
+        // Update only stop and duration from server response, keep everything else
+        setTimeEntries((currentEntries) =>
+          currentEntries.map((e) =>
+            e.id === olderEntry.id
+              ? {
+                  ...e,
+                  stop: data.updatedEntry.stop,
+                  duration: data.updatedEntry.duration
+                }
+              : e
+          )
+        );
+
+        toast.success(data.message || "Entries combined successfully");
+      })
+      .catch((error) => {
+        console.error("Failed to combine time entries:", error);
+        toast.error("Failed to combine entries. Reverting changes.");
+        setTimeEntries(originalEntries);
+      });
+  }, [entryToCombine, timeEntries, toastDuration]);
+
   const startNewTimeEntry = React.useCallback(
     (
       description: string = "",
@@ -2795,14 +2944,18 @@ export function TimeTrackerTable({
     if (selectedCell) {
       const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
+        console.log('[handleDeleteSelectedWithConfirmation] Opening delete dialog');
         setEntryToDelete(entry);
+        deleteDialogOpenRef.current = true;
         setDeleteDialogOpen(true);
       }
     }
   }, [selectedCell, timeEntries]);
 
   const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
+    console.log('[handleDeleteWithConfirmation] Opening delete dialog');
     setEntryToDelete(entry);
+    deleteDialogOpenRef.current = true;
     setDeleteDialogOpen(true);
   }, []);
 
@@ -3043,14 +3196,38 @@ export function TimeTrackerTable({
         return;
       }
 
-      if (e.key === "f" && !isInInput) {
+      if (e.key === "f" && !isInInput && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         handleFullscreenToggle();
         return;
       }
 
       // Navigation shortcuts (only when not in input)
-      if (isInInput) return;
+      if (isInInput) {
+        console.log('[Keyboard] Ignoring key because in input:', e.key);
+        return;
+      }
+
+      // Don't handle navigation keys if any dialog is open
+      const anyDialogOpen = deleteDialogOpen || splitDialogOpen || combineDialogOpen ||
+          deleteDialogOpenRef.current || splitDialogOpenRef.current || combineDialogOpenRef.current;
+
+      console.log('[Keyboard] Key pressed:', e.key, {
+        deleteDialogOpen,
+        deleteDialogOpenRef: deleteDialogOpenRef.current,
+        splitDialogOpen,
+        splitDialogOpenRef: splitDialogOpenRef.current,
+        combineDialogOpen,
+        combineDialogOpenRef: combineDialogOpenRef.current,
+        anyDialogOpen,
+        activeElement: document.activeElement?.tagName,
+        selectedCell
+      });
+
+      if (anyDialogOpen) {
+        console.log('[Keyboard] Dialog is open, returning early');
+        return;
+      }
 
       switch (e.key) {
         case "Escape":
@@ -3066,14 +3243,14 @@ export function TimeTrackerTable({
             return;
           }
 
-          // Only clear selection if no menus are open
-          if (
-            !isActionsMenuOpen &&
-            !isProjectSelectorOpen &&
-            !isTagSelectorOpen
-          ) {
-            setSelectedCell(null);
-          }
+          // DO NOT REMOVE: Uncomment to clear selection on Escape
+          // if (
+          //   !isActionsMenuOpen &&
+          //   !isProjectSelectorOpen &&
+          //   !isTagSelectorOpen
+          // ) {
+          //   setSelectedCell(null);
+          // }
           break;
 
         case "Enter":
@@ -3220,6 +3397,16 @@ export function TimeTrackerTable({
           }
           break;
 
+        case "c":
+          e.preventDefault();
+          if (selectedCell) {
+            const entry = timeEntries[selectedCell.rowIndex];
+            if (entry) {
+              handleCombine(entry);
+            }
+          }
+          break;
+
         case "p":
           e.preventDefault();
           if (selectedCell) {
@@ -3259,6 +3446,7 @@ export function TimeTrackerTable({
     handleDeleteSelectedWithConfirmation,
     handleStartTimerFromPinned,
     handleSplit,
+    handleCombine,
     handleCopyAndStartEntry,
     handleFullscreenToggle,
   ]);
@@ -3551,6 +3739,7 @@ export function TimeTrackerTable({
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
                   onSplit={handleSplit}
+                  onCombine={handleCombine}
                   onStartEntry={handleCopyAndStartEntry}
                   isPinned={isPinned(entry.id.toString())}
                   projects={projects}
@@ -3608,16 +3797,40 @@ export function TimeTrackerTable({
 
       <DeleteConfirmationDialog
         open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
+        onOpenChange={(open) => {
+          console.log('[DeleteDialog] onOpenChange called with:', open);
+          deleteDialogOpenRef.current = open;
+          setDeleteDialogOpen(open);
+        }}
         entry={entryToDelete}
         onConfirm={handleConfirmDelete}
       />
 
       <SplitEntryDialog
         open={splitDialogOpen}
-        onOpenChange={setSplitDialogOpen}
+        onOpenChange={(open) => {
+          console.log('[SplitDialog] onOpenChange called with:', open);
+          splitDialogOpenRef.current = open;
+          setSplitDialogOpen(open);
+        }}
         onConfirm={handleConfirmSplit}
         entryDescription={entryToSplit?.description}
+      />
+      <CombineEntryDialog
+        open={combineDialogOpen}
+        onOpenChange={(open) => {
+          combineDialogOpenRef.current = open;
+          setCombineDialogOpen(open);
+        }}
+        currentEntry={entryToCombine}
+        previousEntry={
+          entryToCombine
+            ? timeEntries[
+                timeEntries.findIndex((e) => e.id === entryToCombine.id) + 1
+              ]
+            : null
+        }
+        onConfirm={handleConfirmCombine}
       />
     </div>
   );
