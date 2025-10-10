@@ -1,17 +1,17 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
-import { toast, triggerUndo, hasActiveToast } from "@/lib/toast";
+import { hasActiveToast, toast, triggerUndo } from "@/lib/toast";
 import type { PinnedEntry } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import {
+  AlertCircle,
   Calendar as CalendarIcon,
+  Check,
+  Loader2,
   Maximize2,
   Minimize2,
   Plus,
-  Loader2,
-  Check,
-  AlertCircle,
 } from "lucide-react";
 import React from "react";
 import { DateRange } from "react-day-picker";
@@ -33,6 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
@@ -43,7 +44,6 @@ import { ProjectSelector } from "./project-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
-import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -86,7 +86,9 @@ const MemoizedTableRow = React.memo(
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
-    onBulkEntryUpdate: (entryId: number) => (updates: {
+    onBulkEntryUpdate: (
+      entryId: number
+    ) => (updates: {
       description?: string;
       projectName?: string;
       tags?: string[];
@@ -95,7 +97,9 @@ const MemoizedTableRow = React.memo(
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
-    onDurationChangeWithStartTimeAdjustment: (entryId: number) => (newDuration: number) => void;
+    onDurationChangeWithStartTimeAdjustment: (
+      entryId: number
+    ) => (newDuration: number) => void;
     onDelete: (entry: TimeEntry) => void;
     onPin: (entry: TimeEntry) => void;
     onUnpin: (id: string) => void;
@@ -113,7 +117,7 @@ const MemoizedTableRow = React.memo(
     navigateToPrevCell: () => void;
     navigateToNextRow: () => void;
     isNewlyLoaded: boolean;
-    syncStatus?: 'syncing' | 'synced' | 'error';
+    syncStatus?: "syncing" | "synced" | "error";
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
   }) {
@@ -127,13 +131,13 @@ const MemoizedTableRow = React.memo(
         )}
       >
         <TableCell className="px-2 w-8">
-          {syncStatus === 'syncing' && (
+          {syncStatus === "syncing" && (
             <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
           )}
-          {syncStatus === 'synced' && (
+          {syncStatus === "synced" && (
             <Check className="w-4 h-4 text-green-500" />
           )}
-          {syncStatus === 'error' && (
+          {syncStatus === "error" && (
             <button
               onClick={() => onRetrySync(entry.id)}
               className="hover:opacity-70 transition-opacity"
@@ -215,10 +219,12 @@ const MemoizedTableRow = React.memo(
                 onRecentTimerSelect={(selected) => {
                   // Update all fields in a single API call
                   const tagNames = availableTags
-                    .filter(tag => selected.tagIds.includes(tag.id))
-                    .map(tag => tag.name);
+                    .filter((tag) => selected.tagIds.includes(tag.id))
+                    .map((tag) => tag.name);
 
-                  const project = projects.find(p => p.id === selected.projectId);
+                  const project = projects.find(
+                    (p) => p.id === selected.projectId
+                  );
 
                   onBulkEntryUpdate(entry.id)({
                     description: selected.description,
@@ -253,10 +259,12 @@ const MemoizedTableRow = React.memo(
                 onRecentTimerSelect={(selected) => {
                   // Update all fields in a single API call
                   const tagNames = availableTags
-                    .filter(tag => selected.tagIds.includes(tag.id))
-                    .map(tag => tag.name);
+                    .filter((tag) => selected.tagIds.includes(tag.id))
+                    .map((tag) => tag.name);
 
-                  const project = projects.find(p => p.id === selected.projectId);
+                  const project = projects.find(
+                    (p) => p.id === selected.projectId
+                  );
 
                   onBulkEntryUpdate(entry.id)({
                     description: selected.description,
@@ -347,7 +355,9 @@ const MemoizedTableRow = React.memo(
             startTime={entry.start}
             endTime={entry.stop}
             onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
-            onSaveWithStartTimeAdjustment={(newDuration) => onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)}
+            onSaveWithStartTimeAdjustment={(newDuration) =>
+              onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
+            }
             onEditingChange={setIsEditingCell}
             onNavigateDown={navigateToNextRow}
             data-testid="duration-editor"
@@ -544,9 +554,15 @@ export function TimeTrackerTable({
     "synced" | "syncing" | "error" | "session_expired" | "offline"
   >("synced");
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
-  const [entrySyncStatus, setEntrySyncStatus] = React.useState<Map<number, 'syncing' | 'synced' | 'error'>>(new Map());
-  const entrySyncStatusRef = React.useRef<Map<number, 'syncing' | 'synced' | 'error'>>(new Map());
-  const entryRetryFunctions = React.useRef<Map<number, () => Promise<void>>>(new Map());
+  const [entrySyncStatus, setEntrySyncStatus] = React.useState<
+    Map<number, "syncing" | "synced" | "error">
+  >(new Map());
+  const entrySyncStatusRef = React.useRef<
+    Map<number, "syncing" | "synced" | "error">
+  >(new Map());
+  const entryRetryFunctions = React.useRef<Map<number, () => Promise<void>>>(
+    new Map()
+  );
 
   // Keep ref in sync with state
   React.useEffect(() => {
@@ -562,22 +578,22 @@ export function TimeTrackerTable({
     return 4000;
   }, []);
 
-
   const showUpdateToast = React.useCallback(
-    (message: string, entryId: number, undoAction: () => void, apiCall: () => Promise<void>) => {
+    (
+      message: string,
+      entryId: number,
+      undoAction: () => void,
+      apiCall: () => Promise<void>
+    ) => {
       // Store the retry function for this entry
       entryRetryFunctions.current.set(entryId, apiCall);
 
       let toastDismissed = false;
-      const startTime = Date.now();
-
-      // console.log('[showUpdateToast] Starting toast for entry', entryId, 'with duration', toastDuration, 'at', new Date().toISOString());
 
       toast(message, {
         action: {
           label: "Undo",
           onClick: () => {
-            // console.log('[showUpdateToast] Undo clicked for entry', entryId, 'at', new Date().toISOString());
             toastDismissed = true;
             undoAction();
           },
@@ -587,32 +603,24 @@ export function TimeTrackerTable({
 
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
       setTimeout(async () => {
-        const elapsed = Date.now() - startTime;
-        // console.log('[showUpdateToast] setTimeout fired for entry', entryId, 'after', elapsed, 'ms, dismissed:', toastDismissed, 'at', new Date().toISOString());
-
         if (toastDismissed) {
-          // console.log('[showUpdateToast] Skipping API call - toast was dismissed', 'at', new Date().toISOString());
           return;
         }
-
-        // console.log('[showUpdateToast] Starting API call for entry', entryId, 'at', new Date().toISOString());
 
         // Mark as syncing
         setEntrySyncStatus((prev) => {
           const next = new Map(prev);
-          next.set(entryId, 'syncing');
+          next.set(entryId, "syncing");
           return next;
         });
 
         try {
           await apiCall();
 
-          // console.log('[showUpdateToast] API call succeeded for entry', entryId, 'at', new Date().toISOString());
-
           // Mark as synced and clear retry function
           setEntrySyncStatus((prev) => {
             const next = new Map(prev);
-            next.set(entryId, 'synced');
+            next.set(entryId, "synced");
             return next;
           });
           entryRetryFunctions.current.delete(entryId);
@@ -635,7 +643,7 @@ export function TimeTrackerTable({
           // Mark as error - DON'T revert the UI, let user see the error and retry
           setEntrySyncStatus((prev) => {
             const next = new Map(prev);
-            next.set(entryId, 'error');
+            next.set(entryId, "error");
             return next;
           });
 
@@ -650,12 +658,9 @@ export function TimeTrackerTable({
 
   const handleDescriptionSave = React.useCallback(
     (entryId: number) => (newDescription: string) => {
-      // console.log('[handleDescriptionSave] Saving description for entry', entryId, ':', newDescription);
-      // Use functional update to avoid dependency on timeEntries
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
-        // Create updated entries
         const updatedEntries = currentEntries.map((entry) =>
           entry.id === entryId
             ? { ...entry, description: newDescription }
@@ -668,8 +673,6 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            // const fetchStartTime = Date.now();
-            // console.log('[handleDescriptionSave API] Starting fetch for entry', entryId, 'description:', newDescription);
 
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
@@ -680,14 +683,10 @@ export function TimeTrackerTable({
               body: JSON.stringify({ description: newDescription }),
             });
 
-            // const fetchElapsed = Date.now() - fetchStartTime;
-            // console.log('[handleDescriptionSave API] Fetch completed for entry', entryId, 'in', fetchElapsed, 'ms, status:', response.status);
-
             if (!response.ok) {
               const errorText = await response.text();
               console.error("API Error:", response.status, errorText);
 
-              // Create a more descriptive error message
               let errorMessage = `Failed to update description (${response.status})`;
               if (errorText.includes("Maximum length for description")) {
                 errorMessage = "Description is too long (max 3000 characters)";
@@ -704,7 +703,6 @@ export function TimeTrackerTable({
             }
 
             await response.json();
-            // console.log('[handleDescriptionSave API] Response data:', responseData);
           }
         );
 
@@ -844,102 +842,130 @@ export function TimeTrackerTable({
   );
 
   const handleBulkEntryUpdate = React.useCallback(
-    (entryId: number) => (updates: {
-      description?: string;
-      projectName?: string;
-      tags?: string[];
-    }) => {
-      setTimeEntries((currentEntries) => {
-        const originalEntries = [...currentEntries];
-        const entry = currentEntries.find((e) => e.id === entryId);
-        if (!entry) return currentEntries;
+    (entryId: number) =>
+      (updates: {
+        description?: string;
+        projectName?: string;
+        tags?: string[];
+      }) => {
+        setTimeEntries((currentEntries) => {
+          const originalEntries = [...currentEntries];
+          const entry = currentEntries.find((e) => e.id === entryId);
+          if (!entry) return currentEntries;
 
-        // Find project ID if project name provided
-        let projectId = entry.project_id;
-        let projectName = entry.project_name;
-        let projectColor = entry.project_color;
+          // Find project ID if project name provided
+          let projectId = entry.project_id;
+          let projectName = entry.project_name;
+          let projectColor = entry.project_color;
 
-        if (updates.projectName !== undefined) {
-          console.log('[handleBulkEntryUpdate] Updating project. updates.projectName:', updates.projectName);
-          if (updates.projectName === "" || updates.projectName === "No Project") {
-            projectId = null;
-            projectName = "";
-            projectColor = "#6b7280";
-            console.log('[handleBulkEntryUpdate] Cleared project');
-          } else {
-            const project = projects.find((p) => p.name === updates.projectName);
-            console.log('[handleBulkEntryUpdate] Found project:', project);
-            if (project) {
-              projectId = project.id;
-              projectName = project.name;
-              projectColor = project.color;
-              console.log('[handleBulkEntryUpdate] Set projectId to:', projectId);
-            }
-          }
-        }
-
-        // Create updated entries
-        const updatedEntries = currentEntries.map((e) =>
-          e.id === entryId
-            ? {
-                ...e,
-                description: updates.description !== undefined ? updates.description : e.description,
-                project_id: projectId,
-                project_name: projectName,
-                project_color: projectColor,
-                tags: updates.tags !== undefined ? updates.tags : e.tags,
+          if (updates.projectName !== undefined) {
+            console.log(
+              "[handleBulkEntryUpdate] Updating project. updates.projectName:",
+              updates.projectName
+            );
+            if (
+              updates.projectName === "" ||
+              updates.projectName === "No Project"
+            ) {
+              projectId = null;
+              projectName = "";
+              projectColor = "#6b7280";
+              console.log("[handleBulkEntryUpdate] Cleared project");
+            } else {
+              const project = projects.find(
+                (p) => p.name === updates.projectName
+              );
+              console.log("[handleBulkEntryUpdate] Found project:", project);
+              if (project) {
+                projectId = project.id;
+                projectName = project.name;
+                projectColor = project.color;
+                console.log(
+                  "[handleBulkEntryUpdate] Set projectId to:",
+                  projectId
+                );
               }
-            : e
-        );
-
-        showUpdateToast(
-          "Entry updated.",
-          entryId,
-          () => setTimeEntries(originalEntries),
-          async () => {
-            const sessionToken = localStorage.getItem("toggl_session_token");
-            const payload: Record<string, string | number | number[] | null> = {};
-
-            if (updates.description !== undefined) {
-              payload.description = updates.description;
             }
-            if (updates.projectName !== undefined) {
-              console.log('[handleBulkEntryUpdate] Adding project_name to payload:', updates.projectName);
-              payload.project_name = updates.projectName;
-            }
-            if (updates.tags !== undefined) {
-              // Convert tag names to IDs
-              const tagIds = updates.tags
-                .map((tagName) => availableTags.find((t) => t.name === tagName)?.id)
-                .filter((id): id is number => id !== null);
-              payload.tag_ids = tagIds;
-            }
-
-            console.log('[handleBulkEntryUpdate] Sending payload:', payload);
-            const response = await fetch(`/api/time-entries/${entryId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify(payload),
-            });
-
-            console.log('[handleBulkEntryUpdate] Response status:', response.status);
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error("API Error:", response.status, errorText);
-              throw new Error(`Failed to update entry (${response.status})`);
-            }
-
-            const responseData = await response.json();
-            console.log('[handleBulkEntryUpdate] Response data:', responseData);
           }
-        );
 
-        return updatedEntries;
-      });
-    },
+          // Create updated entries
+          const updatedEntries = currentEntries.map((e) =>
+            e.id === entryId
+              ? {
+                  ...e,
+                  description:
+                    updates.description !== undefined
+                      ? updates.description
+                      : e.description,
+                  project_id: projectId,
+                  project_name: projectName,
+                  project_color: projectColor,
+                  tags: updates.tags !== undefined ? updates.tags : e.tags,
+                }
+              : e
+          );
+
+          showUpdateToast(
+            "Entry updated.",
+            entryId,
+            () => setTimeEntries(originalEntries),
+            async () => {
+              const sessionToken = localStorage.getItem("toggl_session_token");
+              const payload: Record<string, string | number | number[] | null> =
+                {};
+
+              if (updates.description !== undefined) {
+                payload.description = updates.description;
+              }
+              if (updates.projectName !== undefined) {
+                console.log(
+                  "[handleBulkEntryUpdate] Adding project_name to payload:",
+                  updates.projectName
+                );
+                payload.project_name = updates.projectName;
+              }
+              if (updates.tags !== undefined) {
+                // Convert tag names to IDs
+                const tagIds = updates.tags
+                  .map(
+                    (tagName) =>
+                      availableTags.find((t) => t.name === tagName)?.id
+                  )
+                  .filter((id): id is number => id !== null);
+                payload.tag_ids = tagIds;
+              }
+
+              console.log("[handleBulkEntryUpdate] Sending payload:", payload);
+              const response = await fetch(`/api/time-entries/${entryId}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify(payload),
+              });
+
+              console.log(
+                "[handleBulkEntryUpdate] Response status:",
+                response.status
+              );
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error("API Error:", response.status, errorText);
+                throw new Error(`Failed to update entry (${response.status})`);
+              }
+
+              const responseData = await response.json();
+              console.log(
+                "[handleBulkEntryUpdate] Response data:",
+                responseData
+              );
+            }
+          );
+
+          return updatedEntries;
+        });
+      },
     [showUpdateToast, projects, availableTags]
   );
 
@@ -1157,7 +1183,9 @@ export function TimeTrackerTable({
 
             // Always send new start time
             const newStart = isRunning
-              ? new Date(new Date().getTime() - newDuration * 1000).toISOString()
+              ? new Date(
+                  new Date().getTime() - newDuration * 1000
+                ).toISOString()
               : new Date(
                   new Date(entry.stop!).getTime() - newDuration * 1000
                 ).toISOString();
@@ -1426,7 +1454,9 @@ export function TimeTrackerTable({
               project_name: projectName,
               tag_ids: tags
                 .map((tagName) => {
-                  const tag = availableTagsRef.current.find((t) => t.name === tagName);
+                  const tag = availableTagsRef.current.find(
+                    (t) => t.name === tagName
+                  );
                   return tag ? tag.id : null;
                 })
                 .filter((id): id is number => id !== null),
@@ -1446,7 +1476,9 @@ export function TimeTrackerTable({
           if (newEntry) {
             setTimeEntries((prev) =>
               prev.map((entry) =>
-                entry.id === tempId ? { ...newEntry, id: createdEntry.id } as TimeEntry : entry
+                entry.id === tempId
+                  ? ({ ...newEntry, id: createdEntry.id } as TimeEntry)
+                  : entry
               )
             );
           }
@@ -1524,7 +1556,6 @@ export function TimeTrackerTable({
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
 
-
       // Use consistent limit to avoid pagination issues
       const limit = 100;
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
@@ -1564,8 +1595,10 @@ export function TimeTrackerTable({
 
             // Preserve entries that have errors - don't overwrite with server data
             setTimeEntries((prevEntries) => {
-              const erroredEntryIds = Array.from(entrySyncStatusRef.current.entries())
-                .filter(([, status]) => status === 'error')
+              const erroredEntryIds = Array.from(
+                entrySyncStatusRef.current.entries()
+              )
+                .filter(([, status]) => status === "error")
                 .map(([id]) => id);
 
               // If no errored entries, just use the new data
@@ -1574,20 +1607,24 @@ export function TimeTrackerTable({
               }
 
               // Keep errored entries from previous state, use server data for rest
-              const erroredEntries = prevEntries.filter(entry =>
+              const erroredEntries = prevEntries.filter((entry) =>
                 erroredEntryIds.includes(entry.id)
               );
 
               // Merge: use server data, but override with errored entries
-              const serverEntryIds = new Set(data.timeEntries.map((e: TimeEntry) => e.id));
+              const serverEntryIds = new Set(
+                data.timeEntries.map((e: TimeEntry) => e.id)
+              );
               const mergedEntries = [
                 ...data.timeEntries.map((serverEntry: TimeEntry) => {
                   // If this entry has an error, use the local version instead
-                  const erroredVersion = erroredEntries.find(e => e.id === serverEntry.id);
+                  const erroredVersion = erroredEntries.find(
+                    (e) => e.id === serverEntry.id
+                  );
                   return erroredVersion || serverEntry;
                 }),
                 // Add any errored entries that aren't in the server response
-                ...erroredEntries.filter(e => !serverEntryIds.has(e.id))
+                ...erroredEntries.filter((e) => !serverEntryIds.has(e.id)),
               ];
 
               return mergedEntries;
@@ -1631,7 +1668,9 @@ export function TimeTrackerTable({
 
           // Only update projects if they actually changed
           setProjects((currentProjects) => {
-            if (JSON.stringify(currentProjects) === JSON.stringify(data.projects)) {
+            if (
+              JSON.stringify(currentProjects) === JSON.stringify(data.projects)
+            ) {
               return currentProjects; // Keep same reference
             }
             return data.projects;
@@ -1837,7 +1876,13 @@ export function TimeTrackerTable({
         const nextCellIndex = currentSelectedCell.cellIndex + 1;
 
         // Check if we should auto-open project selector (1), tag selector (2), description (3), time editor (4), or duration editor (5)
-        if (nextCellIndex === 1 || nextCellIndex === 2 || nextCellIndex === 3 || nextCellIndex === 4 || nextCellIndex === 5) {
+        if (
+          nextCellIndex === 1 ||
+          nextCellIndex === 2 ||
+          nextCellIndex === 3 ||
+          nextCellIndex === 4 ||
+          nextCellIndex === 5
+        ) {
           shouldAutoOpen = true;
           targetRowIndex = currentSelectedCell.rowIndex;
           targetCellIndex = nextCellIndex;
@@ -2132,7 +2177,7 @@ export function TimeTrackerTable({
     // Mark as syncing
     setEntrySyncStatus((prev) => {
       const next = new Map(prev);
-      next.set(entryId, 'syncing');
+      next.set(entryId, "syncing");
       return next;
     });
 
@@ -2143,7 +2188,7 @@ export function TimeTrackerTable({
       // Mark as synced and clear retry function
       setEntrySyncStatus((prev) => {
         const next = new Map(prev);
-        next.set(entryId, 'synced');
+        next.set(entryId, "synced");
         return next;
       });
       entryRetryFunctions.current.delete(entryId);
@@ -2166,7 +2211,7 @@ export function TimeTrackerTable({
       // Mark as error again
       setEntrySyncStatus((prev) => {
         const next = new Map(prev);
-        next.set(entryId, 'error');
+        next.set(entryId, "error");
         return next;
       });
 
@@ -2187,7 +2232,6 @@ export function TimeTrackerTable({
   const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
 
   React.useEffect(() => {
-
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
       const activeElement = document.activeElement;
@@ -2215,7 +2259,8 @@ export function TimeTrackerTable({
         if (awaitingPinnedNumberRef.current) {
           awaitingPinnedNumberRef.current = false;
           setShowPinnedEntries(false);
-          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
+          if (pinnedTimeoutIdRef.current)
+            clearTimeout(pinnedTimeoutIdRef.current);
           handleNewEntry();
           return;
         }
@@ -2226,7 +2271,8 @@ export function TimeTrackerTable({
           setShowPinnedEntries(true);
 
           // Clear any existing timeout
-          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
+          if (pinnedTimeoutIdRef.current)
+            clearTimeout(pinnedTimeoutIdRef.current);
 
           // Reset after 3 seconds if no number is pressed
           pinnedTimeoutIdRef.current = setTimeout(() => {
@@ -2248,7 +2294,8 @@ export function TimeTrackerTable({
           e.preventDefault();
           awaitingPinnedNumberRef.current = false;
           setShowPinnedEntries(false);
-          if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
+          if (pinnedTimeoutIdRef.current)
+            clearTimeout(pinnedTimeoutIdRef.current);
 
           const index = num - 1;
           if (index < pinnedEntries.length) {
@@ -2303,7 +2350,8 @@ export function TimeTrackerTable({
           if (showPinnedEntries) {
             awaitingPinnedNumberRef.current = false;
             setShowPinnedEntries(false);
-            if (pinnedTimeoutIdRef.current) clearTimeout(pinnedTimeoutIdRef.current);
+            if (pinnedTimeoutIdRef.current)
+              clearTimeout(pinnedTimeoutIdRef.current);
             return;
           }
 
@@ -2649,7 +2697,7 @@ export function TimeTrackerTable({
                 defaultMonth={date?.from}
                 selected={date}
                 onSelect={(selectedRange) => {
-                  console.log('[Calendar] Selected range:', {
+                  console.log("[Calendar] Selected range:", {
                     from: selectedRange?.from?.toISOString(),
                     to: selectedRange?.to?.toISOString(),
                     fromLocal: selectedRange?.from?.toString(),
@@ -2659,13 +2707,13 @@ export function TimeTrackerTable({
                   if (selectedRange?.from && selectedRange?.to) {
                     // Set end date to end of day
                     const endOfDayTo = endOfDay(selectedRange.to);
-                    console.log('[Calendar] Setting date range:', {
+                    console.log("[Calendar] Setting date range:", {
                       from: selectedRange.from.toISOString(),
                       to: endOfDayTo.toISOString(),
                     });
                     setDate({ from: selectedRange.from, to: endOfDayTo });
                   } else {
-                    console.log('[Calendar] Partial selection, setting as-is');
+                    console.log("[Calendar] Partial selection, setting as-is");
                     setDate(selectedRange);
                   }
                 }}
@@ -2784,7 +2832,9 @@ export function TimeTrackerTable({
                   onBulkEntryUpdate={handleBulkEntryUpdate}
                   onTimeChange={handleTimeChange}
                   onDurationChange={handleDurationChange}
-                  onDurationChangeWithStartTimeAdjustment={handleDurationChangeWithStartTimeAdjustment}
+                  onDurationChangeWithStartTimeAdjustment={
+                    handleDurationChangeWithStartTimeAdjustment
+                  }
                   onDelete={handleDeleteWithConfirmation}
                   onPin={handlePinEntry}
                   onUnpin={handleUnpinEntry}
