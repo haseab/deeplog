@@ -649,7 +649,7 @@ export function TimeTrackerTable({
 
       toast(message, {
         action: {
-          label: "Undo",
+          label: "Undo (U)",
           onClick: () => {
             toastDismissed = true;
             undoAction();
