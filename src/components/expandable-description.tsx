@@ -351,10 +351,10 @@ export function ExpandableDescription({
     },
     onUpdate: () => {
       updateCharCount();
-      // Show recent timers if content becomes empty
+      // Show recent timers if content is empty or has only 1 character
       if (editor && isEditing) {
         const currentContent = getMarkdownContent();
-        if (!currentContent || currentContent.trim() === '') {
+        if (!currentContent || currentContent.trim().length <= 1) {
           setShowRecentTimers(true);
           setHighlightedIndex(0);
         }
@@ -415,8 +415,8 @@ export function ExpandableDescription({
       setIsEditing(true);
       setCurrentCharCount(description.length);
 
-      // If description is empty, show recent timers popover
-      if (!description || description.trim() === '') {
+      // If description is empty or has only 1 character, show recent timers popover
+      if (!description || description.trim().length <= 1) {
         setShowRecentTimers(true);
         setHighlightedIndex(0);
       }
