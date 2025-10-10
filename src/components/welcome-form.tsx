@@ -140,7 +140,7 @@ export function WelcomeForm({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 flex items-start justify-center p-4 pt-[20vh]">
       <div className="w-full max-w-md space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
         {/* Logo and Title Section */}
         <div className="text-center space-y-4">
