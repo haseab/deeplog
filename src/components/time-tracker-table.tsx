@@ -1,7 +1,11 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
-import { SyncQueueManager, type QueuedOperation, type OperationType } from "@/lib/sync-queue";
+import {
+  SyncQueueManager,
+  type OperationType,
+  type QueuedOperation,
+} from "@/lib/sync-queue";
 import { hasActiveToast, toast, triggerUndo } from "@/lib/toast";
 import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
@@ -52,6 +56,8 @@ const MemoizedTableRow = React.memo(
   function TableRowComponent({
     entry,
     rowIndex,
+    prevEntryEnd,
+    nextEntryStart,
     selectedCell,
     onSelectCell,
     onDescriptionSave,
@@ -87,6 +93,8 @@ const MemoizedTableRow = React.memo(
   }: {
     entry: TimeEntry;
     rowIndex: number;
+    prevEntryEnd?: string | null;
+    nextEntryStart?: string | null;
     selectedCell: SelectedCell;
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
@@ -374,6 +382,8 @@ const MemoizedTableRow = React.memo(
             onNavigateNext={navigateToNextCell}
             onNavigateDown={navigateToNextRow}
             onNavigatePrev={navigateToPrevCell}
+            prevEntryEnd={prevEntryEnd}
+            nextEntryStart={nextEntryStart}
             data-testid="time-editor"
           />
         </TableCell>
@@ -415,9 +425,6 @@ const MemoizedTableRow = React.memo(
             onSplit={() => onSplit(entry)}
             onCombine={() => onCombine(entry)}
             onStartEntry={() => onStartEntry(entry)}
-            onCopyId={() => {
-              // Implement copy ID logic
-            }}
             onDelete={() => onDelete(entry)}
             onOpenChange={setIsActionsMenuOpen}
             onNavigateNext={navigateToNextCell}
@@ -1997,7 +2004,8 @@ export function TimeTrackerTable({
     }
 
     const olderEntry = timeEntries[currentIndex + 1];
-    const isCurrentEntryRunning = !entryToCombine.stop || entryToCombine.duration === -1;
+    const isCurrentEntryRunning =
+      !entryToCombine.stop || entryToCombine.duration === -1;
 
     let originalEntries: TimeEntry[] = [];
 
@@ -2040,12 +2048,9 @@ export function TimeTrackerTable({
     // Make API call
     const sessionToken = localStorage.getItem("toggl_session_token");
 
-    toast(
-      `Combining entries...`,
-      {
-        duration: toastDuration,
-      }
-    );
+    toast(`Combining entries...`, {
+      duration: toastDuration,
+    });
 
     fetch("/api/time-entries/combine", {
       method: "POST",
@@ -2067,7 +2072,10 @@ export function TimeTrackerTable({
         return response.json();
       })
       .then((data) => {
-        console.log("[handleConfirmCombine] Successfully combined entries:", data);
+        console.log(
+          "[handleConfirmCombine] Successfully combined entries:",
+          data
+        );
 
         // Update only stop and duration from server response, keep everything else
         setTimeEntries((currentEntries) =>
@@ -2076,7 +2084,7 @@ export function TimeTrackerTable({
               ? {
                   ...e,
                   stop: data.updatedEntry.stop,
-                  duration: data.updatedEntry.duration
+                  duration: data.updatedEntry.duration,
                 }
               : e
           )
@@ -2944,7 +2952,9 @@ export function TimeTrackerTable({
     if (selectedCell) {
       const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
-        console.log('[handleDeleteSelectedWithConfirmation] Opening delete dialog');
+        console.log(
+          "[handleDeleteSelectedWithConfirmation] Opening delete dialog"
+        );
         setEntryToDelete(entry);
         deleteDialogOpenRef.current = true;
         setDeleteDialogOpen(true);
@@ -2953,7 +2963,7 @@ export function TimeTrackerTable({
   }, [selectedCell, timeEntries]);
 
   const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
-    console.log('[handleDeleteWithConfirmation] Opening delete dialog');
+    console.log("[handleDeleteWithConfirmation] Opening delete dialog");
     setEntryToDelete(entry);
     deleteDialogOpenRef.current = true;
     setDeleteDialogOpen(true);
@@ -3204,15 +3214,20 @@ export function TimeTrackerTable({
 
       // Navigation shortcuts (only when not in input)
       if (isInInput) {
-        console.log('[Keyboard] Ignoring key because in input:', e.key);
+        console.log("[Keyboard] Ignoring key because in input:", e.key);
         return;
       }
 
       // Don't handle navigation keys if any dialog is open
-      const anyDialogOpen = deleteDialogOpen || splitDialogOpen || combineDialogOpen ||
-          deleteDialogOpenRef.current || splitDialogOpenRef.current || combineDialogOpenRef.current;
+      const anyDialogOpen =
+        deleteDialogOpen ||
+        splitDialogOpen ||
+        combineDialogOpen ||
+        deleteDialogOpenRef.current ||
+        splitDialogOpenRef.current ||
+        combineDialogOpenRef.current;
 
-      console.log('[Keyboard] Key pressed:', e.key, {
+      console.log("[Keyboard] Key pressed:", e.key, {
         deleteDialogOpen,
         deleteDialogOpenRef: deleteDialogOpenRef.current,
         splitDialogOpen,
@@ -3221,11 +3236,11 @@ export function TimeTrackerTable({
         combineDialogOpenRef: combineDialogOpenRef.current,
         anyDialogOpen,
         activeElement: document.activeElement?.tagName,
-        selectedCell
+        selectedCell,
       });
 
       if (anyDialogOpen) {
-        console.log('[Keyboard] Dialog is open, returning early');
+        console.log("[Keyboard] Dialog is open, returning early");
         return;
       }
 
@@ -3718,11 +3733,21 @@ export function TimeTrackerTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {timeEntries.map((entry, rowIndex) => (
+              {timeEntries.map((entry, rowIndex) => {
+                // Calculate adjacent entries for snap functionality
+                // Entries are sorted newest-first (descending chronologically)
+                // rowIndex - 1 = newer entry (happened after current) = next chronologically
+                // rowIndex + 1 = older entry (happened before current) = previous chronologically
+                const prevEntry = rowIndex < timeEntries.length - 1 ? timeEntries[rowIndex + 1] : null;
+                const nextEntry = rowIndex > 0 ? timeEntries[rowIndex - 1] : null;
+
+                return (
                 <MemoizedTableRow
                   key={entry.tempId || entry.id}
                   entry={entry}
                   rowIndex={rowIndex}
+                  prevEntryEnd={prevEntry?.stop || null}
+                  nextEntryStart={nextEntry?.start || null}
                   selectedCell={selectedCell}
                   onSelectCell={handleSelectCell}
                   onDescriptionSave={handleDescriptionSave}
@@ -3757,7 +3782,8 @@ export function TimeTrackerTable({
                   onRetrySync={handleRetrySync}
                   isFullscreen={isFullscreen}
                 />
-              ))}
+                );
+              })}
               {hasMore && (
                 <TableRow>
                   <TableCell colSpan={8} className="h-20 text-center">
@@ -3798,7 +3824,7 @@ export function TimeTrackerTable({
       <DeleteConfirmationDialog
         open={deleteDialogOpen}
         onOpenChange={(open) => {
-          console.log('[DeleteDialog] onOpenChange called with:', open);
+          console.log("[DeleteDialog] onOpenChange called with:", open);
           deleteDialogOpenRef.current = open;
           setDeleteDialogOpen(open);
         }}
@@ -3809,7 +3835,7 @@ export function TimeTrackerTable({
       <SplitEntryDialog
         open={splitDialogOpen}
         onOpenChange={(open) => {
-          console.log('[SplitDialog] onOpenChange called with:', open);
+          console.log("[SplitDialog] onOpenChange called with:", open);
           splitDialogOpenRef.current = open;
           setSplitDialogOpen(open);
         }}

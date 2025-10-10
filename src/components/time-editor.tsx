@@ -9,8 +9,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { format, parse, isSameDay, addDays, subDays } from "date-fns";
-import { Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { addDays, format, isSameDay, parse, subDays } from "date-fns";
+import { Clock } from "lucide-react";
 import * as React from "react";
 
 interface TimeEditorProps {
@@ -21,6 +21,8 @@ interface TimeEditorProps {
   onNavigateNext?: () => void;
   onNavigateDown?: () => void;
   onNavigatePrev?: () => void;
+  prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
+  nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
   "data-testid"?: string;
 }
 
@@ -32,6 +34,8 @@ export function TimeEditor({
   onNavigateNext,
   onNavigateDown,
   onNavigatePrev,
+  prevEntryEnd,
+  nextEntryStart,
   "data-testid": dataTestId,
 }: TimeEditorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -101,7 +105,10 @@ export function TimeEditor({
   const adjustStartDate = (days: number) => {
     const currentDate = parseDateInput(startDateValue);
     if (currentDate) {
-      const newDate = days > 0 ? addDays(currentDate, days) : subDays(currentDate, Math.abs(days));
+      const newDate =
+        days > 0
+          ? addDays(currentDate, days)
+          : subDays(currentDate, Math.abs(days));
       setStartDateValue(format(newDate, "yyyy-MM-dd"));
       setError("");
     }
@@ -110,13 +117,20 @@ export function TimeEditor({
   const adjustEndDate = (days: number) => {
     const currentDate = parseDateInput(endDateValue);
     if (currentDate) {
-      const newDate = days > 0 ? addDays(currentDate, days) : subDays(currentDate, Math.abs(days));
+      const newDate =
+        days > 0
+          ? addDays(currentDate, days)
+          : subDays(currentDate, Math.abs(days));
       setEndDateValue(format(newDate, "yyyy-MM-dd"));
       setError("");
     }
   };
 
-  const buildDateTime = (dateStr: string, hours: string, minutes: string): Date | null => {
+  const buildDateTime = (
+    dateStr: string,
+    hours: string,
+    minutes: string
+  ): Date | null => {
     const date = parseDateInput(dateStr);
     if (!date) return null;
 
@@ -136,7 +150,11 @@ export function TimeEditor({
   };
 
   const handleSave = () => {
-    const finalStartDateTime = buildDateTime(startDateValue, startTimeHours, startTimeMinutes);
+    const finalStartDateTime = buildDateTime(
+      startDateValue,
+      startTimeHours,
+      startTimeMinutes
+    );
 
     if (!finalStartDateTime) {
       setError("Invalid start time");
@@ -145,7 +163,11 @@ export function TimeEditor({
 
     let finalEndDateTime: Date | null = null;
     if (endTimeHours.trim() || endTimeMinutes.trim()) {
-      finalEndDateTime = buildDateTime(endDateValue, endTimeHours, endTimeMinutes);
+      finalEndDateTime = buildDateTime(
+        endDateValue,
+        endTimeHours,
+        endTimeMinutes
+      );
 
       if (!finalEndDateTime) {
         setError("Invalid end time");
@@ -162,10 +184,11 @@ export function TimeEditor({
     const originalStart = new Date(startTime);
     const originalEnd = endTime ? new Date(endTime) : null;
 
-    const startChanged = finalStartDateTime.getTime() !== originalStart.getTime();
+    const startChanged =
+      finalStartDateTime.getTime() !== originalStart.getTime();
     const endChanged = finalEndDateTime
-      ? (!originalEnd || finalEndDateTime.getTime() !== originalEnd.getTime())
-      : (originalEnd !== null);
+      ? !originalEnd || finalEndDateTime.getTime() !== originalEnd.getTime()
+      : originalEnd !== null;
 
     if (startChanged || endChanged) {
       onSave?.(
@@ -182,7 +205,6 @@ export function TimeEditor({
     setIsOpen(false);
     setError("");
   };
-
 
   const adjustTime = (
     field: "startHours" | "startMinutes" | "endHours" | "endMinutes",
@@ -207,17 +229,66 @@ export function TimeEditor({
     }
   };
 
+  const snapStartToPrevEnd = () => {
+    if (!prevEntryEnd) return;
+
+    const prevEnd = new Date(prevEntryEnd);
+    setStartDateValue(format(prevEnd, "yyyy-MM-dd"));
+    setStartTimeHours(format(prevEnd, "HH"));
+    setStartTimeMinutes(format(prevEnd, "mm"));
+    setError("");
+  };
+
+  const snapEndToNextStart = () => {
+    if (!nextEntryStart) return;
+
+    const nextStart = new Date(nextEntryStart);
+    setEndDateValue(format(nextStart, "yyyy-MM-dd"));
+    setEndTimeHours(format(nextStart, "HH"));
+    setEndTimeMinutes(format(nextStart, "mm"));
+    setError("");
+  };
+
   const handleKeyDown = (
     e: React.KeyboardEvent,
-    field: "startHours" | "startMinutes" | "endHours" | "endMinutes" | "startDate" | "endDate"
+    field:
+      | "startHours"
+      | "startMinutes"
+      | "endHours"
+      | "endMinutes"
+      | "startDate"
+      | "endDate"
   ) => {
+    // Snap shortcuts: Cmd+Shift+Left/Right
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+      if (e.key === "ArrowLeft" && prevEntryEnd) {
+        e.preventDefault();
+        snapStartToPrevEnd();
+        return;
+      } else if (e.key === "ArrowRight" && nextEntryStart) {
+        e.preventDefault();
+        snapEndToNextStart();
+        return;
+      }
+    }
+
     // Ignore standalone modifier keys
-    if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") {
+    if (
+      e.key === "Shift" ||
+      e.key === "Control" ||
+      e.key === "Alt" ||
+      e.key === "Meta"
+    ) {
       return;
     }
 
     // Arrow keys for time fields (hours and minutes)
-    if (field === "startHours" || field === "startMinutes" || field === "endHours" || field === "endMinutes") {
+    if (
+      field === "startHours" ||
+      field === "startMinutes" ||
+      field === "endHours" ||
+      field === "endMinutes"
+    ) {
       if (e.key === "ArrowUp") {
         e.preventDefault();
         adjustTime(field, 1);
@@ -347,7 +418,10 @@ export function TimeEditor({
     }
 
     if (endDateObj && !isSameDay(startDateObj, endDateObj)) {
-      return `${format(startDateObj, "MMM d, HH:mm")} - ${format(endDateObj, "MMM d, HH:mm")}`;
+      return `${format(startDateObj, "MMM d, HH:mm")} - ${format(
+        endDateObj,
+        "MMM d, HH:mm"
+      )}`;
     }
 
     return `${format(startDateObj, "HH:mm")} - ${format(endDateObj!, "HH:mm")}`;
@@ -376,144 +450,143 @@ export function TimeEditor({
         side="bottom"
       >
         <div className="space-y-4">
-          {/* Start Time (Hours and Minutes) */}
+          {/* Start and End Time on same row */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Start Time</Label>
-            <div className="flex gap-2 items-center">
-              <Input
-                ref={startTimeHoursRef}
-                placeholder="09"
-                value={startTimeHours}
-                onChange={(e) => {
-                  setStartTimeHours(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "startHours")}
-                className="font-mono h-9 w-16 text-center"
-                maxLength={2}
-              />
-              <span className="text-muted-foreground">:</span>
-              <Input
-                ref={startTimeMinutesRef}
-                placeholder="00"
-                value={startTimeMinutes}
-                onChange={(e) => {
-                  setStartTimeMinutes(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "startMinutes")}
-                className="font-mono h-9 w-16 text-center"
-                maxLength={2}
-              />
-            </div>
-          </div>
+            <div className="flex gap-8 items-start">
+              {/* Start Time */}
+              <div className="flex-1 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Start</Label>
+                  {prevEntryEnd && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 text-[10px] px-1.5 py-0"
+                      onClick={snapStartToPrevEnd}
+                      tabIndex={-1}
+                    >
+                      ← Snap
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-1 items-center">
+                  <Input
+                    ref={startTimeHoursRef}
+                    placeholder="09"
+                    value={startTimeHours}
+                    onChange={(e) => {
+                      setStartTimeHours(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "startHours")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
+                  <span className="text-muted-foreground text-sm">:</span>
+                  <Input
+                    ref={startTimeMinutesRef}
+                    placeholder="00"
+                    value={startTimeMinutes}
+                    onChange={(e) => {
+                      setStartTimeMinutes(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "startMinutes")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
+                </div>
+              </div>
 
-          {/* End Time (Hours and Minutes) */}
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">
-              End Time {(!endTime || endTime === "") && <span className="text-xs">(running)</span>}
-            </Label>
-            <div className="flex gap-2 items-center">
-              <Input
-                ref={endTimeHoursRef}
-                placeholder="17"
-                value={endTimeHours}
-                onChange={(e) => {
-                  setEndTimeHours(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "endHours")}
-                className="font-mono h-9 w-16 text-center"
-                maxLength={2}
-              />
-              <span className="text-muted-foreground">:</span>
-              <Input
-                ref={endTimeMinutesRef}
-                placeholder="00"
-                value={endTimeMinutes}
-                onChange={(e) => {
-                  setEndTimeMinutes(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "endMinutes")}
-                className="font-mono h-9 w-16 text-center"
-                maxLength={2}
-              />
-            </div>
-          </div>
-
-          {/* Start Date */}
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Start Date</Label>
-            <div className="relative">
-              <Input
-                ref={startDateInputRef}
-                placeholder="yyyy-mm-dd"
-                value={startDateValue}
-                onChange={(e) => {
-                  setStartDateValue(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "startDate")}
-                className="font-mono h-9 pr-16"
-              />
-              <div className="absolute right-1 top-1 flex gap-0.5">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={() => adjustStartDate(-1)}
-                  tabIndex={-1}
-                >
-                  <ChevronLeft className="h-3 w-3" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={() => adjustStartDate(1)}
-                  tabIndex={-1}
-                >
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
+              {/* End Time */}
+              <div className="flex-1 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">
+                    End{" "}
+                    {(!endTime || endTime === "") && (
+                      <span className="text-[10px]">(running)</span>
+                    )}
+                  </Label>
+                  {nextEntryStart && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 text-[10px] px-1.5 py-0"
+                      onClick={snapEndToNextStart}
+                      tabIndex={-1}
+                    >
+                      Snap →
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-1 items-center">
+                  <Input
+                    ref={endTimeHoursRef}
+                    placeholder="17"
+                    value={endTimeHours}
+                    onChange={(e) => {
+                      setEndTimeHours(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "endHours")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
+                  <span className="text-muted-foreground text-sm">:</span>
+                  <Input
+                    ref={endTimeMinutesRef}
+                    placeholder="00"
+                    value={endTimeMinutes}
+                    onChange={(e) => {
+                      setEndTimeMinutes(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "endMinutes")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* End Date */}
+          {/* Start and End Date on same row */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">End Date</Label>
-            <div className="relative">
-              <Input
-                ref={endDateInputRef}
-                placeholder="yyyy-mm-dd"
-                value={endDateValue}
-                onChange={(e) => {
-                  setEndDateValue(e.target.value);
-                  setError("");
-                }}
-                onKeyDown={(e) => handleKeyDown(e, "endDate")}
-                className="font-mono h-9 pr-16"
-              />
-              <div className="absolute right-1 top-1 flex gap-0.5">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={() => adjustEndDate(-1)}
-                  tabIndex={-1}
-                >
-                  <ChevronLeft className="h-3 w-3" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={() => adjustEndDate(1)}
-                  tabIndex={-1}
-                >
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
+            <div className="flex gap-8 items-start">
+              {/* Start Date */}
+              <div className="flex-1 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Start Date
+                </Label>
+                <Input
+                  ref={startDateInputRef}
+                  placeholder="yyyy-mm-dd"
+                  value={startDateValue}
+                  onChange={(e) => {
+                    setStartDateValue(e.target.value);
+                    setError("");
+                  }}
+                  onKeyDown={(e) => handleKeyDown(e, "startDate")}
+                  className="font-mono h-8 text-sm text-center w-28 px-0"
+                />
+              </div>
+
+              {/* End Date */}
+              <div className="flex-1 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  End Date
+                </Label>
+                <Input
+                  ref={endDateInputRef}
+                  placeholder="yyyy-mm-dd"
+                  value={endDateValue}
+                  onChange={(e) => {
+                    setEndDateValue(e.target.value);
+                    setError("");
+                  }}
+                  onKeyDown={(e) => handleKeyDown(e, "endDate")}
+                  className="font-mono h-8 text-sm text-center w-28 px-0"
+                />
               </div>
             </div>
           </div>
@@ -531,17 +604,14 @@ export function TimeEditor({
               <div>• Enter to save, Cmd+Enter to move down</div>
             </div>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={handleSave}
-                className="flex-1"
-              >
+              <Button size="sm" onClick={handleSave} className="flex-1">
                 Save
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleCancel}
+                className="flex-1"
                 onKeyDown={(e) => {
                   if (e.key === "Tab" && !e.shiftKey) {
                     e.preventDefault();

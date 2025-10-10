@@ -16,7 +16,6 @@ interface ActionsMenuProps {
   onSplit?: () => void;
   onCombine?: () => void;
   onStartEntry?: () => void;
-  onCopyId?: () => void;
   onDelete?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
@@ -31,7 +30,6 @@ export function ActionsMenu({
   onSplit,
   onCombine,
   onStartEntry,
-  onCopyId,
   onDelete,
   onOpenChange,
   onNavigateNext,
