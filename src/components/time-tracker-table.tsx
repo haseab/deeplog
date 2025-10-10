@@ -145,11 +145,6 @@ const MemoizedTableRow = React.memo(
   }) {
     // Debug: Log when component renders to see entry IDs
     if (entry.id && entry.id < 0 && rowIndex === 0) {
-      console.log(
-        `[TableRowComponent] 🎨 RENDER - rowIndex ${rowIndex}, entry.id: ${
-          entry.id
-        }, tempId: ${entry.tempId || "undefined"}`
-      );
     }
 
     return (
@@ -254,9 +249,6 @@ const MemoizedTableRow = React.memo(
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
                   // Pass the captured entry.id - helper will resolve to current ID
-                  console.log(
-                    `[TableRowComponent] 🎯 CALLBACK CREATED - Capturing entry.id: ${entry.id} for rowIndex ${rowIndex}`
-                  );
 
                   const tagNames = availableTags
                     .filter((tag) => selected.tagIds.includes(tag.id))
@@ -298,9 +290,6 @@ const MemoizedTableRow = React.memo(
                 availableTags={availableTags}
                 onRecentTimerSelect={(selected) => {
                   // Pass the captured entry.id - helper will resolve to current ID
-                  console.log(
-                    `[TableRowComponent] 🎯 CALLBACK CREATED - Capturing entry.id: ${entry.id} for rowIndex ${rowIndex}`
-                  );
 
                   const tagNames = availableTags
                     .filter((tag) => selected.tagIds.includes(tag.id))
@@ -644,16 +633,9 @@ export function TimeTrackerTable({
       undoAction: () => void,
       apiCall: () => Promise<void>
     ) => {
-      console.log(
-        `[showUpdateToast] 📢 Toast shown for entry ${entryId}: "${message}"`
-      );
-
       // Store the retry function for this entry
       const existingRetry = entryRetryFunctions.current.get(entryId);
       if (existingRetry) {
-        console.log(
-          `[showUpdateToast] ⚠️ WARNING - Overwriting existing retry function for entry ${entryId}`
-        );
       }
       entryRetryFunctions.current.set(entryId, apiCall);
 
@@ -663,9 +645,6 @@ export function TimeTrackerTable({
         action: {
           label: "Undo",
           onClick: () => {
-            console.log(
-              `[showUpdateToast] 🔄 UNDO clicked for entry ${entryId}`
-            );
             toastDismissed = true;
             undoAction();
           },
@@ -676,15 +655,8 @@ export function TimeTrackerTable({
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
       setTimeout(async () => {
         if (toastDismissed) {
-          console.log(
-            `[showUpdateToast] ⏭️ Toast was dismissed (undone) for entry ${entryId}, skipping API call`
-          );
           return;
         }
-
-        console.log(
-          `[showUpdateToast] ⏰ Toast duration expired for entry ${entryId}, executing API call`
-        );
 
         // Mark as syncing
         setEntrySyncStatus((prev) => {
@@ -748,10 +720,6 @@ export function TimeTrackerTable({
       const isTempId = syncQueue.isTempId(entryId);
 
       if (isTempId) {
-        console.log(
-          `[${operationType}] Temp ID detected (${entryId}), queueing operation`
-        );
-
         // Apply optimistic update
         setTimeEntries((currentEntries) =>
           currentEntries.map((entry) =>
@@ -1069,10 +1037,6 @@ export function TimeTrackerTable({
         const isTempId = syncQueue.isTempId(entryId);
 
         if (isTempId) {
-          console.log(
-            `[handleBulkEntryUpdate] Temp ID detected (${entryId}), queueing operation`
-          );
-
           // Still apply optimistic update to UI
           setTimeEntries((currentEntries) => {
             const entry = currentEntries.find((e) => e.id === entryId);
@@ -1150,10 +1114,6 @@ export function TimeTrackerTable({
                 payload.tag_ids = tagIds;
               }
 
-              console.log(
-                `[handleBulkEntryUpdate] Executing queued operation for real ID ${realId}:`,
-                payload
-              );
               const response = await fetch(`/api/time-entries/${realId}`, {
                 method: "PATCH",
                 headers: {
@@ -1198,10 +1158,6 @@ export function TimeTrackerTable({
           let projectColor = entry.project_color;
 
           if (updates.projectName !== undefined) {
-            console.log(
-              "[handleBulkEntryUpdate] Updating project. updates.projectName:",
-              updates.projectName
-            );
             if (
               updates.projectName === "" ||
               updates.projectName === "No Project"
@@ -1209,20 +1165,14 @@ export function TimeTrackerTable({
               projectId = null;
               projectName = "";
               projectColor = "#6b7280";
-              console.log("[handleBulkEntryUpdate] Cleared project");
             } else {
               const project = projects.find(
                 (p) => p.name === updates.projectName
               );
-              console.log("[handleBulkEntryUpdate] Found project:", project);
               if (project) {
                 projectId = project.id;
                 projectName = project.name;
                 projectColor = project.color;
-                console.log(
-                  "[handleBulkEntryUpdate] Set projectId to:",
-                  projectId
-                );
               }
             }
           }
@@ -1257,10 +1207,6 @@ export function TimeTrackerTable({
                 payload.description = updates.description;
               }
               if (updates.projectName !== undefined) {
-                console.log(
-                  "[handleBulkEntryUpdate] Adding project_name to payload:",
-                  updates.projectName
-                );
                 payload.project_name = updates.projectName;
               }
               if (updates.tags !== undefined) {
@@ -1274,7 +1220,6 @@ export function TimeTrackerTable({
                 payload.tag_ids = tagIds;
               }
 
-              console.log("[handleBulkEntryUpdate] Sending payload:", payload);
               const response = await fetch(`/api/time-entries/${entryId}`, {
                 method: "PATCH",
                 headers: {
@@ -1284,21 +1229,13 @@ export function TimeTrackerTable({
                 body: JSON.stringify(payload),
               });
 
-              console.log(
-                "[handleBulkEntryUpdate] Response status:",
-                response.status
-              );
               if (!response.ok) {
                 const errorText = await response.text();
                 console.error("API Error:", response.status, errorText);
                 throw new Error(`Failed to update entry (${response.status})`);
               }
 
-              const responseData = await response.json();
-              console.log(
-                "[handleBulkEntryUpdate] Response data:",
-                responseData
-              );
+              await response.json();
             }
           );
 
@@ -1316,36 +1253,20 @@ export function TimeTrackerTable({
         projectName?: string;
         tags?: string[];
       }) => {
-        console.log(
-          `[handleBulkEntryUpdateByRowIndex] 🔍 Called with captured ID: ${capturedId}`
-        );
-        console.log(
-          `[handleBulkEntryUpdateByRowIndex] 📋 Current timeEntriesRef has ${timeEntriesRef.current.length} entries`
-        );
-
         // Find the entry - it might still have the temp ID or it might have been updated to real ID
         let currentEntry = timeEntriesRef.current.find(
           (e) => e.id === capturedId
         );
 
         if (currentEntry) {
-          console.log(
-            `[handleBulkEntryUpdateByRowIndex] ✅ Found entry directly by ID ${capturedId}`
-          );
         }
 
         // If not found by ID, try finding by tempId field (ID might have changed)
         if (!currentEntry) {
-          console.log(
-            `[handleBulkEntryUpdateByRowIndex] ⚠️ Not found by ID, searching by tempId field...`
-          );
           currentEntry = timeEntriesRef.current.find(
             (e) => e.tempId === capturedId
           );
           if (currentEntry) {
-            console.log(
-              `[handleBulkEntryUpdateByRowIndex] ✅ Found by tempId field! Captured ID ${capturedId} is now real ID ${currentEntry.id}`
-            );
           }
         }
 
@@ -1353,16 +1274,8 @@ export function TimeTrackerTable({
           console.error(
             `[handleBulkEntryUpdateByRowIndex] ❌ No entry found with ID or tempId ${capturedId}`
           );
-          console.log(
-            `[handleBulkEntryUpdateByRowIndex] 📋 Available entries:`,
-            timeEntriesRef.current.map((e) => ({ id: e.id, tempId: e.tempId }))
-          );
           return;
         }
-
-        console.log(
-          `[handleBulkEntryUpdateByRowIndex] 🎯 Resolved to entry ID ${currentEntry.id}, calling handleBulkEntryUpdate`
-        );
 
         // Call the actual bulk update with the CURRENT entry ID
         handleBulkEntryUpdate(currentEntry.id)(updates);
@@ -1683,16 +1596,7 @@ export function TimeTrackerTable({
 
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
-      console.log(`[handleDelete] 🗑️ CALLED - Deleting entry:`, {
-        id: entryToDelete.id,
-        tempId: entryToDelete.tempId,
-        description: entryToDelete.description,
-      });
-
       setTimeEntries((currentEntries) => {
-        console.log(
-          `[handleDelete] 🔄 setTimeEntries CALLBACK EXECUTING for entry ${entryToDelete.id}`
-        );
         const originalEntries = [...currentEntries];
 
         // Create filtered entries
@@ -1700,22 +1604,13 @@ export function TimeTrackerTable({
           (entry) => entry.id !== entryToDelete.id
         );
 
-        console.log(
-          `[handleDelete] 📞 ABOUT TO CALL showUpdateToast for entry ${entryToDelete.id}`
-        );
         showUpdateToast(
           "Time entry deleted.",
           entryToDelete.id,
           () => {
-            console.log(
-              `[handleDelete] 🔄 UNDO - Restoring entry ${entryToDelete.id}`
-            );
             setTimeEntries(originalEntries);
           },
           async () => {
-            console.log(
-              `[handleDelete] 🚀 API CALL - Deleting entry ${entryToDelete.id} from server`
-            );
             const sessionToken = localStorage.getItem("toggl_session_token");
             const response = await fetch(
               `/api/time-entries/${entryToDelete.id}`,
@@ -1747,21 +1642,11 @@ export function TimeTrackerTable({
 
               throw new Error(errorMessage);
             }
-
-            console.log(
-              `[handleDelete] ✅ DELETE SUCCESS - Entry ${entryToDelete.id} deleted from server`
-            );
           }
-        );
-        console.log(
-          `[handleDelete] ✅ showUpdateToast CALLED, returning filteredEntries for entry ${entryToDelete.id}`
         );
 
         return filteredEntries;
       });
-      console.log(
-        `[handleDelete] 🏁 FUNCTION COMPLETE for entry ${entryToDelete.id}`
-      );
     },
     [showUpdateToast]
   );
@@ -1811,7 +1696,7 @@ export function TimeTrackerTable({
         id: tempId,
         tempId: tempId,
         start: new Date(splitPoint).toISOString(),
-        stop: isRunning ? null : endTime.toISOString(),
+        stop: isRunning ? "" : endTime.toISOString(),
         duration: isRunning ? -1 : Math.floor(offsetMs / 1000),
       };
       splitEntries.push(secondEntry);
@@ -1995,7 +1880,7 @@ export function TimeTrackerTable({
               // Make older entry a running timer
               return {
                 ...e,
-                stop: null,
+                stop: "",
                 duration: -1,
               };
             } else {
@@ -2045,11 +1930,6 @@ export function TimeTrackerTable({
         return response.json();
       })
       .then((data) => {
-        console.log(
-          "[handleConfirmCombine] Successfully combined entries:",
-          data
-        );
-
         // Update only stop and duration from server response, keep everything else
         setTimeEntries((currentEntries) =>
           currentEntries.map((e) =>
@@ -2077,7 +1957,8 @@ export function TimeTrackerTable({
       description: string = "",
       projectName: string = "No Project",
       projectColor: string = "#6b7280",
-      tags: string[] = []
+      tags: string[] = [],
+      stopTime?: string
     ) => {
       let originalEntries: TimeEntry[] = [];
       let newEntry: TimeEntry | null = null;
@@ -2085,10 +1966,10 @@ export function TimeTrackerTable({
 
       // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
       const tempId = -Date.now();
-      console.log(`[startNewTimeEntry] 🆕 Generated temp ID: ${tempId}`);
 
       // Create timestamp once at the start
       const now = new Date().toISOString();
+      const isRunning = stopTime === undefined;
 
       // Get project_id from projectName
       const project = projects.find((p) => p.name === projectName);
@@ -2118,30 +1999,31 @@ export function TimeTrackerTable({
           project_name: projectName,
           project_color: projectColor,
           start: now,
-          stop: "", // Empty stop means it's running
-          duration: 0,
+          stop: isRunning ? "" : stopTime || now,
+          duration: isRunning ? -1 : 0,
           tags,
           tag_ids,
         };
 
-        // Optimistically stop the previous running timer and add new entry
-        const updatedEntries = runningEntry
-          ? currentEntries.map((entry) => {
-              if (runningEntry && entry.id === runningEntry.id) {
-                const startDate = new Date(entry.start);
-                const stopDate = new Date(now);
-                const calculatedDuration = Math.floor(
-                  (stopDate.getTime() - startDate.getTime()) / 1000
-                );
-                return {
-                  ...entry,
-                  stop: now,
-                  duration: calculatedDuration,
-                };
-              }
-              return entry;
-            })
-          : currentEntries;
+        // Optimistically stop the previous running timer and add new entry (only if new entry is running)
+        const updatedEntries =
+          isRunning && runningEntry
+            ? currentEntries.map((entry) => {
+                if (runningEntry && entry.id === runningEntry.id) {
+                  const startDate = new Date(entry.start);
+                  const stopDate = new Date(now);
+                  const calculatedDuration = Math.floor(
+                    (stopDate.getTime() - startDate.getTime()) / 1000
+                  );
+                  return {
+                    ...entry,
+                    stop: now,
+                    duration: calculatedDuration,
+                  };
+                }
+                return entry;
+              })
+            : currentEntries;
 
         return [newEntry, ...updatedEntries];
       });
@@ -2166,6 +2048,7 @@ export function TimeTrackerTable({
             body: JSON.stringify({
               description,
               start: now,
+              ...(stopTime !== undefined && { stop: stopTime || now }),
               project_name: projectName,
               tag_ids: tags
                 .map((tagName) => {
@@ -2187,24 +2070,14 @@ export function TimeTrackerTable({
           const createdEntry = await response.json();
           createdEntryId = createdEntry.id;
 
-          console.log(
-            `[startNewTimeEntry] ✅ RECEIVED RESPONSE - Created entry with real ID ${createdEntryId}, replacing temp ID ${tempId}`
-          );
-
           // Register ID mapping for the sync queue
           if (createdEntryId) {
             const realId = createdEntryId; // Assign to const for TypeScript
             const syncQueue = syncQueueRef.current;
 
-            console.log(
-              `[startNewTimeEntry] 🔄 REGISTERING ID MAPPING: ${tempId} → ${realId}`
-            );
             syncQueue.registerIdMapping(tempId, realId);
 
             // Update the entry's ID from temp to real, preserving any optimistic updates made to the entry
-            console.log(
-              `[startNewTimeEntry] 🔄 UPDATING STATE: Replacing entry ID from ${tempId} to ${realId} and preserving tempId field`
-            );
             setTimeEntries((prev) =>
               prev.map((entry) =>
                 entry.id === tempId
@@ -2237,24 +2110,9 @@ export function TimeTrackerTable({
             }
 
             // Flush any queued operations for this entry
-            console.log(
-              `[startNewTimeEntry] 🚀 FLUSHING QUEUED OPERATIONS for temp ID ${tempId} / real ID ${realId}`
-            );
             const results = await syncQueue.flushOperations(tempId, realId);
 
             const allSucceeded = results.every((r) => r.success);
-            console.log(
-              `[startNewTimeEntry] ✅ FLUSH COMPLETE: ${results.length} operations executed, all succeeded: ${allSucceeded}`
-            );
-            if (results.length > 0) {
-              results.forEach((result, i) => {
-                console.log(
-                  `  Operation ${i + 1}: ${result.success ? "✅" : "❌"} ${
-                    result.error || "Success"
-                  }`
-                );
-              });
-            }
 
             // Update final sync status based on results
             setEntrySyncStatus((prev) => {
@@ -2271,10 +2129,6 @@ export function TimeTrackerTable({
                 return newMap;
               });
             }, 2000);
-
-            console.log(
-              `[startNewTimeEntry] ✅ ID REPLACEMENT COMPLETE: ${tempId} → ${realId}`
-            );
           }
         } catch (error) {
           console.error("Failed to create time entry:", error);
@@ -2877,15 +2731,20 @@ export function TimeTrackerTable({
   );
 
   // Stable functions for keyboard navigation
-  const handleNewEntry = React.useCallback(() => {
+  const handleNewTimer = React.useCallback(() => {
     startNewTimeEntry();
+  }, [startNewTimeEntry]);
+
+  const handleNewStoppedEntry = React.useCallback(() => {
+    const now = new Date().toISOString();
+    startNewTimeEntry("", "No Project", "#6b7280", [], now);
   }, [startNewTimeEntry]);
 
   const handleNewEntryClick = React.useCallback(() => {
     // If already showing pinned entries, create empty timer
     if (showPinnedEntries) {
       setShowPinnedEntries(false);
-      handleNewEntry();
+      handleNewTimer();
       return;
     }
 
@@ -2901,8 +2760,8 @@ export function TimeTrackerTable({
     }
 
     // No pinned entries, just create new timer
-    handleNewEntry();
-  }, [showPinnedEntries, pinnedEntries.length, handleNewEntry]);
+    handleNewTimer();
+  }, [showPinnedEntries, pinnedEntries.length, handleNewTimer]);
 
   const handleRefreshData = React.useCallback(() => {
     if (date?.from && date?.to) {
@@ -2925,9 +2784,6 @@ export function TimeTrackerTable({
     if (selectedCell) {
       const entry = timeEntries[selectedCell.rowIndex];
       if (entry) {
-        console.log(
-          "[handleDeleteSelectedWithConfirmation] Opening delete dialog"
-        );
         setEntryToDelete(entry);
         deleteDialogOpenRef.current = true;
         setDeleteDialogOpen(true);
@@ -2935,9 +2791,7 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries]);
 
-  const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
-    console.log("[handleDeleteWithConfirmation] Opening delete dialog");
-    setEntryToDelete(entry);
+  const handleDeleteWithConfirmation = React.useCallback(() => {
     deleteDialogOpenRef.current = true;
     setDeleteDialogOpen(true);
   }, []);
@@ -2961,10 +2815,6 @@ export function TimeTrackerTable({
 
     // Check if this entry has queued operations that failed
     if (syncQueue.hasPendingOperations(entryId)) {
-      console.log(
-        `[handleRetrySync] Retrying queued operations for entry ${entryId}`
-      );
-
       setEntrySyncStatus((prev) => {
         const next = new Map(prev);
         next.set(entryId, "syncing");
@@ -3098,21 +2948,21 @@ export function TimeTrackerTable({
       )
         return;
 
-      // Handle 'n' key - show pinned entries if available, otherwise create new entry
+      // Handle 'n' key - show pinned entries if available, otherwise create new timer
       if (e.key === "n" && !isInInput) {
         e.preventDefault();
 
-        // If already showing pinned entries and waiting for number, create empty timer
+        // If already showing pinned entries, create new timer
         if (awaitingPinnedNumberRef.current) {
           awaitingPinnedNumberRef.current = false;
           setShowPinnedEntries(false);
           if (pinnedTimeoutIdRef.current)
             clearTimeout(pinnedTimeoutIdRef.current);
-          handleNewEntry();
+          handleNewTimer();
           return;
         }
 
-        // If we have pinned entries, show them and wait for number selection
+        // If we have pinned entries, show them and wait for action
         if (pinnedEntries.length > 0) {
           awaitingPinnedNumberRef.current = true;
           setShowPinnedEntries(true);
@@ -3121,7 +2971,7 @@ export function TimeTrackerTable({
           if (pinnedTimeoutIdRef.current)
             clearTimeout(pinnedTimeoutIdRef.current);
 
-          // Reset after 3 seconds if no number is pressed
+          // Reset after 3 seconds if no action is taken
           pinnedTimeoutIdRef.current = setTimeout(() => {
             awaitingPinnedNumberRef.current = false;
             setShowPinnedEntries(false);
@@ -3130,7 +2980,23 @@ export function TimeTrackerTable({
         }
 
         // No pinned entries, just create new timer
-        handleNewEntry();
+        handleNewTimer();
+        return;
+      }
+
+      // Handle 'e' key - create new stopped entry
+      if (e.key === "e" && !isInInput) {
+        e.preventDefault();
+
+        // If showing pinned entries, close them first
+        if (awaitingPinnedNumberRef.current) {
+          awaitingPinnedNumberRef.current = false;
+          setShowPinnedEntries(false);
+          if (pinnedTimeoutIdRef.current)
+            clearTimeout(pinnedTimeoutIdRef.current);
+        }
+
+        handleNewStoppedEntry();
         return;
       }
 
@@ -3414,7 +3280,8 @@ export function TimeTrackerTable({
     // Stable callback functions
     activateCell,
     navigateToNextCell,
-    handleNewEntry,
+    handleNewTimer,
+    handleNewStoppedEntry,
     handleRefreshData,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
@@ -3527,9 +3394,13 @@ export function TimeTrackerTable({
           pinnedEntries={pinnedEntries}
           onUnpin={handleUnpinEntry}
           onStartTimer={handleStartTimerFromPinned}
+          onNewTimer={() => {
+            setShowPinnedEntries(false);
+            handleNewTimer();
+          }}
           onNewEntry={() => {
             setShowPinnedEntries(false);
-            handleNewEntry();
+            handleNewStoppedEntry();
           }}
           showShortcuts={true}
         />
@@ -3570,24 +3441,11 @@ export function TimeTrackerTable({
                 defaultMonth={date?.from}
                 selected={date}
                 onSelect={(selectedRange) => {
-                  console.log("[Calendar] Selected range:", {
-                    from: selectedRange?.from?.toISOString(),
-                    to: selectedRange?.to?.toISOString(),
-                    fromLocal: selectedRange?.from?.toString(),
-                    toLocal: selectedRange?.to?.toString(),
-                  });
-
                   if (selectedRange?.from && selectedRange?.to) {
                     // Set end date to end of day
                     const endOfDayTo = endOfDay(selectedRange.to);
-                    console.log("[Calendar] Setting date range:", {
-                      from: selectedRange.from.toISOString(),
-                      to: endOfDayTo.toISOString(),
-                    });
                     setDate({ from: selectedRange.from, to: endOfDayTo });
                   } else {
-                    console.log("[Calendar] Partial selection, setting as-is");
-                    setDate(selectedRange);
                   }
                 }}
                 numberOfMonths={2}
@@ -3697,50 +3555,56 @@ export function TimeTrackerTable({
                 // Entries are sorted newest-first (descending chronologically)
                 // rowIndex - 1 = newer entry (happened after current) = next chronologically
                 // rowIndex + 1 = older entry (happened before current) = previous chronologically
-                const prevEntry = rowIndex < timeEntries.length - 1 ? timeEntries[rowIndex + 1] : null;
-                const nextEntry = rowIndex > 0 ? timeEntries[rowIndex - 1] : null;
+                const prevEntry =
+                  rowIndex < timeEntries.length - 1
+                    ? timeEntries[rowIndex + 1]
+                    : null;
+                const nextEntry =
+                  rowIndex > 0 ? timeEntries[rowIndex - 1] : null;
 
                 return (
-                <MemoizedTableRow
-                  key={entry.tempId || entry.id}
-                  entry={entry}
-                  rowIndex={rowIndex}
-                  prevEntryEnd={prevEntry?.stop || null}
-                  nextEntryStart={nextEntry?.start || null}
-                  selectedCell={selectedCell}
-                  onSelectCell={handleSelectCell}
-                  onDescriptionSave={handleDescriptionSave}
-                  onProjectChange={handleProjectChange}
-                  onTagsChange={handleTagsChange}
-                  onBulkEntryUpdate={handleBulkEntryUpdate}
-                  onBulkEntryUpdateByRowIndex={handleBulkEntryUpdateByRowIndex}
-                  onTimeChange={handleTimeChange}
-                  onDurationChange={handleDurationChange}
-                  onDurationChangeWithStartTimeAdjustment={
-                    handleDurationChangeWithStartTimeAdjustment
-                  }
-                  onDelete={handleDeleteWithConfirmation}
-                  onPin={handlePinEntry}
-                  onUnpin={handleUnpinEntry}
-                  onSplit={handleSplit}
-                  onCombine={handleCombine}
-                  onStartEntry={handleCopyAndStartEntry}
-                  isPinned={isPinned(entry.id.toString())}
-                  projects={projects}
-                  availableTags={availableTags}
-                  setIsEditingCell={setIsEditingCell}
-                  setIsProjectSelectorOpen={setIsProjectSelectorOpen}
-                  setIsTagSelectorOpen={setIsTagSelectorOpen}
-                  setIsActionsMenuOpen={setIsActionsMenuOpen}
-                  setIsTimeEditorOpen={setIsTimeEditorOpen}
-                  navigateToNextCell={navigateToNextCell}
-                  navigateToPrevCell={navigateToPrevCell}
-                  navigateToNextRow={navigateToNextRow}
-                  isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
-                  syncStatus={entrySyncStatus.get(entry.id)}
-                  onRetrySync={handleRetrySync}
-                  isFullscreen={isFullscreen}
-                />
+                  <MemoizedTableRow
+                    key={entry.tempId || entry.id}
+                    entry={entry}
+                    rowIndex={rowIndex}
+                    prevEntryEnd={prevEntry?.stop || null}
+                    nextEntryStart={nextEntry?.start || null}
+                    selectedCell={selectedCell}
+                    onSelectCell={handleSelectCell}
+                    onDescriptionSave={handleDescriptionSave}
+                    onProjectChange={handleProjectChange}
+                    onTagsChange={handleTagsChange}
+                    onBulkEntryUpdate={handleBulkEntryUpdate}
+                    onBulkEntryUpdateByRowIndex={
+                      handleBulkEntryUpdateByRowIndex
+                    }
+                    onTimeChange={handleTimeChange}
+                    onDurationChange={handleDurationChange}
+                    onDurationChangeWithStartTimeAdjustment={
+                      handleDurationChangeWithStartTimeAdjustment
+                    }
+                    onDelete={handleDeleteWithConfirmation}
+                    onPin={handlePinEntry}
+                    onUnpin={handleUnpinEntry}
+                    onSplit={handleSplit}
+                    onCombine={handleCombine}
+                    onStartEntry={handleCopyAndStartEntry}
+                    isPinned={isPinned(entry.id.toString())}
+                    projects={projects}
+                    availableTags={availableTags}
+                    setIsEditingCell={setIsEditingCell}
+                    setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                    setIsTagSelectorOpen={setIsTagSelectorOpen}
+                    setIsActionsMenuOpen={setIsActionsMenuOpen}
+                    setIsTimeEditorOpen={setIsTimeEditorOpen}
+                    navigateToNextCell={navigateToNextCell}
+                    navigateToPrevCell={navigateToPrevCell}
+                    navigateToNextRow={navigateToNextRow}
+                    isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
+                    syncStatus={entrySyncStatus.get(entry.id)}
+                    onRetrySync={handleRetrySync}
+                    isFullscreen={isFullscreen}
+                  />
                 );
               })}
               {hasMore && (
@@ -3782,11 +3646,7 @@ export function TimeTrackerTable({
 
       <DeleteConfirmationDialog
         open={deleteDialogOpen}
-        onOpenChange={(open) => {
-          console.log("[DeleteDialog] onOpenChange called with:", open);
-          deleteDialogOpenRef.current = open;
-          setDeleteDialogOpen(open);
-        }}
+        onOpenChange={() => {}}
         entry={entryToDelete}
         onConfirm={handleConfirmDelete}
       />

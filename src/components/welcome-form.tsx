@@ -271,6 +271,21 @@ export function WelcomeForm({
             )}
           </CardContent>
         </Card>
+
+        {/* Privacy Notice */}
+        <Card className="border-border/60 shadow-lg shadow-black/5 animate-in fade-in-0 slide-in-from-bottom-4 duration-700 delay-200">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-2">
+              <p className="text-sm font-medium text-foreground">
+                🔒 Your Privacy Matters
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                We do not collect any data. All your information is stored
+                locally on your device and never sent to our servers.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

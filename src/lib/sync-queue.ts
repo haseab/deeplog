@@ -68,13 +68,11 @@ export class SyncQueueManager {
    * This also moves all queued operations from temp ID to real ID
    */
   registerIdMapping(tempId: number, realId: number): void {
-    console.log(`[SyncQueue] Mapping temp ID ${tempId} -> real ID ${realId}`);
     this.idMap.set(tempId, realId);
 
     // Move queued operations from temp ID to real ID key
     const queuedOps = this.queue.get(tempId);
     if (queuedOps && queuedOps.length > 0) {
-      console.log(`[SyncQueue] Moving ${queuedOps.length} queued operations from temp ID ${tempId} to real ID ${realId}`);
       // Update the tempId field in each operation to reference the real ID
       queuedOps.forEach(op => {
         op.tempId = realId;
@@ -98,9 +96,7 @@ export class SyncQueueManager {
    * Add an operation to the queue for a temp ID
    */
   queueOperation(operation: QueuedOperation): void {
-    const { tempId, type } = operation;
-
-    console.log(`[SyncQueue] Queueing operation ${type} for temp ID ${tempId}`);
+    const { tempId } = operation;
 
     if (!this.queue.has(tempId)) {
       this.queue.set(tempId, []);
@@ -141,7 +137,6 @@ export class SyncQueueManager {
 
         const result = [...existing];
         result[lastBulkIndex] = merged;
-        console.log(`[SyncQueue] Merged bulk operations for temp ID ${newOp.tempId}`);
         return result;
       }
     }
@@ -173,7 +168,6 @@ export class SyncQueueManager {
 
         const result = [...existing];
         result[lastBulkIndex] = merged;
-        console.log(`[SyncQueue] Merged ${newOp.type} into bulk update for temp ID ${newOp.tempId}`);
         return result;
       }
     }
@@ -191,12 +185,9 @@ export class SyncQueueManager {
     const operations = this.queue.get(realId) || this.queue.get(tempId);
 
     if (!operations || operations.length === 0) {
-      console.log(`[SyncQueue] No operations to flush for temp ID ${tempId} / real ID ${realId}`);
       this.setSyncStatus(realId, 'synced');
       return [];
     }
-
-    console.log(`[SyncQueue] Flushing ${operations.length} operation(s) for real ID ${realId}`);
 
     this.setSyncStatus(realId, 'syncing');
 
@@ -206,14 +197,12 @@ export class SyncQueueManager {
       try {
         await operation.execute(realId);
         results.push({ success: true });
-        console.log(`[SyncQueue] Successfully executed ${operation.type} for ID ${realId}`);
       } catch (error) {
         console.error(`[SyncQueue] Failed to execute ${operation.type} for ID ${realId}:`, error);
 
         // Retry logic
         if (operation.retryCount < this.maxRetries) {
           const delay = this.baseRetryDelay * Math.pow(2, operation.retryCount);
-          console.log(`[SyncQueue] Retrying ${operation.type} after ${delay}ms (attempt ${operation.retryCount + 1}/${this.maxRetries})`);
 
           await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -221,7 +210,6 @@ export class SyncQueueManager {
             operation.retryCount++;
             await operation.execute(realId);
             results.push({ success: true });
-            console.log(`[SyncQueue] Retry successful for ${operation.type}`);
           } catch (retryError) {
             console.error(`[SyncQueue] Retry failed for ${operation.type}:`, retryError);
             results.push({
@@ -248,7 +236,6 @@ export class SyncQueueManager {
       // Clean up queue - operations might be under real ID or temp ID
       this.queue.delete(realId);
       this.queue.delete(tempId);
-      console.log(`[SyncQueue] All operations completed successfully for ID ${realId}`);
     }
 
     return results;
@@ -311,13 +298,10 @@ export class SyncQueueManager {
    * Retry failed operations for an entry
    */
   async retryFailedOperations(id: number): Promise<OperationResult[]> {
-    console.log(`[SyncQueue] Retrying failed operations for ID ${id}`);
-
     // Operations are now stored under the real ID after registerIdMapping
     // Reset retry counts
     const operations = this.queue.get(id);
     if (!operations || operations.length === 0) {
-      console.log(`[SyncQueue] No operations found for ID ${id}`);
       return [];
     }
 
