@@ -2791,7 +2791,8 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries]);
 
-  const handleDeleteWithConfirmation = React.useCallback(() => {
+  const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
+    setEntryToDelete(entry);
     deleteDialogOpenRef.current = true;
     setDeleteDialogOpen(true);
   }, []);
@@ -2939,12 +2940,14 @@ export function TimeTrackerTable({
         activeElement?.getAttribute("role") === "textbox";
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
+      // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
+      const isActionShortcut = ['d', 'x', 'c', 's', 'p'].includes(e.key);
       if (
         isEditingCell ||
         isProjectSelectorOpen ||
         isTagSelectorOpen ||
-        isActionsMenuOpen ||
-        isTimeEditorOpen
+        isTimeEditorOpen ||
+        (isActionsMenuOpen && !isActionShortcut)
       )
         return;
 
@@ -3227,7 +3230,7 @@ export function TimeTrackerTable({
           handleDeleteSelectedWithConfirmation();
           break;
 
-        case "s":
+        case "x":
           e.preventDefault();
           if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
@@ -3247,12 +3250,27 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "p":
+        case "s":
           e.preventDefault();
           if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
             if (entry) {
               handleCopyAndStartEntry(entry);
+            }
+          }
+          break;
+
+        case "p":
+          e.preventDefault();
+          if (selectedCell) {
+            const entry = timeEntries[selectedCell.rowIndex];
+            if (entry) {
+              const entryId = entry.id.toString();
+              if (isPinned(entryId)) {
+                handleUnpinEntry(entryId);
+              } else {
+                handlePinEntry(entry);
+              }
             }
           }
           break;
@@ -3646,7 +3664,13 @@ export function TimeTrackerTable({
 
       <DeleteConfirmationDialog
         open={deleteDialogOpen}
-        onOpenChange={() => {}}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            deleteDialogOpenRef.current = false;
+            setEntryToDelete(null);
+          }
+        }}
         entry={entryToDelete}
         onConfirm={handleConfirmDelete}
       />

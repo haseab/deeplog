@@ -63,7 +63,11 @@ export function DeleteConfirmationDialog({
       } else {
         deleteButtonRef.current?.focus();
       }
-    } else if (e.key === "Enter" || e.key === "Escape") {
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenChange(false);
+    } else if (e.key === "Enter") {
       e.stopPropagation();
     }
   };

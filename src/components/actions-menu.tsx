@@ -44,13 +44,13 @@ export function ActionsMenu({
 
   // Menu options array for easier navigation
   const menuOptions = [
-    { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true },
-    { label: "✂️ Split", action: onSplit || (() => {}) },
-    { label: "🔗 Combine", action: onCombine || (() => {}) },
+    { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true, shortcut: "D" },
+    { label: "✂️ Split", action: onSplit || (() => {}), shortcut: "X" },
+    { label: "🔗 Combine", action: onCombine || (() => {}), shortcut: "C" },
     isPinned
-      ? { label: "📌 Unpin", action: onUnpin || (() => {}) }
-      : { label: "📌 Pin", action: onPin || (() => {}) },
-    { label: "▶︎ Start", action: onStartEntry || (() => {}) },
+      ? { label: "📌 Unpin", action: onUnpin || (() => {}), shortcut: "P" }
+      : { label: "📌 Pin", action: onPin || (() => {}), shortcut: "P" },
+    { label: "▶︎ Start", action: onStartEntry || (() => {}), shortcut: "S" },
   ];
 
   // Notify parent of open state changes
@@ -59,11 +59,6 @@ export function ActionsMenu({
   }, [isOpen, onOpenChange]);
 
   const handleOpenChange = (open: boolean) => {
-    // If closing and menu is persistent, don't close
-    if (!open && isPersistent) {
-      return;
-    }
-
     setIsOpen(open);
     if (open) {
       // Focus the menu content when opening and reset highlighted index
@@ -78,10 +73,16 @@ export function ActionsMenu({
     }
   };
 
-  const handleTriggerClick = () => {
-    // Click makes it persistent
-    setIsPersistent(true);
-    setIsOpen(true);
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    // If already open (from hover), make it persistent and keep it open
+    if (isOpen) {
+      setIsPersistent(true);
+    } else {
+      // If closed, open it as persistent
+      setIsPersistent(true);
+      setIsOpen(true);
+    }
   };
 
   const handleTriggerHover = () => {
@@ -154,6 +155,7 @@ export function ActionsMenu({
         e.preventDefault();
         e.stopPropagation();
         console.log("🔵 ActionsMenu escape - setting isOpen to false");
+        setIsPersistent(false);
         setIsOpen(false);
         break;
       case "Tab":
@@ -206,14 +208,15 @@ export function ActionsMenu({
               onClick={() => handleAction(option.action)}
               onMouseEnter={() => setHighlightedIndex(index)}
               className={cn(
-                "px-3 py-2 text-sm text-left transition-colors duration-150 rounded-md cursor-pointer focus:outline-none focus:ring-0 focus-visible:ring-0",
+                "px-3 py-2 text-sm text-left transition-colors duration-150 rounded-md cursor-pointer focus:outline-none focus:ring-0 focus-visible:ring-0 flex items-center justify-between gap-3",
                 "hover:bg-accent/60 hover:text-accent-foreground",
                 option.isDestructive && "text-destructive",
                 index === highlightedIndex &&
                   "bg-gray-200 dark:bg-gray-700 text-foreground"
               )}
             >
-              {option.label}
+              <span>{option.label}</span>
+              <span className="text-xs text-muted-foreground">{option.shortcut}</span>
             </button>
           ))}
         </div>
