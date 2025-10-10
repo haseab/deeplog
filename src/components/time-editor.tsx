@@ -42,17 +42,21 @@ export function TimeEditor({
   const [startDateValue, setStartDateValue] = React.useState("");
   const [startTimeHours, setStartTimeHours] = React.useState("");
   const [startTimeMinutes, setStartTimeMinutes] = React.useState("");
+  const [startTimeSeconds, setStartTimeSeconds] = React.useState("");
   const [endDateValue, setEndDateValue] = React.useState("");
   const [endTimeHours, setEndTimeHours] = React.useState("");
   const [endTimeMinutes, setEndTimeMinutes] = React.useState("");
+  const [endTimeSeconds, setEndTimeSeconds] = React.useState("");
   const [error, setError] = React.useState("");
 
   const startDateInputRef = React.useRef<HTMLInputElement>(null);
   const startTimeHoursRef = React.useRef<HTMLInputElement>(null);
   const startTimeMinutesRef = React.useRef<HTMLInputElement>(null);
+  const startTimeSecondsRef = React.useRef<HTMLInputElement>(null);
   const endDateInputRef = React.useRef<HTMLInputElement>(null);
   const endTimeHoursRef = React.useRef<HTMLInputElement>(null);
   const endTimeMinutesRef = React.useRef<HTMLInputElement>(null);
+  const endTimeSecondsRef = React.useRef<HTMLInputElement>(null);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
@@ -66,16 +70,19 @@ export function TimeEditor({
       setStartDateValue(format(start, "yyyy-MM-dd"));
       setStartTimeHours(format(start, "HH"));
       setStartTimeMinutes(format(start, "mm"));
+      setStartTimeSeconds(format(start, "ss"));
 
       if (endTime) {
         const end = new Date(endTime);
         setEndDateValue(format(end, "yyyy-MM-dd"));
         setEndTimeHours(format(end, "HH"));
         setEndTimeMinutes(format(end, "mm"));
+        setEndTimeSeconds(format(end, "ss"));
       } else {
         setEndDateValue(format(start, "yyyy-MM-dd"));
         setEndTimeHours("");
         setEndTimeMinutes("");
+        setEndTimeSeconds("");
       }
       setError("");
 
@@ -129,21 +136,33 @@ export function TimeEditor({
   const buildDateTime = (
     dateStr: string,
     hours: string,
-    minutes: string
+    minutes: string,
+    seconds: string
   ): Date | null => {
     const date = parseDateInput(dateStr);
     if (!date) return null;
 
     const h = parseInt(hours);
     const m = parseInt(minutes);
+    const s = parseInt(seconds);
 
-    if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+    if (
+      isNaN(h) ||
+      isNaN(m) ||
+      isNaN(s) ||
+      h < 0 ||
+      h > 23 ||
+      m < 0 ||
+      m > 59 ||
+      s < 0 ||
+      s > 59
+    ) {
       return null;
     }
 
     date.setHours(h);
     date.setMinutes(m);
-    date.setSeconds(0);
+    date.setSeconds(s);
     date.setMilliseconds(0);
 
     return date;
@@ -153,7 +172,8 @@ export function TimeEditor({
     const finalStartDateTime = buildDateTime(
       startDateValue,
       startTimeHours,
-      startTimeMinutes
+      startTimeMinutes,
+      startTimeSeconds
     );
 
     if (!finalStartDateTime) {
@@ -162,11 +182,12 @@ export function TimeEditor({
     }
 
     let finalEndDateTime: Date | null = null;
-    if (endTimeHours.trim() || endTimeMinutes.trim()) {
+    if (endTimeHours.trim() || endTimeMinutes.trim() || endTimeSeconds.trim()) {
       finalEndDateTime = buildDateTime(
         endDateValue,
         endTimeHours,
-        endTimeMinutes
+        endTimeMinutes,
+        endTimeSeconds
       );
 
       if (!finalEndDateTime) {
@@ -207,7 +228,13 @@ export function TimeEditor({
   };
 
   const adjustTime = (
-    field: "startHours" | "startMinutes" | "endHours" | "endMinutes",
+    field:
+      | "startHours"
+      | "startMinutes"
+      | "startSeconds"
+      | "endHours"
+      | "endMinutes"
+      | "endSeconds",
     delta: number
   ) => {
     if (field === "startHours") {
@@ -218,6 +245,10 @@ export function TimeEditor({
       const current = parseInt(startTimeMinutes) || 0;
       const newValue = Math.max(0, Math.min(59, current + delta));
       setStartTimeMinutes(newValue.toString().padStart(2, "0"));
+    } else if (field === "startSeconds") {
+      const current = parseInt(startTimeSeconds) || 0;
+      const newValue = Math.max(0, Math.min(59, current + delta));
+      setStartTimeSeconds(newValue.toString().padStart(2, "0"));
     } else if (field === "endHours") {
       const current = parseInt(endTimeHours) || 0;
       const newValue = Math.max(0, Math.min(23, current + delta));
@@ -226,6 +257,10 @@ export function TimeEditor({
       const current = parseInt(endTimeMinutes) || 0;
       const newValue = Math.max(0, Math.min(59, current + delta));
       setEndTimeMinutes(newValue.toString().padStart(2, "0"));
+    } else if (field === "endSeconds") {
+      const current = parseInt(endTimeSeconds) || 0;
+      const newValue = Math.max(0, Math.min(59, current + delta));
+      setEndTimeSeconds(newValue.toString().padStart(2, "0"));
     }
   };
 
@@ -236,6 +271,7 @@ export function TimeEditor({
     setStartDateValue(format(prevEnd, "yyyy-MM-dd"));
     setStartTimeHours(format(prevEnd, "HH"));
     setStartTimeMinutes(format(prevEnd, "mm"));
+    setStartTimeSeconds(format(prevEnd, "ss"));
     setError("");
   };
 
@@ -246,6 +282,7 @@ export function TimeEditor({
     setEndDateValue(format(nextStart, "yyyy-MM-dd"));
     setEndTimeHours(format(nextStart, "HH"));
     setEndTimeMinutes(format(nextStart, "mm"));
+    setEndTimeSeconds(format(nextStart, "ss"));
     setError("");
   };
 
@@ -254,8 +291,10 @@ export function TimeEditor({
     field:
       | "startHours"
       | "startMinutes"
+      | "startSeconds"
       | "endHours"
       | "endMinutes"
+      | "endSeconds"
       | "startDate"
       | "endDate"
   ) => {
@@ -282,12 +321,14 @@ export function TimeEditor({
       return;
     }
 
-    // Arrow keys for time fields (hours and minutes)
+    // Arrow keys for time fields (hours, minutes, and seconds)
     if (
       field === "startHours" ||
       field === "startMinutes" ||
+      field === "startSeconds" ||
       field === "endHours" ||
-      field === "endMinutes"
+      field === "endMinutes" ||
+      field === "endSeconds"
     ) {
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -333,7 +374,7 @@ export function TimeEditor({
       }
     } else if (e.key === "Tab") {
       if (e.shiftKey) {
-        // Shift+Tab (backwards): save → end date → start date → end minutes → end hours → start minutes → start hours
+        // Shift+Tab (backwards): save → end date → start date → end seconds → end minutes → end hours → start seconds → start minutes → start hours
         if (field === "startMinutes") {
           e.preventDefault();
           e.stopPropagation();
@@ -341,12 +382,19 @@ export function TimeEditor({
             startTimeHoursRef.current?.focus();
             startTimeHoursRef.current?.select();
           }, 0);
-        } else if (field === "endHours") {
+        } else if (field === "startSeconds") {
           e.preventDefault();
           e.stopPropagation();
           setTimeout(() => {
             startTimeMinutesRef.current?.focus();
             startTimeMinutesRef.current?.select();
+          }, 0);
+        } else if (field === "endHours") {
+          e.preventDefault();
+          e.stopPropagation();
+          setTimeout(() => {
+            startTimeSecondsRef.current?.focus();
+            startTimeSecondsRef.current?.select();
           }, 0);
         } else if (field === "endMinutes") {
           e.preventDefault();
@@ -355,12 +403,19 @@ export function TimeEditor({
             endTimeHoursRef.current?.focus();
             endTimeHoursRef.current?.select();
           }, 0);
-        } else if (field === "startDate") {
+        } else if (field === "endSeconds") {
           e.preventDefault();
           e.stopPropagation();
           setTimeout(() => {
             endTimeMinutesRef.current?.focus();
             endTimeMinutesRef.current?.select();
+          }, 0);
+        } else if (field === "startDate") {
+          e.preventDefault();
+          e.stopPropagation();
+          setTimeout(() => {
+            endTimeSecondsRef.current?.focus();
+            endTimeSecondsRef.current?.select();
           }, 0);
         } else if (field === "endDate") {
           e.preventDefault();
@@ -377,12 +432,16 @@ export function TimeEditor({
           onNavigatePrev?.();
         }
       } else {
-        // Tab (forward): start hours → start minutes → end hours → end minutes → start date → end date → save
+        // Tab (forward): start hours → start minutes → start seconds → end hours → end minutes → end seconds → start date → end date → save
         if (field === "startHours") {
           e.preventDefault();
           startTimeMinutesRef.current?.focus();
           startTimeMinutesRef.current?.select();
         } else if (field === "startMinutes") {
+          e.preventDefault();
+          startTimeSecondsRef.current?.focus();
+          startTimeSecondsRef.current?.select();
+        } else if (field === "startSeconds") {
           e.preventDefault();
           endTimeHoursRef.current?.focus();
           endTimeHoursRef.current?.select();
@@ -391,6 +450,10 @@ export function TimeEditor({
           endTimeMinutesRef.current?.focus();
           endTimeMinutesRef.current?.select();
         } else if (field === "endMinutes") {
+          e.preventDefault();
+          endTimeSecondsRef.current?.focus();
+          endTimeSecondsRef.current?.select();
+        } else if (field === "endSeconds") {
           e.preventDefault();
           startDateInputRef.current?.focus();
           startDateInputRef.current?.select();
@@ -495,6 +558,19 @@ export function TimeEditor({
                     className="font-mono h-8 w-12 text-center text-sm p-0"
                     maxLength={2}
                   />
+                  <span className="text-muted-foreground text-sm">:</span>
+                  <Input
+                    ref={startTimeSecondsRef}
+                    placeholder="00"
+                    value={startTimeSeconds}
+                    onChange={(e) => {
+                      setStartTimeSeconds(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "startSeconds")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
                 </div>
               </div>
 
@@ -545,6 +621,19 @@ export function TimeEditor({
                     className="font-mono h-8 w-12 text-center text-sm p-0"
                     maxLength={2}
                   />
+                  <span className="text-muted-foreground text-sm">:</span>
+                  <Input
+                    ref={endTimeSecondsRef}
+                    placeholder="00"
+                    value={endTimeSeconds}
+                    onChange={(e) => {
+                      setEndTimeSeconds(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => handleKeyDown(e, "endSeconds")}
+                    className="font-mono h-8 w-12 text-center text-sm p-0"
+                    maxLength={2}
+                  />
                 </div>
               </div>
             </div>
@@ -567,7 +656,7 @@ export function TimeEditor({
                     setError("");
                   }}
                   onKeyDown={(e) => handleKeyDown(e, "startDate")}
-                  className="font-mono h-8 text-sm text-center w-28 px-0"
+                  className="font-mono h-8 text-sm text-center w-full px-0"
                 />
               </div>
 
@@ -585,7 +674,7 @@ export function TimeEditor({
                     setError("");
                   }}
                   onKeyDown={(e) => handleKeyDown(e, "endDate")}
-                  className="font-mono h-8 text-sm text-center w-28 px-0"
+                  className="font-mono h-8 text-sm text-center w-full px-0"
                 />
               </div>
             </div>
