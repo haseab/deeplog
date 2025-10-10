@@ -39,6 +39,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
@@ -3398,6 +3404,7 @@ export function TimeTrackerTable({
   }, [selectedCell, timeEntries]);
 
   return (
+    <TooltipProvider delayDuration={0}>
     <div
       className={cn(
         "space-y-6 overflow-auto overscroll-none",
@@ -3479,31 +3486,41 @@ export function TimeTrackerTable({
           />
         </div>
         <div className="flex items-center gap-3">
-          <Button
-            onClick={handleFullscreenToggle}
-            size="icon"
-            variant="outline"
-            className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-            title={
-              isFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"
-            }
-            disabled={isTransitioning}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-4 h-4" />
-            ) : (
-              <Maximize2 className="w-4 h-4" />
-            )}
-          </Button>
-          <Button
-            onClick={handleNewEntryClick}
-            size="icon"
-            variant="outline"
-            className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
-            title="Start new timer (N)"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreenToggle}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+                disabled={isTransitioning}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleNewEntryClick}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              New (N)
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -3701,5 +3718,6 @@ export function TimeTrackerTable({
         onConfirm={handleConfirmCombine}
       />
     </div>
+    </TooltipProvider>
   );
 }

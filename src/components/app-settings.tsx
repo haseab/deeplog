@@ -11,6 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useTheme } from "next-themes";
@@ -67,6 +73,19 @@ export function AppSettings({
         setToastDuration(parseInt(savedDuration, 10));
       }
     }
+
+    // Add keyboard shortcut for Cmd+, to open settings
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showLimitlessKey, showTogglKey]);
 
   const handleThemeChange = (checked: boolean) => {
@@ -115,12 +134,20 @@ export function AppSettings({
   ];
 
   return (
+    <TooltipProvider delayDuration={0}>
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <Settings className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          Settings (⌘,)
+        </TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <div className="flex h-[600px]">
@@ -398,5 +425,6 @@ export function AppSettings({
         </div>
       </DialogContent>
     </Dialog>
+    </TooltipProvider>
   );
 }

@@ -1,16 +1,21 @@
 "use client";
 
-import React from "react";
-import { cn } from "@/lib/utils";
-import { CheckCircle2, AlertCircle, RefreshCw, WifiOff } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { AlertCircle, CheckCircle2, RefreshCw, WifiOff } from "lucide-react";
+import React from "react";
 
-type SyncStatus = "synced" | "syncing" | "error" | "session_expired" | "offline";
+type SyncStatus =
+  | "synced"
+  | "syncing"
+  | "error"
+  | "session_expired"
+  | "offline";
 
 interface SyncStatusBadgeProps {
   status: SyncStatus;
@@ -45,7 +50,7 @@ export function SyncStatusBadge({
         return {
           icon: RefreshCw,
           text: "Syncing...",
-          color: "text-blue-600 dark:text-blue-400",
+          color: "text-blue-600 dark:text-blue-400 ",
           bgColor: "bg-blue-50 dark:bg-blue-900/20",
           borderColor: "border-blue-200 dark:border-blue-800",
           description: "Fetching latest data from Toggl",
@@ -111,38 +116,39 @@ export function SyncStatusBadge({
   const badge = (
     <div
       className={cn(
-        "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-200 relative overflow-hidden",
+        "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-200 relative overflow-hidden min-w-[120px] justify-center",
         config.bgColor,
         config.borderColor,
         config.color,
         isClickable && "cursor-pointer hover:scale-105 hover:shadow-sm",
-        showRefreshOnHover && isHovered && "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400",
+        showRefreshOnHover &&
+          isHovered &&
+          "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400",
         className
       )}
       onClick={isClickable ? handleClick : undefined}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div className={cn(
-        "flex items-center gap-2 transition-all duration-200",
-        showRefreshOnHover && isHovered && "blur-sm opacity-0"
-      )}>
-        <Icon
-          className={cn(
-            "w-4 h-4",
-            config.animate && "animate-spin"
-          )}
-        />
+      <div
+        className={cn(
+          "flex items-center gap-2 transition-all duration-200",
+          showRefreshOnHover && isHovered && "blur-sm opacity-0"
+        )}
+      >
+        <Icon className={cn("w-4 h-4", config.animate && "animate-spin")} />
         <span>{config.text}</span>
       </div>
 
       {showRefreshOnHover && (
-        <div className={cn(
-          "absolute inset-0 flex items-center justify-center gap-2 transition-all duration-200",
-          isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-        )}>
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center gap-2 transition-all duration-200",
+            isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
           <RefreshCw className="w-4 h-4" />
-          <span>Refresh</span>
+          <span>Refresh (R)</span>
         </div>
       )}
     </div>
@@ -151,19 +157,13 @@ export function SyncStatusBadge({
   return (
     <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger asChild>
-          {badge}
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-sm">
+        <TooltipTrigger asChild>{badge}</TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
           <p>{config.description}</p>
           {config.actionable && (
             <p className="text-xs text-muted-foreground mt-1">
-              Click to {status === "session_expired" ? "reauthenticate" : "retry"}
-            </p>
-          )}
-          {showRefreshOnHover && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Click to refresh
+              Click to{" "}
+              {status === "session_expired" ? "reauthenticate" : "retry"}
             </p>
           )}
         </TooltipContent>
