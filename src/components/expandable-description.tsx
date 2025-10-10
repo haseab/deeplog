@@ -295,7 +295,7 @@ export function ExpandableDescription({
         }
 
         // Handle Command/Ctrl + K for link dialog
-        if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
+        if (event.key === "k" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
           event.preventDefault();
           event.stopPropagation();
 
@@ -313,6 +313,16 @@ export function ExpandableDescription({
             y: rect.top - 10,
           });
           setShowLinkDialog(true);
+
+          return true; // Handled
+        }
+
+        // Handle Command/Ctrl + Shift + K to remove link
+        if (event.key === "k" && (event.metaKey || event.ctrlKey) && event.shiftKey) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          editor?.chain().focus().unsetLink().run();
 
           return true; // Handled
         }
@@ -614,6 +624,18 @@ export function ExpandableDescription({
                     disabled={!linkUrl.trim()}
                   >
                     Insert Link
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => {
+                      editor?.chain().focus().unsetLink().run();
+                      setShowLinkDialog(false);
+                      setLinkUrl("");
+                      setLinkText("");
+                    }}
+                  >
+                    Remove Link
                   </Button>
                   <Button
                     size="sm"

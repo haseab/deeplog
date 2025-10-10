@@ -11,6 +11,7 @@ import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import {
   AlertCircle,
+  BarChart3,
   Calendar as CalendarIcon,
   Check,
   Clock,
@@ -81,6 +82,7 @@ const MemoizedTableRow = React.memo(
     onSplit,
     onCombine,
     onStartEntry,
+    onStopTimer,
     isPinned,
     projects,
     availableTags,
@@ -133,6 +135,7 @@ const MemoizedTableRow = React.memo(
     onSplit: (entry: TimeEntry) => void;
     onCombine: (entry: TimeEntry) => void;
     onStartEntry: (entry: TimeEntry) => void;
+    onStopTimer: (entry: TimeEntry) => void;
     isPinned: boolean;
     projects: Project[];
     availableTags: Tag[];
@@ -420,6 +423,7 @@ const MemoizedTableRow = React.memo(
             onSplit={() => onSplit(entry)}
             onCombine={() => onCombine(entry)}
             onStartEntry={() => onStartEntry(entry)}
+            onStopTimer={() => onStopTimer(entry)}
             onDelete={() => onDelete(entry)}
             onOpenChange={setIsActionsMenuOpen}
             onNavigateNext={navigateToNextCell}
@@ -427,6 +431,7 @@ const MemoizedTableRow = React.memo(
               selectedCell?.rowIndex === rowIndex &&
               selectedCell?.cellIndex === 6
             }
+            isRunning={!entry.stop || entry.duration === -1}
             data-testid="actions-menu"
           />
         </TableCell>
@@ -2182,6 +2187,47 @@ export function TimeTrackerTable({
     [startNewTimeEntry]
   );
 
+  const handleStopTimer = React.useCallback(
+    async (entry: TimeEntry) => {
+      const now = new Date();
+      const start = new Date(entry.start);
+      const durationInSeconds = Math.floor((now.getTime() - start.getTime()) / 1000);
+
+      try {
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const response = await fetch(`/api/time-entries/${entry.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-toggl-session-token": sessionToken || "",
+          },
+          body: JSON.stringify({
+            stop: now.toISOString(),
+          }),
+        });
+
+        if (!response.ok) throw new Error("Failed to stop timer");
+
+        // Update the time entries to reflect the stopped timer
+        setTimeEntries((prev) =>
+          prev.map((e) =>
+            e.id === entry.id
+              ? { ...e, stop: now.toISOString(), duration: durationInSeconds }
+              : e
+          )
+        );
+      } catch (error) {
+        console.error("Error stopping timer:", error);
+        toast({
+          title: "Error",
+          description: "Failed to stop timer",
+          variant: "destructive",
+        });
+      }
+    },
+    []
+  );
+
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
   const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
@@ -3261,7 +3307,16 @@ export function TimeTrackerTable({
           if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
             if (entry) {
-              handleCopyAndStartEntry(entry);
+              // Check if Alt/Option key is pressed
+              if (e.altKey) {
+                // Stop timer if it's running
+                if (!entry.stop || entry.duration === -1) {
+                  handleStopTimer(entry);
+                }
+              } else {
+                // Start new entry (copy and start)
+                handleCopyAndStartEntry(entry);
+              }
             }
           }
           break;
@@ -3313,6 +3368,7 @@ export function TimeTrackerTable({
     handleSplit,
     handleCombine,
     handleCopyAndStartEntry,
+    handleStopTimer,
     handleFullscreenToggle,
   ]);
 
@@ -3489,6 +3545,21 @@ export function TimeTrackerTable({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                onClick={() => window.open("https://track.toggl.com/reports/", "_blank")}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              View Analytics
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
                 onClick={handleFullscreenToggle}
                 size="icon"
                 variant="outline"
@@ -3624,6 +3695,7 @@ export function TimeTrackerTable({
                     onSplit={handleSplit}
                     onCombine={handleCombine}
                     onStartEntry={handleCopyAndStartEntry}
+                    onStopTimer={handleStopTimer}
                     isPinned={isPinned(entry.id.toString())}
                     projects={projects}
                     availableTags={availableTags}

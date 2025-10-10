@@ -16,10 +16,12 @@ interface ActionsMenuProps {
   onSplit?: () => void;
   onCombine?: () => void;
   onStartEntry?: () => void;
+  onStopTimer?: () => void;
   onDelete?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
   isSelected?: boolean;
+  isRunning?: boolean;
   "data-testid"?: string;
 }
 
@@ -30,10 +32,12 @@ export function ActionsMenu({
   onSplit,
   onCombine,
   onStartEntry,
+  onStopTimer,
   onDelete,
   onOpenChange,
   onNavigateNext,
   isSelected = false,
+  isRunning = false,
   "data-testid": dataTestId,
 }: ActionsMenuProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -50,7 +54,9 @@ export function ActionsMenu({
     isPinned
       ? { label: "📌 Unpin", action: onUnpin || (() => {}), shortcut: "P" }
       : { label: "📌 Pin", action: onPin || (() => {}), shortcut: "P" },
-    { label: "▶︎ Start", action: onStartEntry || (() => {}), shortcut: "S" },
+    isRunning
+      ? { label: "⏹ Stop", action: onStopTimer || (() => {}), shortcut: "⌥S" }
+      : { label: "▶︎ Start", action: onStartEntry || (() => {}), shortcut: "S" },
   ];
 
   // Notify parent of open state changes
