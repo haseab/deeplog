@@ -105,8 +105,9 @@ export async function POST(request: NextRequest) {
     };
 
     if (isCurrentEntryRunning) {
-      // Make older entry a running timer (no stop time)
-      // Don't set stop or duration - Toggl will handle it
+      // Make older entry a running timer
+      updateBody.duration = -1;
+      // Don't include stop field for running timers
       console.log(`[Combine API] Making older entry a running timer`);
     } else {
       // Extend older entry to current entry's stop time
