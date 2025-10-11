@@ -8,9 +8,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import React from "react";
 import type { Tag } from "../types";
+import { toast } from "@/lib/toast";
 
 interface TagSelectorProps {
   currentTags: string[];
@@ -19,6 +20,7 @@ interface TagSelectorProps {
   onOpenChange?: (isOpen: boolean) => void;
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
+  onTagCreated?: (tag: Tag) => void;
   "data-testid"?: string;
 }
 
@@ -29,6 +31,7 @@ export function TagSelector({
   onOpenChange,
   onNavigateNext,
   onNavigatePrev,
+  onTagCreated,
   "data-testid": dataTestId,
 }: TagSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -36,6 +39,9 @@ export function TagSelector({
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const [isChanging, setIsChanging] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [newTagName, setNewTagName] = React.useState("");
+  const [isCreatingTag, setIsCreatingTag] = React.useState(false);
 
   // Notify parent of open state changes
   React.useEffect(() => {
@@ -97,6 +103,54 @@ export function TagSelector({
     const newTags = currentTags.filter((tag) => tag !== tagName);
     onTagsChange?.(newTags);
     setIsChanging(false);
+  };
+
+  const handleCreateTag = async () => {
+    if (!newTagName.trim()) {
+      toast.error("Tag name is required");
+      return;
+    }
+
+    setIsCreatingTag(true);
+    try {
+      const sessionToken = localStorage.getItem("toggl_session_token");
+      const response = await fetch("/api/tags", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          name: newTagName.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create tag");
+      }
+
+      const newTag = await response.json();
+      toast.success(`Tag "${newTag.name}" created`);
+
+      // Notify parent to refresh tags list
+      onTagCreated?.({
+        id: newTag.id,
+        name: newTag.name,
+      });
+
+      // Add the newly created tag to current tags directly
+      const newTags = [...currentTags, newTag.name];
+      onTagsChange?.(newTags);
+
+      // Reset creation state
+      setIsCreating(false);
+      setNewTagName("");
+    } catch (error) {
+      console.error("Error creating tag:", error);
+      toast.error("Failed to create tag");
+    } finally {
+      setIsCreatingTag(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -225,52 +279,107 @@ export function TagSelector({
           />
         </div>
         <div className="max-h-[200px] overflow-auto">
-          {allOptions.length > 0 ? (
-            allOptions.map((option, index) => {
-              const isSelected = currentTags.includes(option.name);
-              const isFirstUnselected =
-                index > 0 &&
-                currentTags.includes(allOptions[index - 1].name) &&
-                !isSelected;
+          {!isCreating ? (
+            <>
+              {allOptions.length > 0 ? (
+                allOptions.map((option, index) => {
+                  const isSelected = currentTags.includes(option.name);
+                  const isFirstUnselected =
+                    index > 0 &&
+                    currentTags.includes(allOptions[index - 1].name) &&
+                    !isSelected;
 
-              return (
-                <React.Fragment key={option.id}>
-                  {isFirstUnselected && (
-                    <div className="h-px bg-border/40 mx-3 my-1" />
-                  )}
-                  <div
-                    className={cn(
-                      "relative flex cursor-pointer select-none items-center px-3 py-2.5 text-sm transition-all duration-150",
-                      "hover:bg-accent/60 hover:text-accent-foreground",
-                      "active:scale-[0.98] active:bg-accent/80",
-                      index === highlightedIndex &&
-                        "bg-gray-200 dark:bg-gray-700 text-foreground",
-                      isSelected && "font-medium bg-primary/5"
-                    )}
-                    onClick={() => handleToggleTag(option.name)}
-                  >
-                    <div className="flex items-center w-full">
-                      <span
+                  return (
+                    <React.Fragment key={option.id}>
+                      {isFirstUnselected && (
+                        <div className="h-px bg-border/40 mx-3 my-1" />
+                      )}
+                      <div
                         className={cn(
-                          "transition-colors duration-200",
-                          index === highlightedIndex && "text-foreground font-medium"
+                          "relative flex cursor-pointer select-none items-center px-3 py-2.5 text-sm transition-all duration-150",
+                          "hover:bg-accent/60 hover:text-accent-foreground",
+                          "active:scale-[0.98] active:bg-accent/80",
+                          index === highlightedIndex &&
+                            "bg-gray-200 dark:bg-gray-700 text-foreground",
+                          isSelected && "font-medium bg-primary/5"
                         )}
+                        onClick={() => handleToggleTag(option.name)}
                       >
-                        {option.name}
-                      </span>
-                    </div>
-                    {isSelected && (
-                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary animate-in fade-in-0 zoom-in-50 duration-200" />
-                    )}
-                  </div>
-                </React.Fragment>
-              );
-            })
+                        <div className="flex items-center w-full">
+                          <span
+                            className={cn(
+                              "transition-colors duration-200",
+                              index === highlightedIndex && "text-foreground font-medium"
+                            )}
+                          >
+                            {option.name}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <Check className="ml-auto h-4 w-4 shrink-0 text-primary animate-in fade-in-0 zoom-in-50 duration-200" />
+                        )}
+                      </div>
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-6 text-sm text-muted-foreground text-center animate-in fade-in-0 duration-200">
+                  {searchTerm.trim()
+                    ? `No tags found matching "${searchTerm}"`
+                    : "No tags available"}
+                </div>
+              )}
+              <div className="border-t border-border/40 p-2">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-sm"
+                  onClick={() => setIsCreating(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create New Tag
+                </Button>
+              </div>
+            </>
           ) : (
-            <div className="px-3 py-6 text-sm text-muted-foreground text-center animate-in fade-in-0 duration-200">
-              {searchTerm.trim()
-                ? `No tags found matching "${searchTerm}"`
-                : "No tags available"}
+            <div className="p-3 space-y-3">
+              <div>
+                <Input
+                  placeholder="Tag name"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleCreateTag();
+                    } else if (e.key === "Escape") {
+                      setIsCreating(false);
+                      setNewTagName("");
+                    }
+                  }}
+                  autoFocus
+                  className="text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleCreateTag}
+                  disabled={isCreatingTag}
+                  className="flex-1"
+                >
+                  {isCreatingTag ? "Creating..." : "Create"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setIsCreating(false);
+                    setNewTagName("");
+                  }}
+                  disabled={isCreatingTag}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </div>

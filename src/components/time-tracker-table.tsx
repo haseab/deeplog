@@ -86,6 +86,8 @@ const MemoizedTableRow = React.memo(
     isPinned,
     projects,
     availableTags,
+    onProjectCreated,
+    onTagCreated,
     setIsEditingCell,
     setIsProjectSelectorOpen,
     setIsTagSelectorOpen,
@@ -139,6 +141,8 @@ const MemoizedTableRow = React.memo(
     isPinned: boolean;
     projects: Project[];
     availableTags: Tag[];
+    onProjectCreated: (project: Project) => void;
+    onTagCreated: (tag: Tag) => void;
     setIsEditingCell: (editing: boolean) => void;
     setIsProjectSelectorOpen: (open: boolean) => void;
     setIsTagSelectorOpen: (open: boolean) => void;
@@ -216,6 +220,7 @@ const MemoizedTableRow = React.memo(
                 onNavigateNext={navigateToNextCell}
                 onNavigatePrev={navigateToPrevCell}
                 onNavigateDown={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
                 data-testid="project-selector"
               />
             </TableCell>
@@ -235,6 +240,7 @@ const MemoizedTableRow = React.memo(
                 onOpenChange={setIsTagSelectorOpen}
                 onNavigateNext={navigateToNextCell}
                 onNavigatePrev={navigateToPrevCell}
+                onTagCreated={onTagCreated}
                 data-testid="tag-selector"
               />
             </TableCell>
@@ -337,6 +343,7 @@ const MemoizedTableRow = React.memo(
                 onNavigateNext={navigateToNextCell}
                 onNavigatePrev={navigateToPrevCell}
                 onNavigateDown={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
                 data-testid="project-selector"
               />
             </TableCell>
@@ -356,6 +363,7 @@ const MemoizedTableRow = React.memo(
                 onOpenChange={setIsTagSelectorOpen}
                 onNavigateNext={navigateToNextCell}
                 onNavigatePrev={navigateToPrevCell}
+                onTagCreated={onTagCreated}
                 data-testid="tag-selector"
               />
             </TableCell>
@@ -484,6 +492,10 @@ const MemoizedTableRow = React.memo(
     const projectsEqual = prevProps.projects === nextProps.projects;
     const availableTagsEqual =
       prevProps.availableTags === nextProps.availableTags;
+    const onProjectCreatedEqual =
+      prevProps.onProjectCreated === nextProps.onProjectCreated;
+    const onTagCreatedEqual =
+      prevProps.onTagCreated === nextProps.onTagCreated;
     const setIsEditingCellEqual =
       prevProps.setIsEditingCell === nextProps.setIsEditingCell;
     const setIsProjectSelectorOpenEqual =
@@ -519,6 +531,8 @@ const MemoizedTableRow = React.memo(
       onStartEntryEqual &&
       projectsEqual &&
       availableTagsEqual &&
+      onProjectCreatedEqual &&
+      onTagCreatedEqual &&
       setIsEditingCellEqual &&
       setIsProjectSelectorOpenEqual &&
       setIsTagSelectorOpenEqual &&
@@ -574,6 +588,7 @@ export function TimeTrackerTable({
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
+  const projectsRef = React.useRef<Project[]>([]);
   const [availableTags, setAvailableTags] = React.useState<Tag[]>([]);
   const availableTagsRef = React.useRef<Tag[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -865,7 +880,7 @@ export function TimeTrackerTable({
         { project_name: newProject },
         "UPDATE_PROJECT",
         () => {
-          const selectedProject = projects.find((p) => p.name === newProject);
+          const selectedProject = projectsRef.current.find((p) => p.name === newProject);
           const newProjectColor =
             newProject === "No Project" || newProject === ""
               ? "#6b7280"
@@ -892,9 +907,8 @@ export function TimeTrackerTable({
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
-        // Find the project color for optimistic update
-        // We need to access projects from current scope, not dependency
-        const selectedProject = projects.find((p) => p.name === newProject);
+        // Find the project color for optimistic update using ref for up-to-date data
+        const selectedProject = projectsRef.current.find((p) => p.name === newProject);
         const newProjectColor =
           newProject === "No Project" || newProject === ""
             ? "#6b7280"
@@ -950,15 +964,15 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [projects, showUpdateToast, handleUpdateWithQueue]
+    [showUpdateToast, handleUpdateWithQueue]
   );
 
   const handleTagsChange = React.useCallback(
     (entryId: number) => (newTags: string[]) => {
-      // Convert tag names to tag IDs for API payload
+      // Convert tag names to tag IDs for API payload using ref for up-to-date data
       const tagIds = newTags
         .map((tagName) => {
-          const tag = availableTags.find((t) => t.name === tagName);
+          const tag = availableTagsRef.current.find((t) => t.name === tagName);
           return tag ? tag.id : null;
         })
         .filter((id): id is number => id !== null);
@@ -1033,8 +1047,38 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, availableTags, handleUpdateWithQueue]
+    [showUpdateToast, handleUpdateWithQueue]
   );
+
+  const handleTagCreated = React.useCallback((newTag: Tag) => {
+    // Update ref immediately for synchronous access
+    if (!availableTagsRef.current.find(t => t.id === newTag.id)) {
+      availableTagsRef.current = [...availableTagsRef.current, newTag];
+    }
+
+    // Also update state for UI
+    setAvailableTags((current) => {
+      if (current.find(t => t.id === newTag.id)) {
+        return current;
+      }
+      return [...current, newTag];
+    });
+  }, []);
+
+  const handleProjectCreated = React.useCallback((newProject: Project) => {
+    // Update ref immediately for synchronous access
+    if (!projectsRef.current.find(p => p.id === newProject.id)) {
+      projectsRef.current = [...projectsRef.current, newProject];
+    }
+
+    // Also update state for UI
+    setProjects((current) => {
+      if (current.find(p => p.id === newProject.id)) {
+        return current;
+      }
+      return [...current, newProject];
+    });
+  }, []);
 
   const handleBulkEntryUpdate = React.useCallback(
     (entryId: number) =>
@@ -2658,6 +2702,10 @@ export function TimeTrackerTable({
   }, [timeEntries]);
 
   React.useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  React.useEffect(() => {
     availableTagsRef.current = availableTags;
   }, [availableTags]);
 
@@ -3699,6 +3747,8 @@ export function TimeTrackerTable({
                     isPinned={isPinned(entry.id.toString())}
                     projects={projects}
                     availableTags={availableTags}
+                    onProjectCreated={handleProjectCreated}
+                    onTagCreated={handleTagCreated}
                     setIsEditingCell={setIsEditingCell}
                     setIsProjectSelectorOpen={setIsProjectSelectorOpen}
                     setIsTagSelectorOpen={setIsTagSelectorOpen}

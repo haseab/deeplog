@@ -8,9 +8,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Plus, Search } from "lucide-react";
 import * as React from "react";
 import type { Project } from "../types";
+import { toast } from "@/lib/toast";
 
 interface ProjectSelectorProps {
   currentProject: string;
@@ -21,8 +22,15 @@ interface ProjectSelectorProps {
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
   onNavigateDown?: () => void;
+  onProjectCreated?: (project: Project) => void;
   "data-testid"?: string;
 }
+
+// Common color palette for projects
+const PROJECT_COLORS = [
+  "#525266", "#e36a00", "#d92b2b", "#c56bff", "#8b46ff",
+  "#06aaf5", "#00b5ad", "#4ecb73", "#d5d5d5", "#ffc800",
+];
 
 export function ProjectSelector({
   currentProject,
@@ -33,12 +41,17 @@ export function ProjectSelector({
   onNavigateNext,
   onNavigatePrev,
   onNavigateDown,
+  onProjectCreated,
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [isOpen, setIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [newProjectName, setNewProjectName] = React.useState("");
+  const [selectedColor, setSelectedColor] = React.useState(PROJECT_COLORS[0]);
+  const [isCreatingProject, setIsCreatingProject] = React.useState(false);
 
   // Notify parent of open state changes
   React.useEffect(() => {
@@ -80,6 +93,56 @@ export function ProjectSelector({
     setIsOpen(false);
     setSearchTerm("");
     setHighlightedIndex(0);
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim()) {
+      toast.error("Project name is required");
+      return;
+    }
+
+    setIsCreatingProject(true);
+    try {
+      const sessionToken = localStorage.getItem("toggl_session_token");
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          name: newProjectName.trim(),
+          color: selectedColor,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create project");
+      }
+
+      const newProject = await response.json();
+      toast.success(`Project "${newProject.name}" created`);
+
+      // Notify parent to refresh projects list
+      onProjectCreated?.({
+        id: newProject.id,
+        name: newProject.name,
+        color: newProject.color,
+      });
+
+      // Select the newly created project
+      handleSelect(newProject.name);
+
+      // Reset creation state
+      setIsCreating(false);
+      setNewProjectName("");
+      setSelectedColor(PROJECT_COLORS[0]);
+    } catch (error) {
+      console.error("Error creating project:", error);
+      toast.error("Failed to create project");
+    } finally {
+      setIsCreatingProject(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -193,49 +256,120 @@ export function ProjectSelector({
           />
         </div>
         <div className="max-h-[200px] overflow-auto">
-          {allOptions.length > 0 ? (
-            allOptions.map((option, index) => (
-              <div
-                key={option.id}
-                className={cn(
-                  "relative flex cursor-pointer select-none items-center px-3 py-2.5 text-sm transition-all duration-150",
-                  "hover:bg-accent/60 hover:text-accent-foreground",
-                  "active:scale-[0.98] active:bg-accent/80",
-                  index === highlightedIndex &&
-                    "bg-gray-200 dark:bg-gray-700 text-foreground",
-                  option.name === currentProject && "font-medium bg-primary/5"
-                )}
-                onClick={() => handleSelect(option.name)}
-              >
-                <div className="flex items-center w-full">
-                  {option.color && (
-                    <div
-                      className="w-3 h-3 rounded-full mr-2 shrink-0 transition-all duration-200 hover:scale-110"
-                      style={{ backgroundColor: option.color }}
-                    />
-                  )}
-                  <span
+          {!isCreating ? (
+            <>
+              {allOptions.length > 0 ? (
+                allOptions.map((option, index) => (
+                  <div
+                    key={option.id}
                     className={cn(
-                      "transition-colors duration-200",
-                      index === highlightedIndex && "text-foreground font-medium"
+                      "relative flex cursor-pointer select-none items-center px-3 py-2.5 text-sm transition-all duration-150",
+                      "hover:bg-accent/60 hover:text-accent-foreground",
+                      "active:scale-[0.98] active:bg-accent/80",
+                      index === highlightedIndex &&
+                        "bg-gray-200 dark:bg-gray-700 text-foreground",
+                      option.name === currentProject && "font-medium bg-primary/5"
                     )}
-                    style={{
-                      color: index === highlightedIndex
-                        ? undefined
-                        : (option.color || "inherit")
-                    }}
+                    onClick={() => handleSelect(option.name)}
                   >
-                    {option.name}
-                  </span>
+                    <div className="flex items-center w-full">
+                      {option.color && (
+                        <div
+                          className="w-3 h-3 rounded-full mr-2 shrink-0 transition-all duration-200 hover:scale-110"
+                          style={{ backgroundColor: option.color }}
+                        />
+                      )}
+                      <span
+                        className={cn(
+                          "transition-colors duration-200",
+                          index === highlightedIndex && "text-foreground font-medium"
+                        )}
+                        style={{
+                          color: index === highlightedIndex
+                            ? undefined
+                            : (option.color || "inherit")
+                        }}
+                      >
+                        {option.name}
+                      </span>
+                    </div>
+                    {option.name === currentProject && (
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary animate-in fade-in-0 zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-6 text-sm text-muted-foreground text-center animate-in fade-in-0 duration-200">
+                  No projects found matching &ldquo;{searchTerm}&rdquo;
                 </div>
-                {option.name === currentProject && (
-                  <Check className="ml-auto h-4 w-4 shrink-0 text-primary animate-in fade-in-0 zoom-in-50 duration-200" />
-                )}
+              )}
+              <div className="border-t border-border/40 p-2">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-sm"
+                  onClick={() => setIsCreating(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create New Project
+                </Button>
               </div>
-            ))
+            </>
           ) : (
-            <div className="px-3 py-6 text-sm text-muted-foreground text-center animate-in fade-in-0 duration-200">
-              No projects found matching &ldquo;{searchTerm}&rdquo;
+            <div className="p-3 space-y-3">
+              <div>
+                <Input
+                  placeholder="Project name"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleCreateProject();
+                    } else if (e.key === "Escape") {
+                      setIsCreating(false);
+                      setNewProjectName("");
+                    }
+                  }}
+                  autoFocus
+                  className="text-sm"
+                />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground mb-2">Color</div>
+                <div className="grid grid-cols-5 gap-2">
+                  {PROJECT_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      className={cn(
+                        "w-8 h-8 rounded-full transition-all duration-200 hover:scale-110",
+                        selectedColor === color && "ring-2 ring-primary ring-offset-2"
+                      )}
+                      style={{ backgroundColor: color }}
+                      onClick={() => setSelectedColor(color)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleCreateProject}
+                  disabled={isCreatingProject}
+                  className="flex-1"
+                >
+                  {isCreatingProject ? "Creating..." : "Create"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setIsCreating(false);
+                    setNewProjectName("");
+                  }}
+                  disabled={isCreatingProject}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </div>
