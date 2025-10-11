@@ -1,6 +1,8 @@
 "use client";
 
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
+import { useEncryptionContext } from "@/contexts/encryption-context";
+import { encryptDescription, decryptDescription } from "@/lib/encryption";
 import {
   SyncQueueManager,
   type OperationType,
@@ -58,6 +60,8 @@ import { ProjectSelector } from "./project-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
+import { PinDialog } from "./pin-dialog";
+import { EncryptionStatus } from "./encryption-status";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -557,6 +561,72 @@ export function TimeTrackerTable({
   onFullscreenChange,
 }: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
+  const encryption = useEncryptionContext();
+
+  // Decrypt pinned entries for display
+  const decryptedPinnedEntries = React.useMemo(() => {
+    console.log('[E2EE] Decrypting pinned entries:', {
+      isE2EEEnabled: encryption.isE2EEEnabled,
+      isUnlocked: encryption.isUnlocked,
+      hasSessionKey: !!encryption.getSessionKey(),
+      totalPinnedEntries: pinnedEntries.length,
+    });
+
+    if (!encryption.isE2EEEnabled || !encryption.isUnlocked) {
+      console.log('[E2EE] Skipping pinned entries decryption - not enabled or locked');
+      return pinnedEntries;
+    }
+
+    const sessionKey = encryption.getSessionKey();
+    if (!sessionKey) {
+      console.log('[E2EE] Skipping pinned entries decryption - no session key');
+      return pinnedEntries;
+    }
+
+    return pinnedEntries.map((entry) => {
+      // Check if description looks encrypted (format: IV:AuthTag:Ciphertext)
+      const looksEncrypted = entry.description && entry.description.includes(':') && entry.description.split(':').length === 3;
+      const isMarkedAsEncrypted = encryption.isEntryEncrypted(entry.id);
+
+      console.log(`[E2EE] Pinned entry ${entry.id}:`, {
+        description: entry.description?.substring(0, 50) + '...',
+        looksEncrypted,
+        isMarkedAsEncrypted,
+      });
+
+      if (looksEncrypted) {
+        try {
+          const decryptedDescription = decryptDescription(
+            entry.description,
+            sessionKey,
+            entry.id
+          );
+          console.log(`[E2EE] Decrypted pinned entry ${entry.id}:`, {
+            encrypted: entry.description?.substring(0, 50) + '...',
+            decrypted: decryptedDescription,
+          });
+          return { ...entry, description: decryptedDescription };
+        } catch (error) {
+          console.error(`[E2EE] Failed to decrypt pinned entry ${entry.id}:`, error);
+          return entry;
+        }
+      }
+      console.log(`[E2EE] Pinned entry ${entry.id} not encrypted, returning as-is`);
+      return entry;
+    });
+  }, [pinnedEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey, encryption.isEntryEncrypted]);
+
+  // Debug: log encryption state changes
+  React.useEffect(() => {
+    console.log('[TimeTrackerTable] Encryption state updated:', {
+      isE2EEEnabled: encryption.isE2EEEnabled,
+      isUnlocked: encryption.isUnlocked,
+      hasSessionKey: !!encryption.getSessionKey()
+    });
+  }, [encryption.isE2EEEnabled, encryption.isUnlocked]);
+
+  const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
+  const [pinError, setPinError] = React.useState<string>("");
   const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
@@ -591,6 +661,36 @@ export function TimeTrackerTable({
   );
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
+
+  // Decrypt entries when E2EE is enabled and unlocked
+  const decryptedEntries = React.useMemo(() => {
+    if (!encryption.isE2EEEnabled || !encryption.isUnlocked) {
+      return timeEntries;
+    }
+
+    const sessionKey = encryption.getSessionKey();
+    if (!sessionKey) {
+      return timeEntries;
+    }
+
+    return timeEntries.map((entry) => {
+      if (encryption.isEntryEncrypted(entry.id)) {
+        try {
+          const decryptedDescription = decryptDescription(
+            entry.description,
+            sessionKey,
+            entry.id
+          );
+          return { ...entry, description: decryptedDescription };
+        } catch (error) {
+          console.error(`[E2EE] Failed to decrypt entry ${entry.id}:`, error);
+          return entry;
+        }
+      }
+      return entry;
+    });
+  }, [timeEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey, encryption.isEntryEncrypted]);
+
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
   const [availableTags, setAvailableTags] = React.useState<Tag[]>([]);
@@ -808,15 +908,30 @@ export function TimeTrackerTable({
         { description: newDescription },
         "UPDATE_DESCRIPTION",
         () => ({ description: newDescription }),
-        (realId, sessionToken) =>
-          fetch(`/api/time-entries/${realId}`, {
+        (realId, sessionToken) => {
+          // Encrypt description if E2EE is enabled and unlocked
+          let finalDescription = newDescription;
+          if (encryption.isE2EEEnabled && encryption.isUnlocked) {
+            const sessionKey = encryption.getSessionKey();
+            if (sessionKey) {
+              try {
+                finalDescription = encryptDescription(newDescription, sessionKey, realId);
+                encryption.markEntryEncrypted(realId);
+              } catch (error) {
+                console.error('[E2EE] Failed to encrypt description:', error);
+              }
+            }
+          }
+
+          return fetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
               "x-toggl-session-token": sessionToken,
             },
-            body: JSON.stringify({ description: newDescription }),
-          })
+            body: JSON.stringify({ description: finalDescription }),
+          });
+        }
       );
 
       if (wasQueued) return;
@@ -838,13 +953,42 @@ export function TimeTrackerTable({
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
 
+            // Encrypt description if E2EE is enabled and unlocked
+            let finalDescription = newDescription;
+            console.log('[E2EE DEBUG] Editing entry:', {
+              isE2EEEnabled: encryption.isE2EEEnabled,
+              isUnlocked: encryption.isUnlocked,
+              hasSessionKey: !!encryption.getSessionKey(),
+              originalDescription: newDescription,
+              entryId
+            });
+
+            if (encryption.isE2EEEnabled && encryption.isUnlocked) {
+              const sessionKey = encryption.getSessionKey();
+              if (sessionKey) {
+                try {
+                  finalDescription = encryptDescription(newDescription, sessionKey, entryId);
+                  encryption.markEntryEncrypted(entryId);
+                  console.log('[E2EE DEBUG] Encrypted edited description:', {
+                    original: newDescription,
+                    encrypted: finalDescription,
+                    lengthMatch: newDescription.length === finalDescription.length
+                  });
+                } catch (error) {
+                  console.error('[E2EE] Failed to encrypt description:', error);
+                }
+              }
+            } else {
+              console.log('[E2EE DEBUG] Skipping encryption - not enabled or locked');
+            }
+
             const response = await fetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
                 "x-toggl-session-token": sessionToken || "",
               },
-              body: JSON.stringify({ description: newDescription }),
+              body: JSON.stringify({ description: finalDescription }),
             });
 
             if (!response.ok) {
@@ -873,7 +1017,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue]
+    [showUpdateToast, handleUpdateWithQueue, encryption]
   );
 
   const handleProjectChange = React.useCallback(
@@ -1091,6 +1235,20 @@ export function TimeTrackerTable({
         projectName?: string;
         tags?: string[];
       }) => {
+        // Encrypt description if E2EE is enabled
+        let finalDescription = updates.description;
+        if (finalDescription !== undefined && encryption.isE2EEEnabled && encryption.isUnlocked) {
+          const sessionKey = encryption.getSessionKey();
+          if (sessionKey) {
+            try {
+              finalDescription = encryptDescription(finalDescription, sessionKey, entryId);
+              encryption.markEntryEncrypted(entryId);
+            } catch (error) {
+              console.error('[E2EE] Failed to encrypt description in bulk update:', error);
+            }
+          }
+        }
+
         // Check if this is a temp ID
         const syncQueue = syncQueueRef.current;
         const isTempId = syncQueue.isTempId(entryId);
@@ -1131,8 +1289,8 @@ export function TimeTrackerTable({
                 ? {
                     ...e,
                     description:
-                      updates.description !== undefined
-                        ? updates.description
+                      finalDescription !== undefined
+                        ? finalDescription
                         : e.description,
                     project_id: projectId,
                     project_name: projectName,
@@ -1148,7 +1306,7 @@ export function TimeTrackerTable({
           const operation: QueuedOperation = {
             type: "UPDATE_BULK",
             tempId: entryId,
-            payload: { ...updates },
+            payload: { ...updates, description: finalDescription },
             retryCount: 0,
             timestamp: Date.now(),
             execute: async (realId: number) => {
@@ -1156,8 +1314,8 @@ export function TimeTrackerTable({
               const payload: Record<string, string | number | number[] | null> =
                 {};
 
-              if (updates.description !== undefined) {
-                payload.description = updates.description;
+              if (finalDescription !== undefined) {
+                payload.description = finalDescription;
               }
               if (updates.projectName !== undefined) {
                 payload.project_name = updates.projectName;
@@ -1242,8 +1400,8 @@ export function TimeTrackerTable({
               ? {
                   ...e,
                   description:
-                    updates.description !== undefined
-                      ? updates.description
+                    finalDescription !== undefined
+                      ? finalDescription
                       : e.description,
                   project_id: projectId,
                   project_name: projectName,
@@ -1262,8 +1420,8 @@ export function TimeTrackerTable({
               const payload: Record<string, string | number | number[] | null> =
                 {};
 
-              if (updates.description !== undefined) {
-                payload.description = updates.description;
+              if (finalDescription !== undefined) {
+                payload.description = finalDescription;
               }
               if (updates.projectName !== undefined) {
                 payload.project_name = updates.projectName;
@@ -1301,7 +1459,7 @@ export function TimeTrackerTable({
           return updatedEntries;
         });
       },
-    [showUpdateToast, projects, availableTags]
+    [showUpdateToast, projects, availableTags, encryption]
   );
 
   // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)
@@ -2121,6 +2279,22 @@ export function TimeTrackerTable({
 
       const apiCall = async () => {
         try {
+          // Encrypt description if E2EE is enabled and unlocked
+          let finalDescription = description;
+
+          if (encryption.isE2EEEnabled && encryption.isUnlocked) {
+            const sessionKey = encryption.getSessionKey();
+            if (sessionKey) {
+              try {
+                finalDescription = encryptDescription(description, sessionKey, tempId);
+                encryption.markEntryEncrypted(tempId);
+              } catch (error) {
+                console.error('[E2EE] Failed to encrypt description:', error);
+                // Continue with unencrypted description if encryption fails
+              }
+            }
+          }
+
           const response = await fetch("/api/time-entries", {
             method: "POST",
             headers: {
@@ -2128,7 +2302,7 @@ export function TimeTrackerTable({
               "x-toggl-session-token": sessionToken || "",
             },
             body: JSON.stringify({
-              description,
+              description: finalDescription,
               start: now,
               ...(stopTime !== undefined && { stop: stopTime || now }),
               project_name: projectName,
@@ -2243,19 +2417,33 @@ export function TimeTrackerTable({
         apiCall
       );
     },
-    [projects, availableTags, showUpdateToast]
+    [projects, availableTags, showUpdateToast, encryption]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
     (entry: TimeEntry) => {
+      // Decrypt description if it's encrypted (due to React.memo caching stale entry objects)
+      let description = entry.description;
+
+      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entry.id)) {
+        const sessionKey = encryption.getSessionKey();
+        if (sessionKey) {
+          try {
+            description = decryptDescription(entry.description, sessionKey, entry.id);
+          } catch (error) {
+            console.error('[E2EE] Failed to decrypt entry description:', error);
+          }
+        }
+      }
+
       startNewTimeEntry(
-        entry.description,
+        description,
         entry.project_name || "No Project",
         entry.project_color || "#6b7280",
         entry.tags || []
       );
     },
-    [startNewTimeEntry]
+    [startNewTimeEntry, encryption]
   );
 
   const handleStopTimer = React.useCallback(
@@ -2843,14 +3031,28 @@ export function TimeTrackerTable({
 
   const handleStartTimerFromPinned = React.useCallback(
     (entry: PinnedEntry) => {
+      // Decrypt the description if it's encrypted (since startNewTimeEntry expects plaintext)
+      let description = entry.description;
+
+      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entry.id)) {
+        const sessionKey = encryption.getSessionKey();
+        if (sessionKey) {
+          try {
+            description = decryptDescription(entry.description, sessionKey, entry.id);
+          } catch (error) {
+            console.error('[E2EE] Failed to decrypt pinned entry description:', error);
+          }
+        }
+      }
+
       startNewTimeEntry(
-        entry.description,
+        description,
         entry.project_name,
         entry.project_color,
         entry.tags
       );
     },
-    [startNewTimeEntry]
+    [startNewTimeEntry, encryption]
   );
 
   // Stable functions for keyboard navigation
@@ -2905,14 +3107,14 @@ export function TimeTrackerTable({
 
   const handleDeleteSelectedWithConfirmation = React.useCallback(() => {
     if (selectedCell) {
-      const entry = timeEntries[selectedCell.rowIndex];
+      const entry = decryptedEntries[selectedCell.rowIndex];
       if (entry) {
         setEntryToDelete(entry);
         deleteDialogOpenRef.current = true;
         setDeleteDialogOpen(true);
       }
     }
-  }, [selectedCell, timeEntries]);
+  }, [selectedCell, decryptedEntries]);
 
   const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
     setEntryToDelete(entry);
@@ -3400,7 +3602,7 @@ export function TimeTrackerTable({
         case "x":
           e.preventDefault();
           if (selectedCell) {
-            const entry = timeEntries[selectedCell.rowIndex];
+            const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
               handleSplit(entry);
             }
@@ -3410,7 +3612,7 @@ export function TimeTrackerTable({
         case "c":
           e.preventDefault();
           if (selectedCell) {
-            const entry = timeEntries[selectedCell.rowIndex];
+            const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
               handleCombine(entry);
             }
@@ -3574,6 +3776,30 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries]);
 
+  // Handle encryption lock/unlock
+  const handleLockEncryption = React.useCallback(() => {
+    encryption.lockE2EE();
+    toast.success("Encryption locked");
+  }, [encryption]);
+
+  const handleUnlockEncryption = React.useCallback(() => {
+    setPinError("");
+    setPinDialogOpen(true);
+  }, []);
+
+  const handlePinSuccess = React.useCallback((pin: string) => {
+    const result = encryption.unlockE2EE(pin);
+    if (result.success) {
+      toast.success("Encryption unlocked");
+      setPinDialogOpen(false);
+      setPinError("");
+    } else {
+      setPinError(result.error || "Failed to unlock");
+    }
+  }, [encryption]);
+
+  // No need to show unlock dialog - it auto-unlocks from localStorage
+
   return (
     <TooltipProvider delayDuration={0}>
     <div
@@ -3587,7 +3813,7 @@ export function TimeTrackerTable({
     >
       {showPinnedEntries && (
         <PinnedTimeEntries
-          pinnedEntries={pinnedEntries}
+          pinnedEntries={decryptedPinnedEntries}
           onUnpin={handleUnpinEntry}
           onStartTimer={handleStartTimerFromPinned}
           onNewTimer={() => {
@@ -3654,6 +3880,12 @@ export function TimeTrackerTable({
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
+          />
+          <EncryptionStatus
+            isE2EEEnabled={encryption.isE2EEEnabled}
+            isUnlocked={encryption.isUnlocked}
+            onLock={handleLockEncryption}
+            onUnlock={handleUnlockEncryption}
           />
         </div>
         <div className="flex items-center gap-3">
@@ -3771,17 +4003,17 @@ export function TimeTrackerTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {timeEntries.map((entry, rowIndex) => {
+              {decryptedEntries.map((entry, rowIndex) => {
                 // Calculate adjacent entries for snap functionality
                 // Entries are sorted newest-first (descending chronologically)
                 // rowIndex - 1 = newer entry (happened after current) = next chronologically
                 // rowIndex + 1 = older entry (happened before current) = previous chronologically
                 const prevEntry =
-                  rowIndex < timeEntries.length - 1
-                    ? timeEntries[rowIndex + 1]
+                  rowIndex < decryptedEntries.length - 1
+                    ? decryptedEntries[rowIndex + 1]
                     : null;
                 const nextEntry =
-                  rowIndex > 0 ? timeEntries[rowIndex - 1] : null;
+                  rowIndex > 0 ? decryptedEntries[rowIndex - 1] : null;
 
                 return (
                   <MemoizedTableRow
@@ -3899,12 +4131,20 @@ export function TimeTrackerTable({
         currentEntry={entryToCombine}
         previousEntry={
           entryToCombine
-            ? timeEntries[
-                timeEntries.findIndex((e) => e.id === entryToCombine.id) + 1
+            ? decryptedEntries[
+                decryptedEntries.findIndex((e) => e.id === entryToCombine.id) + 1
               ]
             : null
         }
         onConfirm={handleConfirmCombine}
+      />
+      <PinDialog
+        open={pinDialogOpen}
+        onOpenChange={setPinDialogOpen}
+        mode="verify"
+        onSuccess={handlePinSuccess}
+        error={pinError}
+        lockoutTimeRemaining={encryption.isLockedOut() ? encryption.getLockoutTimeRemaining() : undefined}
       />
     </div>
     </TooltipProvider>

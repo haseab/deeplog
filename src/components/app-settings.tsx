@@ -17,9 +17,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid } from "lucide-react";
+import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useTheme } from "next-themes";
+import { useEncryptionContext } from "@/contexts/encryption-context";
+import { PinDialog } from "@/components/pin-dialog";
 
 interface AppSettingsProps {
   showLimitlessKey?: boolean;
@@ -52,6 +54,12 @@ export function AppSettings({
 
   // Toast duration setting
   const [toastDuration, setToastDuration] = useState(4000);
+
+  // E2EE state
+  const encryption = useEncryptionContext();
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinDialogMode, setPinDialogMode] = useState<"setup" | "verify" | "change">("setup");
+  const [pinError, setPinError] = useState<string>("");
 
   useEffect(() => {
     setMounted(true);
@@ -125,6 +133,57 @@ export function AppSettings({
     } else {
       window.location.reload();
     }
+  };
+
+  const handleE2EEToggle = (checked: boolean) => {
+    if (checked) {
+      // Enable E2EE - show PIN setup dialog
+      setPinDialogMode("setup");
+      setPinError("");
+      setPinDialogOpen(true);
+    } else {
+      // Disable E2EE - require PIN verification
+      setPinDialogMode("verify");
+      setPinError("");
+      setPinDialogOpen(true);
+    }
+  };
+
+  const handlePinSuccess = (pin: string, newPin?: string) => {
+    setPinError("");
+
+    if (pinDialogMode === "setup") {
+      const result = encryption.enableE2EE(pin);
+      if (result.success) {
+        toast.success("End-to-end encryption enabled");
+        setPinDialogOpen(false);
+      } else {
+        setPinError(result.error || "Failed to enable encryption");
+      }
+    } else if (pinDialogMode === "verify") {
+      // Verify PIN before disabling
+      const result = encryption.disableE2EE(pin);
+      if (result.success) {
+        toast.success("End-to-end encryption disabled");
+        setPinDialogOpen(false);
+      } else {
+        setPinError(result.error || "Failed to disable encryption");
+      }
+    } else if (pinDialogMode === "change" && newPin) {
+      const result = encryption.changePin(pin, newPin);
+      if (result.success) {
+        toast.success("PIN changed successfully");
+        setPinDialogOpen(false);
+      } else {
+        setPinError(result.error || "Failed to change PIN");
+      }
+    }
+  };
+
+  const handleChangePin = () => {
+    setPinDialogMode("change");
+    setPinError("");
+    setPinDialogOpen(true);
   };
 
   const menuItems = [
@@ -238,6 +297,50 @@ export function AppSettings({
                           {(toastDuration / 1000).toFixed(1)}s
                         </span>
                       </div>
+                    </div>
+
+                    {/* E2EE Settings */}
+                    <div className="space-y-4 p-4 rounded-lg border-2 border-primary/20 bg-primary/5">
+                      <div className="flex items-start gap-3">
+                        <Shield className="h-5 w-5 text-primary mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="text-base font-semibold mb-1">End-to-End Encryption</h4>
+                          <p className="text-sm text-muted-foreground mb-3">
+                            Encrypt time entry descriptions locally with a 6-digit PIN. Your data stays private even on Toggl servers.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="e2ee-enabled" className="text-base font-medium">
+                            Enable Encryption
+                          </Label>
+                          <p className="text-sm text-muted-foreground">
+                            {encryption.isE2EEEnabled ?
+                              (encryption.isUnlocked ? "Unlocked and active" : "Locked - unlock to view entries") :
+                              "Protect your descriptions with encryption"}
+                          </p>
+                        </div>
+                        <Switch
+                          id="e2ee-enabled"
+                          checked={encryption.isE2EEEnabled}
+                          onCheckedChange={handleE2EEToggle}
+                        />
+                      </div>
+
+                      {encryption.isE2EEEnabled && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleChangePin}
+                            className="flex-1"
+                          >
+                            Change PIN
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -425,6 +528,16 @@ export function AppSettings({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* PIN Dialog */}
+    <PinDialog
+      open={pinDialogOpen}
+      onOpenChange={setPinDialogOpen}
+      mode={pinDialogMode}
+      onSuccess={handlePinSuccess}
+      error={pinError}
+      lockoutTimeRemaining={encryption.isLockedOut() ? encryption.getLockoutTimeRemaining() : undefined}
+    />
     </TooltipProvider>
   );
 }

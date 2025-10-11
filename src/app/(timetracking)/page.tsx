@@ -3,18 +3,19 @@
 import { TimeTrackerTable } from "@/components/time-tracker-table";
 import { AppSettings } from "@/components/app-settings";
 import { WelcomeForm } from "@/components/welcome-form";
+import { EncryptionProvider } from "@/contexts/encryption-context";
 import Image from "next/image";
 import * as React from "react";
 
 export default function Home() {
-  const [hasCredentials, setHasCredentials] = React.useState<boolean | null>(
-    null
-  );
+  const [mounted, setMounted] = React.useState(false);
+  const [hasCredentials, setHasCredentials] = React.useState<boolean>(false);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
 
+  // Check credentials after mount to avoid hydration mismatch
   React.useEffect(() => {
-    // Check if credentials exist in localStorage
+    setMounted(true);
     const sessionToken = localStorage.getItem("toggl_session_token");
     setHasCredentials(!!sessionToken);
   }, []);
@@ -42,18 +43,9 @@ export default function Home() {
     setHasCredentials(false);
   };
 
-  // Show loading state while checking credentials
-  if (hasCredentials === null) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-          <p className="text-muted-foreground animate-pulse">
-            Loading DeepLog...
-          </p>
-        </div>
-      </div>
-    );
+  // Don't render until mounted to avoid hydration mismatch
+  if (!mounted) {
+    return null;
   }
 
   // Show welcome form if no credentials
@@ -100,12 +92,13 @@ export default function Home() {
 
   // Show main app with transition
   return (
-    <main
-      className={`min-h-screen bg-background transition-all duration-500 ${
-        isTransitioning ? "opacity-0 scale-95" : "opacity-100 scale-100"
-      }`}
-    >
-      <div className="container mx-auto py-8 px-4 max-w-7xl">
+    <EncryptionProvider>
+      <main
+        className={`min-h-screen bg-background transition-all duration-500 ${
+          isTransitioning ? "opacity-0 scale-95" : "opacity-100 scale-100"
+        }`}
+      >
+        <div className="container mx-auto py-8 px-4 max-w-7xl">
         {!isFullscreen && (
           <div className="flex justify-between items-center mb-8">
             <div>
@@ -131,5 +124,6 @@ export default function Home() {
         <TimeTrackerTable onFullscreenChange={handleFullscreenChange} />
       </div>
     </main>
+    </EncryptionProvider>
   );
 }

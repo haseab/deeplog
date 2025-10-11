@@ -1,171 +1,290 @@
-# Combine Feature Implementation Plan
+# E2EE (End-to-End Encryption) Implementation Plan
 
 ## Overview
-Implement a "Combine" feature that merges a time entry with the one below it (next chronologically). This is the inverse operation of Split.
+Implement client-side encryption for time entry descriptions using a 6-digit PIN. Data is encrypted locally before being sent to Toggl servers, ensuring privacy while staying within Toggl's 3000 character limit.
 
-## Behavior Specification
+## Encryption Strategy
 
-### For Stopped Entries:
-- **Target Entry** (the one being combined): Gets deleted
-- **Previous Entry** (the one above it in the list): Inherits the target's stop time
-- Result: One continuous time entry spanning from previous entry's start to target entry's stop
+### Challenge: Character Limit
+Toggl has a 3000 character limit for descriptions. Standard encryption (AES-256) would expand the data significantly due to:
+- Base64 encoding (33% overhead)
+- IV (initialization vector) storage
+- Authentication tags
 
-### For Running Timers:
-- **Target Entry** (running timer): Gets deleted
-- **Previous Entry**: Becomes the new running timer (stop time removed, duration set to -1)
-- Result: Previous entry continues running from its original start time
+### Solution: Format-Preserving Encryption (FPE)
+Use **FF3-1 algorithm** (NIST-approved Format-Preserving Encryption):
+- **No expansion**: Encrypted text is same length as plaintext
+- **Preserves character set**: Can restrict to printable characters
+- **NIST standard**: Secure and vetted
+- **6-digit PIN**: Derives 128-bit key using PBKDF2
+- **Per-entry IV**: Store hash of entry timestamp as deterministic IV
 
-### Validation Rules:
-- Cannot combine if entry is temp ID (hasn't synced yet)
-- Cannot combine the last entry (nothing below it to combine with)
-- Cannot combine if entries are not consecutive (different times, gap between them)
-- Show confirmation dialog explaining what will happen before executing
+### Implementation Library
+Use `node-fpe` or `fpe-js` for FF3-1:
+```bash
+npm install fpe-js
+```
+
+### Key Derivation
+```typescript
+// Derive 128-bit key from 6-digit PIN
+const key = PBKDF2(pin + deviceId, salt="deeplog-e2ee", iterations=100000, keylen=16)
+```
+
+## Architecture
+
+### Storage
+- **PIN hash**: Store in localStorage (PBKDF2 hash for verification)
+- **Device ID**: Generate once, store in localStorage (adds entropy to key derivation)
+- **E2EE enabled flag**: Store in localStorage
+- **Encrypted flag per entry**: Track which descriptions are encrypted
+
+### Encryption Flow
+1. User enters description
+2. If E2EE enabled → encrypt before syncing to Toggl
+3. Store marker in localStorage: `encrypted_entries: Set<entryId>`
+4. Description stays same length, looks like random characters
+
+### Decryption Flow
+1. Fetch entries from Toggl
+2. Check if entry ID in `encrypted_entries` set
+3. If encrypted → decrypt for display
+4. User sees original plaintext
 
 ## Implementation Tasks
 
-### 1. **Create Combine Confirmation Dialog Component** ⏳
-   - File: `src/components/combine-entry-dialog.tsx`
-   - Similar structure to `split-entry-dialog.tsx` and `delete-confirmation-dialog.tsx`
-   - Show both entries being combined with their descriptions, projects, times
-   - Display what the result will be (new time range)
-   - Clear explanation: "This will delete [Entry B] and extend [Entry A] to [Entry B]'s end time"
-   - For running timers: "This will delete [Running Timer] and make [Entry A] the active timer"
-   - Keyboard navigation: Arrow keys to switch focus, Enter to confirm, Escape to cancel
+### 1. **Create Encryption Utility Module**
+   - File: `src/lib/encryption.ts`
+   - Functions:
+     - `deriveKey(pin: string, deviceId: string): string`
+     - `encryptDescription(text: string, key: string, entryId: number): string`
+     - `decryptDescription(ciphertext: string, key: string, entryId: number): string`
+     - `hashPin(pin: string): string` (for verification)
+     - `generateDeviceId(): string`
+     - `verifyPin(pin: string, hash: string): boolean`
+   - Use FPE (Format-Preserving Encryption) to maintain character length
+   - Store device ID in localStorage on first generation
 
-### 2. **Create Backend API Route** ⏳
-   - File: `src/app/api/time-entries/combine/route.ts`
-   - Similar structure to `split/route.ts`
-   - Accept: `{ currentEntryId: number, nextEntryId: number }`
-   - Steps:
-     1. Fetch both entries from Toggl
-     2. Validate they're combinable (consecutive, no gaps)
-     3. Delete the next entry (currentEntryId)
-     4. Update previous entry with:
-        - For stopped: new stop time = next entry's stop time
-        - For running: remove stop time, set duration to -1
-   - Return: `{ updatedEntry, deletedEntry, message }`
-   - Error handling for 401, 403, 404 (same as split)
+### 2. **Create E2EE Settings Hook**
+   - File: `src/hooks/use-encryption.ts`
+   - State management for:
+     - `isE2EEEnabled: boolean`
+     - `isUnlocked: boolean` (PIN verified in current session)
+     - `encryptedEntries: Set<number>` (which entries are encrypted)
+   - Functions:
+     - `enableE2EE(pin: string): void`
+     - `disableE2EE(pin: string): Promise<void>` (decrypts all entries first)
+     - `lockE2EE(): void` (clears session key)
+     - `unlockE2EE(pin: string): boolean`
+     - `isEntryEncrypted(entryId: number): boolean`
+     - `markEntryEncrypted(entryId: number): void`
+     - `markEntryDecrypted(entryId: number): void`
+   - Load settings from localStorage on mount
+   - Store encrypted entry IDs in localStorage
 
-### 3. **Update Time Tracker Table Component** ⏳
+### 3. **Create PIN Entry Dialog Component**
+   - File: `src/components/pin-dialog.tsx`
+   - Props:
+     - `open: boolean`
+     - `onOpenChange: (open: boolean) => void`
+     - `mode: 'setup' | 'verify' | 'change'`
+     - `onSuccess: (pin: string) => void`
+   - Features:
+     - 6-digit numeric input with individual boxes
+     - Auto-focus next box on digit entry
+     - Show/hide PIN toggle
+     - Confirmation field for setup/change mode
+     - Validation: must be 6 digits
+     - Error display for wrong PIN
+     - Keyboard shortcuts: Enter to submit, Escape to cancel
+
+### 4. **Update App Settings Component**
+   - File: `src/components/app-settings.tsx`
+   - Add E2EE section in "General" tab:
+     ```tsx
+     <div className="flex items-center justify-between p-4 rounded-lg border bg-card">
+       <div className="space-y-0.5">
+         <Label htmlFor="e2ee-mode" className="text-base font-medium">
+           End-to-End Encryption
+         </Label>
+         <p className="text-sm text-muted-foreground">
+           Encrypt time entry descriptions locally with a 6-digit PIN
+         </p>
+       </div>
+       <Switch
+         id="e2ee-mode"
+         checked={isE2EEEnabled}
+         onCheckedChange={handleE2EEToggle}
+       />
+     </div>
+     ```
+   - When toggled ON:
+     - Show PIN setup dialog
+     - After PIN set, enable encryption for future entries
+   - When toggled OFF:
+     - Prompt for PIN verification
+     - Decrypt all encrypted entries
+     - Clear encryption settings
+   - Add "Change PIN" button when E2EE enabled
+   - Add "Lock/Unlock" status indicator
+
+### 5. **Integrate Encryption into Time Entry Operations**
    - File: `src/components/time-tracker-table.tsx`
 
-   **Add State:**
-   - `entryToCombine: TimeEntry | null`
-   - `combineDialogOpen: boolean`
-
-   **Add handleCombine callback:**
+   **On Entry Creation:**
    ```typescript
-   const handleCombine = React.useCallback((entry: TimeEntry) => {
-     // Check temp ID
-     if (syncQueue.isTempId(entry.id)) {
-       toast.error("Cannot combine an entry that hasn't been synced yet");
-       return;
+   const handleStartTimer = async (description: string) => {
+     let finalDescription = description;
+     if (isE2EEEnabled && isUnlocked) {
+       finalDescription = encryptDescription(description, sessionKey, tempId);
+       markEntryEncrypted(tempId);
      }
-
-     // Find next entry (below in list)
-     const currentIndex = timeEntries.findIndex(e => e.id === entry.id);
-     if (currentIndex === timeEntries.length - 1) {
-       toast.error("Cannot combine the last entry");
-       return;
-     }
-
-     const nextEntry = timeEntries[currentIndex + 1];
-     // Validate they're consecutive (entry.stop === nextEntry.start)
-     // If not consecutive, show error
-
-     setEntryToCombine(entry);
-     setCombineDialogOpen(true);
-   }, [timeEntries]);
+     // ... existing logic
+   }
    ```
 
-   **Add handleConfirmCombine callback:**
-   - Optimistically update UI (remove next entry, update previous entry's stop time)
-   - Make API call to `/api/time-entries/combine`
-   - Handle success/failure with toast notifications
-   - On error, revert to original state
-   - Similar pattern to `handleConfirmSplit`
-
-   **Add keyboard shortcut:**
-   - In keyboard event handler, add case "c":
+   **On Entry Fetch/Display:**
    ```typescript
-   case "c":
-     e.preventDefault();
-     if (selectedCell) {
-       const entry = timeEntries[selectedCell.rowIndex];
-       if (entry) {
-         handleCombine(entry);
+   const decryptedEntries = useMemo(() => {
+     if (!isE2EEEnabled || !isUnlocked) return timeEntries;
+
+     return timeEntries.map(entry => {
+       if (isEntryEncrypted(entry.id)) {
+         return {
+           ...entry,
+           description: decryptDescription(entry.description, sessionKey, entry.id)
+         };
        }
+       return entry;
+     });
+   }, [timeEntries, isE2EEEnabled, isUnlocked, sessionKey]);
+   ```
+
+   **On Entry Update:**
+   ```typescript
+   const handleDescriptionUpdate = async (id: number, newDescription: string) => {
+     let finalDescription = newDescription;
+     if (isE2EEEnabled && isUnlocked && isEntryEncrypted(id)) {
+       finalDescription = encryptDescription(newDescription, sessionKey, id);
      }
-     break;
-   ```
-   - Add `handleCombine` to useEffect dependencies
-
-### 4. **Update Actions Menu Component** ⏳
-   - File: `src/components/actions-menu.tsx`
-
-   **Add prop:**
-   - `onCombine?: () => void`
-
-   **Add menu option:**
-   ```typescript
-   { label: "🔗 Combine", action: onCombine || (() => {}) }
-   ```
-   - Position it after Split in the menu array
-
-### 5. **Update MemoizedTableRow Props** ⏳
-   - File: `src/components/time-tracker-table.tsx`
-
-   **Add to component props:**
-   - `onCombine: (entry: TimeEntry) => void;`
-
-   **Pass to ActionsMenu:**
-   ```typescript
-   onCombine={() => onCombine(entry)}
+     // ... existing API call
+   }
    ```
 
-   **Update propsAreEqual memo check:**
-   - Add `onCombineEqual` comparison
+### 6. **Add Session Lock/Unlock UI**
+   - File: `src/components/encryption-status.tsx`
+   - Small indicator in header showing:
+     - 🔒 Locked (when E2EE enabled but locked)
+     - 🔓 Unlocked (when E2EE enabled and unlocked)
+     - Click to lock/unlock
+   - On app load with E2EE enabled:
+     - Show locked state
+     - Prompt for PIN before showing decrypted data
+   - Auto-lock after inactivity (optional, configurable)
 
-### 6. **Render Combine Dialog** ⏳
-   - File: `src/components/time-tracker-table.tsx`
+### 7. **Handle Edge Cases**
+   - **Bulk operations**: Encrypt/decrypt all entries in split/combine operations
+   - **Entry duplication**: New entry should be encrypted if source was encrypted
+   - **Export/Import**: Warn user that exported data will be encrypted
+   - **Search/Filter**: Decrypt before filtering (or filter on encrypted data)
+   - **Recent timers cache**: Store decrypted descriptions only when unlocked
+   - **PIN forgotten**: Add recovery flow (decrypt using master password? or accept data loss)
 
-   Add below existing Split dialog:
-   ```typescript
-   <CombineEntryDialog
-     open={combineDialogOpen}
-     onOpenChange={setCombineDialogOpen}
-     currentEntry={entryToCombine}
-     nextEntry={/* find next entry */}
-     onConfirm={handleConfirmCombine}
-   />
-   ```
+### 8. **Add Encryption Migration Flow**
+   - When enabling E2EE on existing account:
+     - Offer to encrypt all existing entries
+     - Show progress bar during bulk encryption
+     - API calls to update all descriptions
+   - When disabling E2EE:
+     - Require PIN verification
+     - Decrypt all entries back to plaintext
+     - Show progress bar during bulk decryption
+
+## Storage Schema
+
+### localStorage Keys
+```typescript
+{
+  "e2ee_enabled": boolean,
+  "e2ee_pin_hash": string,           // PBKDF2 hash of PIN
+  "e2ee_device_id": string,          // UUID for key derivation
+  "e2ee_encrypted_entries": string,  // JSON array of encrypted entry IDs
+  "e2ee_auto_lock_minutes": number   // Optional: auto-lock timeout
+}
+```
+
+## Security Considerations
+
+1. **PIN Strength**: 6 digits = 1 million combinations (weak but user-friendly)
+   - Add rate limiting to prevent brute force (3 attempts, 5 min lockout)
+   - Consider adding optional longer passphrase mode
+
+2. **Key Storage**: Never store raw PIN or derived key in localStorage
+   - Session key only in memory during unlocked session
+   - Clear on lock/logout/page refresh
+
+3. **IV/Nonce**: Use deterministic IV based on entry ID
+   - FPE requires consistent encryption for same input
+   - Trade-off: deterministic but necessary for format preservation
+
+4. **Encrypted Entry Tracking**: Store which entries are encrypted
+   - Required to know what to decrypt
+   - Not sensitive information
+
+5. **Migration Safety**: Ensure atomic operations when encrypting/decrypting all entries
+   - Use transaction-like pattern
+   - Rollback on failure
 
 ## Testing Checklist
-- [ ] Combine two consecutive stopped entries
-- [ ] Combine to make a running timer (delete running, extend previous)
-- [ ] Try to combine last entry (should error)
-- [ ] Try to combine temp ID entry (should error)
-- [ ] Try to combine non-consecutive entries (should error)
-- [ ] Test keyboard shortcut 'C'
-- [ ] Test from actions menu (three dots)
-- [ ] Verify optimistic update and revert on error
-- [ ] Verify confirmation dialog displays correct information
-- [ ] Verify keyboard navigation in dialog (Enter/Escape/Arrows)
+- [ ] Enable E2EE and set PIN
+- [ ] Create new entry → verify it's encrypted on Toggl
+- [ ] Refresh page → verify locked state, prompt for PIN
+- [ ] Unlock with correct PIN → verify descriptions decrypt
+- [ ] Try wrong PIN 3 times → verify lockout
+- [ ] Edit encrypted entry → verify stays encrypted
+- [ ] Disable E2EE → verify all entries decrypt
+- [ ] Change PIN → verify re-encryption works
+- [ ] Test with entries near 3000 char limit
+- [ ] Lock session → verify can't see descriptions
+- [ ] Test split/combine with encrypted entries
+- [ ] Test bulk operations (delete multiple, combine, split)
 
-## Files to Create/Modify
+## Files to Create
 
 **Create:**
-1. `src/components/combine-entry-dialog.tsx` (~150 lines)
-2. `src/app/api/time-entries/combine/route.ts` (~200 lines)
+1. `src/lib/encryption.ts` (~150 lines) - Core encryption logic
+2. `src/hooks/use-encryption.ts` (~200 lines) - E2EE state management
+3. `src/components/pin-dialog.tsx` (~200 lines) - PIN entry UI
+4. `src/components/encryption-status.tsx` (~100 lines) - Lock/unlock indicator
 
 **Modify:**
-1. `src/components/time-tracker-table.tsx` (~150 lines added)
-2. `src/components/actions-menu.tsx` (~5 lines)
+1. `src/components/app-settings.tsx` (~100 lines added) - E2EE toggle & settings
+2. `src/components/time-tracker-table.tsx` (~150 lines added) - Encrypt/decrypt integration
+3. `src/app/api/time-entries/route.ts` (minimal changes) - Pass through encrypted data
+4. `package.json` - Add `fpe-js` dependency
 
 ## Estimated Effort
-- Dialog component: 30 min
-- API route: 45 min
-- Table integration: 45 min
-- Actions menu update: 10 min
-- Testing & refinement: 30 min
-**Total: ~2.5 hours**
+- Encryption utility module: 2 hours
+- E2EE hook & state management: 2 hours
+- PIN dialog component: 1.5 hours
+- Settings integration: 1 hour
+- Time tracker integration: 2 hours
+- Encryption status indicator: 1 hour
+- Edge cases & migration: 2 hours
+- Testing & refinement: 2 hours
+**Total: ~13.5 hours**
+
+## Alternative: If FPE doesn't work
+
+If Format-Preserving Encryption proves too complex or has compatibility issues, fallback to:
+
+**Compressed + Encrypted approach:**
+1. Compress description (gzip/brotli)
+2. Encrypt with AES-256-GCM
+3. Base64 encode
+4. If result > 3000 chars:
+   - Truncate plaintext first
+   - Show warning to user
+   - Store full version in localStorage as backup
+
+This has worse UX (possible data loss) but is simpler to implement.
