@@ -74,9 +74,9 @@ export function AppSettings({
       }
     }
 
-    // Add keyboard shortcut for Cmd+, to open settings
+    // Add keyboard shortcut for Cmd+Shift+, to open settings
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ",") {
         e.preventDefault();
         setIsOpen(true);
       }
@@ -145,7 +145,7 @@ export function AppSettings({
           </DialogTrigger>
         </TooltipTrigger>
         <TooltipContent side="left">
-          Settings (⌘,)
+          Settings (⌘⇧,)
         </TooltipContent>
       </Tooltip>
       <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden">
