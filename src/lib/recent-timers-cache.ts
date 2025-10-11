@@ -60,7 +60,29 @@ export function updateRecentTimersCache(
     tag_ids: number[];
   }>
 ): void {
-  // Filter entries with descriptions under 60 characters
+  // First, clean up stale entries: if an entry ID exists in cache with different data, remove it
+  const cachedTimers = getRecentTimers();
+  const cleanedTimers = cachedTimers.filter((cachedEntry) => {
+    const fetchedEntry = entries.find((e) => e.id === cachedEntry.id);
+    if (!fetchedEntry) {
+      // Entry not in current fetch, keep it (might be from different date range)
+      return true;
+    }
+
+    // Entry exists in fetch - check if data matches
+    const dataMatches =
+      cachedEntry.description === fetchedEntry.description &&
+      cachedEntry.projectId === fetchedEntry.project_id &&
+      JSON.stringify(cachedEntry.tagIds.sort()) === JSON.stringify((fetchedEntry.tag_ids || []).sort());
+
+    // Keep only if data matches; remove if stale
+    return dataMatches;
+  });
+
+  // Save cleaned cache
+  localStorage.setItem(CACHE_KEY, JSON.stringify(cleanedTimers));
+
+  // Now filter entries with descriptions under 60 characters
   const validEntries = entries.filter(
     (e) => e.description && e.description.length > 0 && e.description.length < 60
   );
