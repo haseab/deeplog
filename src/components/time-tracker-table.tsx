@@ -2262,11 +2262,7 @@ export function TimeTrackerTable({
         );
       } catch (error) {
         console.error("Error stopping timer:", error);
-        toast({
-          title: "Error",
-          description: "Failed to stop timer",
-          variant: "destructive",
-        });
+        toast.error("Failed to stop timer");
       }
     },
     []
