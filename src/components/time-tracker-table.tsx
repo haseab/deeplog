@@ -673,6 +673,15 @@ export function TimeTrackerTable({
       return timeEntries;
     }
 
+    const tempEntries = timeEntries.filter(e => e.id < 0);
+    if (tempEntries.length > 0) {
+      console.log('[E2EE] Decrypting temp entries:', tempEntries.map(e => ({
+        id: e.id,
+        description: e.description?.substring(0, 50) + '...',
+        isMarkedAsEncrypted: encryption.isEntryEncrypted(e.id),
+      })));
+    }
+
     return timeEntries.map((entry) => {
       if (encryption.isEntryEncrypted(entry.id)) {
         try {
@@ -681,6 +690,12 @@ export function TimeTrackerTable({
             sessionKey,
             entry.id
           );
+          if (entry.id < 0) {
+            console.log(`[E2EE] Decrypted temp entry ${entry.id}:`, {
+              encrypted: entry.description?.substring(0, 50) + '...',
+              decrypted: decryptedDescription,
+            });
+          }
           return { ...entry, description: decryptedDescription };
         } catch (error) {
           console.error(`[E2EE] Failed to decrypt entry ${entry.id}:`, error);
@@ -1235,6 +1250,14 @@ export function TimeTrackerTable({
         projectName?: string;
         tags?: string[];
       }) => {
+        console.log('[E2EE] handleBulkEntryUpdate called:', {
+          entryId,
+          originalDescription: updates.description?.substring(0, 50) + '...',
+          looksEncrypted: updates.description?.includes(':') && updates.description?.split(':').length === 3,
+          isE2EEEnabled: encryption.isE2EEEnabled,
+          isUnlocked: encryption.isUnlocked,
+        });
+
         // Encrypt description if E2EE is enabled
         let finalDescription = updates.description;
         if (finalDescription !== undefined && encryption.isE2EEEnabled && encryption.isUnlocked) {
@@ -1243,6 +1266,10 @@ export function TimeTrackerTable({
             try {
               finalDescription = encryptDescription(finalDescription, sessionKey, entryId);
               encryption.markEntryEncrypted(entryId);
+              console.log('[E2EE] Encrypted description in bulk update:', {
+                original: updates.description?.substring(0, 50) + '...',
+                encrypted: finalDescription.substring(0, 50) + '...',
+              });
             } catch (error) {
               console.error('[E2EE] Failed to encrypt description in bulk update:', error);
             }
@@ -1993,6 +2020,9 @@ export function TimeTrackerTable({
             const syncQueue = syncQueueRef.current;
             syncQueue.registerIdMapping(tempId, realId);
 
+            // Swap temp ID with real ID in encrypted entries tracking
+            encryption.swapEncryptedEntryId(tempId, realId);
+
             // Replace the temporary entry with the real one from the server
             setTimeEntries((prev) =>
               prev.map((entry) =>
@@ -2332,6 +2362,9 @@ export function TimeTrackerTable({
             const syncQueue = syncQueueRef.current;
 
             syncQueue.registerIdMapping(tempId, realId);
+
+            // Swap temp ID with real ID in encrypted entries tracking
+            encryption.swapEncryptedEntryId(tempId, realId);
 
             // Update the entry's ID from temp to real, preserving any optimistic updates made to the entry
             setTimeEntries((prev) =>

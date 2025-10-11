@@ -361,6 +361,20 @@ export function useEncryption() {
   }, []);
 
   /**
+   * Swap temp ID with real ID in encrypted entries set (when server resolves temp ID)
+   */
+  const swapEncryptedEntryId = useCallback((tempId: number, realId: number) => {
+    setState(prev => {
+      const newSet = new Set(prev.encryptedEntries);
+      if (newSet.has(tempId)) {
+        newSet.delete(tempId);
+        newSet.add(realId);
+      }
+      return { ...prev, encryptedEntries: newSet };
+    });
+  }, []);
+
+  /**
    * Get session key (use ref to avoid stale closures)
    */
   const getSessionKey = useCallback((): Buffer | null => {
@@ -384,6 +398,7 @@ export function useEncryption() {
     isEntryEncrypted,
     markEntryEncrypted,
     markEntryDecrypted,
+    swapEncryptedEntryId,
     getSessionKey,
     isLockedOut,
     getLockoutTimeRemaining,
