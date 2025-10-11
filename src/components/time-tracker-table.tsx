@@ -193,8 +193,12 @@ const MemoizedTableRow = React.memo(
         </TableCell>
         <TableCell
           className={cn(
-            "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24"
+            "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer",
+            selectedCell?.rowIndex === rowIndex &&
+              selectedCell?.cellIndex === 0 &&
+              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
           )}
+          onClick={() => onSelectCell(rowIndex, 0)}
         >
           {format(new Date(entry.start), "yyyy-MM-dd")}
         </TableCell>
@@ -1651,6 +1655,9 @@ export function TimeTrackerTable({
 
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
+      // Find the index of the entry being deleted
+      const deletedIndex = timeEntries.findIndex((e) => e.id === entryToDelete.id);
+
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
@@ -1702,8 +1709,28 @@ export function TimeTrackerTable({
 
         return filteredEntries;
       });
+
+      // Adjust selector position after deletion
+      if (selectedCell && selectedCell.rowIndex === deletedIndex) {
+        // If we deleted the selected row, move selector to the same position (or previous if last row)
+        const newRowIndex = Math.min(deletedIndex, timeEntries.length - 2); // -2 because we removed one
+        if (newRowIndex >= 0) {
+          setTimeout(() => {
+            setSelectedCell({
+              rowIndex: newRowIndex,
+              cellIndex: selectedCell.cellIndex,
+            });
+          }, 50);
+        }
+      } else if (selectedCell && selectedCell.rowIndex > deletedIndex) {
+        // If selector is below deleted row, shift it up by 1
+        setSelectedCell({
+          rowIndex: selectedCell.rowIndex - 1,
+          cellIndex: selectedCell.cellIndex,
+        });
+      }
     },
-    [showUpdateToast]
+    [showUpdateToast, selectedCell, timeEntries]
   );
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
@@ -2083,9 +2110,9 @@ export function TimeTrackerTable({
         return [newEntry, ...updatedEntries];
       });
 
-      // Select the new entry's description field for immediate editing
+      // Select the new entry for immediate editing (cellIndex 1 to skip date column)
       setTimeout(() => {
-        setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+        setSelectedCell({ rowIndex: 0, cellIndex: 1 });
       }, 50);
 
       // Use the same toast + delayed API pattern as updates for consistency
@@ -2896,7 +2923,7 @@ export function TimeTrackerTable({
   const handleConfirmDelete = React.useCallback(() => {
     if (entryToDelete) {
       handleDelete(entryToDelete);
-      setSelectedCell(null);
+      // Don't clear selectedCell - handleDelete now maintains it
       setEntryToDelete(null);
     }
   }, [entryToDelete, handleDelete]);
