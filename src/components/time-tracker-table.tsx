@@ -3150,6 +3150,50 @@ export function TimeTrackerTable({
         return;
       }
 
+      // Cmd+Period: Refocus selector to a row within current viewport (middle)
+      if (e.key === "." && (e.metaKey || e.ctrlKey) && !isInInput) {
+        e.preventDefault();
+
+        const container = tableRef.current;
+        if (!container || timeEntries.length === 0) return;
+
+        // Find the row closest to the middle of the viewport
+        const containerRect = container.getBoundingClientRect();
+        const viewportMiddle = containerRect.top + containerRect.height / 2;
+        const rows = container.querySelectorAll('[data-entry-id]');
+
+        let targetRowIndex = 0;
+        let closestDistance = Infinity;
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i] as HTMLElement;
+          const rowRect = row.getBoundingClientRect();
+
+          // Check if row is visible in viewport
+          const isVisible =
+            rowRect.bottom > containerRect.top &&
+            rowRect.top < containerRect.bottom;
+
+          if (isVisible) {
+            // Calculate distance from row center to viewport middle
+            const rowCenter = rowRect.top + rowRect.height / 2;
+            const distance = Math.abs(rowCenter - viewportMiddle);
+
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              targetRowIndex = i;
+            }
+          }
+        }
+
+        // Set selector to the row closest to middle, keeping current cell index if possible
+        setSelectedCell({
+          rowIndex: targetRowIndex,
+          cellIndex: selectedCell?.cellIndex ?? 0,
+        });
+        return;
+      }
+
       // Navigation shortcuts (only when not in input)
       if (isInInput) {
         return;
