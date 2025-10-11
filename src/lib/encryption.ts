@@ -60,7 +60,8 @@ export function deriveKeyFromHash(pinHash: string, deviceId: string): Buffer {
  * Encrypt description using AES-256-GCM
  * Simple and reliable - encrypted text will be longer due to IV and auth tag
  */
-export function encryptDescription(text: string, key: Buffer, entryId: number): string {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function encryptDescription(text: string, key: Buffer, _entryId: number): string {
   if (!text || text.length === 0) return text;
 
   try {
@@ -90,7 +91,8 @@ export function encryptDescription(text: string, key: Buffer, entryId: number): 
 /**
  * Decrypt description using AES-256-GCM
  */
-export function decryptDescription(ciphertext: string, key: Buffer, entryId: number): string {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function decryptDescription(ciphertext: string, key: Buffer, _entryId: number): string {
   if (!ciphertext || ciphertext.length === 0) return ciphertext;
 
   try {

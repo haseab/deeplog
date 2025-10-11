@@ -586,7 +586,8 @@ export function TimeTrackerTable({
     return pinnedEntries.map((entry) => {
       // Check if description looks encrypted (format: IV:AuthTag:Ciphertext)
       const looksEncrypted = entry.description && entry.description.includes(':') && entry.description.split(':').length === 3;
-      const isMarkedAsEncrypted = encryption.isEntryEncrypted(entry.id);
+      const entryId = parseInt(entry.id, 10);
+      const isMarkedAsEncrypted = encryption.isEntryEncrypted(entryId);
 
       console.log(`[E2EE] Pinned entry ${entry.id}:`, {
         description: entry.description?.substring(0, 50) + '...',
@@ -599,7 +600,7 @@ export function TimeTrackerTable({
           const decryptedDescription = decryptDescription(
             entry.description,
             sessionKey,
-            entry.id
+            entryId
           );
           console.log(`[E2EE] Decrypted pinned entry ${entry.id}:`, {
             encrypted: entry.description?.substring(0, 50) + '...',
@@ -3066,12 +3067,13 @@ export function TimeTrackerTable({
     (entry: PinnedEntry) => {
       // Decrypt the description if it's encrypted (since startNewTimeEntry expects plaintext)
       let description = entry.description;
+      const entryId = parseInt(entry.id, 10);
 
-      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entry.id)) {
+      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entryId)) {
         const sessionKey = encryption.getSessionKey();
         if (sessionKey) {
           try {
-            description = decryptDescription(entry.description, sessionKey, entry.id);
+            description = decryptDescription(entry.description, sessionKey, entryId);
           } catch (error) {
             console.error('[E2EE] Failed to decrypt pinned entry description:', error);
           }
