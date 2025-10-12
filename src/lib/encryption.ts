@@ -44,12 +44,13 @@ export function hashPin(pin: string): string {
 }
 
 /**
- * Derive encryption key from PIN hash and device ID
+ * Derive encryption key from PIN hash
  * Takes the hashed PIN (not raw PIN) as input
  * Simple SHA-256 - fast and sufficient for local-only encryption
+ * Note: Device ID removed to allow same PIN to work across devices
  */
-export function deriveKeyFromHash(pinHash: string, deviceId: string): Buffer {
-  const material = pinHash + deviceId + SALT;
+export function deriveKeyFromHash(pinHash: string, _deviceId: string): Buffer {
+  const material = pinHash + SALT;
   const hash = createHash('sha256')
     .update(material)
     .digest();
