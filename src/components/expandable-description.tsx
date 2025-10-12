@@ -218,7 +218,15 @@ export function ExpandableDescription({
       handleKeyDown: (view, event) => {
         // Handle arrow keys when recent timers popover is open
         if (showRecentTimers) {
-          if (event.key === "ArrowDown") {
+          // Handle Cmd/Ctrl + Enter to save and exit even when popover is open
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            event.stopPropagation();
+            setShowRecentTimers(false);
+            setHighlightedIndex(0);
+            saveAndExit();
+            return true;
+          } else if (event.key === "ArrowDown") {
             event.preventDefault();
             setHighlightedIndex((prev) => {
               // Need to get count from the popover, but we'll handle it there
