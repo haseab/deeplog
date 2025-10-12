@@ -27,20 +27,40 @@ interface ExtractedTask {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const {
-      transcripts,
-      openaiApiKey,
-      todoistApiKey,
-    } = body;
+    const { transcripts, password, openaiApiKey, todoistApiKey } = body;
 
-    if (!openaiApiKey) {
+    // Verify password hash
+    if (!password) {
+      return new Response(
+        JSON.stringify({ error: "Password required" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Hash the provided password and compare with stored hash
+    const crypto = require('crypto');
+    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const allowedHash = process.env.EXTRACT_TASKS_PASSWORD_HASH;
+
+    if (!allowedHash || passwordHash !== allowedHash) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Use provided API keys or fall back to environment variables
+    const finalOpenaiApiKey = openaiApiKey || process.env.OPENAI_API_KEY;
+    const finalTodoistApiKey = todoistApiKey || process.env.TODOIST_API_KEY;
+
+    if (!finalOpenaiApiKey) {
       return new Response(
         JSON.stringify({ error: "OpenAI API key is required" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    if (!todoistApiKey) {
+    if (!finalTodoistApiKey) {
       return new Response(
         JSON.stringify({ error: "Todoist API key is required" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
@@ -104,7 +124,7 @@ export async function POST(request: NextRequest) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${openaiApiKey}`,
+            "Authorization": `Bearer ${finalOpenaiApiKey}`,
           },
           body: JSON.stringify({
             model: "gpt-4o-mini",
@@ -149,7 +169,7 @@ export async function POST(request: NextRequest) {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${todoistApiKey}`,
+                    "Authorization": `Bearer ${finalTodoistApiKey}`,
                   },
                   body: JSON.stringify({
                     content: taskContent,

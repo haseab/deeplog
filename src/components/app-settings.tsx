@@ -46,11 +46,14 @@ export function AppSettings({
   const [togglSessionToken, setTogglSessionToken] = useState("");
   const [todoistApiKey, setTodoistApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
   const [showLimitlessApiKey, setShowLimitlessApiKey] = useState(false);
   const [showTogglToken, setShowTogglToken] = useState(false);
   const [showTodoistKey, setShowTodoistKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   // Toast duration setting
   const [toastDuration, setToastDuration] = useState(4000);
@@ -74,6 +77,23 @@ export function AppSettings({
       }
       setTodoistApiKey(localStorage.getItem("todoist_api_key") || "");
       setOpenaiApiKey(localStorage.getItem("openai_api_key") || "");
+
+      // Load and verify admin password
+      const savedPassword = localStorage.getItem("admin_password");
+      if (savedPassword) {
+        setAdminPassword(savedPassword);
+        // Verify the password hash
+        (async () => {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(savedPassword);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const expectedHash = "a2ca63c171e9ef37a617b746e1fab6c1e90ba0089b92bccd7b7884a2e57fc68c";
+          setIsAdminAuthenticated(hashHex === expectedHash);
+        })();
+      }
 
       // Load toast duration setting (default 4000ms)
       const savedDuration = localStorage.getItem("toast_duration");
@@ -388,46 +408,82 @@ export function AppSettings({
                       </div>
                     )}
 
-                    {/* Limitless API Key */}
-                    {showLimitlessKey && (
-                      <div className="space-y-3 p-4 rounded-lg border bg-card">
+                    {/* Task Automation Keys - Grouped */}
+                    <div className="space-y-4 p-4 rounded-lg border-2 border-primary/20 bg-primary/5">
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                          <Shield className="h-4 w-4" />
+                          Task Automation (Admin Only)
+                        </h4>
+                        <p className="text-xs text-muted-foreground">
+                          Enter admin password to access API keys for task extraction and transcriptions
+                        </p>
+                      </div>
+
+                      {/* Admin Password */}
+                      <div className="space-y-3 p-3 rounded-lg border bg-card">
                         <div>
-                          <Label htmlFor="limitless-key" className="text-base font-medium">
-                            Limitless API Key
+                          <Label htmlFor="admin-password" className="text-base font-medium">
+                            Admin Password
                           </Label>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Required for accessing Limitless transcriptions
+                            Required to view and edit automation API keys
                           </p>
                         </div>
                         <div className="relative">
                           <Input
-                            id="limitless-key"
-                            type={showLimitlessApiKey ? "text" : "password"}
-                            value={limitlessApiKey}
-                            onChange={(e) => setLimitlessApiKey(e.target.value)}
-                            onBlur={(e) => handleApiKeyChange("limitless_api_key", e.target.value)}
-                            placeholder="Enter your Limitless API key"
+                            id="admin-password"
+                            type={showAdminPassword ? "text" : "password"}
+                            value={adminPassword}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAdminPassword(value);
+
+                              // Hash the password and compare
+                              if (value) {
+                                (async () => {
+                                  const encoder = new TextEncoder();
+                                  const data = encoder.encode(value);
+                                  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                                  const hashArray = Array.from(new Uint8Array(hashBuffer));
+                                  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+                                  console.log('Password hash:', hashHex);
+                                  const expectedHash = "a2ca63c171e9ef37a617b746e1fab6c1e90ba0089b92bccd7b7884a2e57fc68c";
+                                  const isValid = hashHex === expectedHash;
+                                  console.log('Is valid:', isValid);
+                                  setIsAdminAuthenticated(isValid);
+
+                                  if (isValid) {
+                                    localStorage.setItem("admin_password", value);
+                                  } else {
+                                    localStorage.removeItem("admin_password");
+                                  }
+                                })();
+                              } else {
+                                setIsAdminAuthenticated(false);
+                                localStorage.removeItem("admin_password");
+                              }
+                            }}
+                            placeholder="Enter admin password"
                             className="pr-10"
                           />
                           <button
                             type="button"
-                            onClick={() => setShowLimitlessApiKey(!showLimitlessApiKey)}
+                            onClick={() => setShowAdminPassword(!showAdminPassword)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                           >
-                            {showLimitlessApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
                       </div>
-                    )}
 
-                    {/* Task Automation Keys - Grouped */}
-                    <div className="space-y-4 p-4 rounded-lg border-2 border-primary/20 bg-primary/5">
-                      <div>
-                        <h4 className="text-sm font-semibold mb-1">Task Automation</h4>
-                        <p className="text-xs text-muted-foreground">
-                          Both keys required for automatic task extraction from transcripts
-                        </p>
-                      </div>
+                      {isAdminAuthenticated && (
+                        <div className="space-y-4">
+                          <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <Shield className="h-3 w-3" />
+                            Admin authenticated - API keys visible
+                          </div>
 
                       {/* Todoist API Key */}
                       <div className="space-y-3 p-3 rounded-lg border bg-card">
@@ -459,6 +515,38 @@ export function AppSettings({
                         </div>
                       </div>
 
+                      {/* Limitless API Key */}
+                      {showLimitlessKey && (
+                        <div className="space-y-3 p-3 rounded-lg border bg-card">
+                          <div>
+                            <Label htmlFor="limitless-key" className="text-base font-medium">
+                              Limitless API Key
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Required for accessing Limitless transcriptions
+                            </p>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              id="limitless-key"
+                              type={showLimitlessApiKey ? "text" : "password"}
+                              value={limitlessApiKey}
+                              onChange={(e) => setLimitlessApiKey(e.target.value)}
+                              onBlur={(e) => handleApiKeyChange("limitless_api_key", e.target.value)}
+                              placeholder="Enter your Limitless API key"
+                              className="pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowLimitlessApiKey(!showLimitlessApiKey)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              {showLimitlessApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* OpenAI API Key */}
                       <div className="space-y-3 p-3 rounded-lg border bg-card">
                         <div>
@@ -488,6 +576,8 @@ export function AppSettings({
                           </button>
                         </div>
                       </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
