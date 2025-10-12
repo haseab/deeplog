@@ -14,6 +14,12 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "deeplog",
   description: "for hardcore time trackers.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "deeplog",
+  },
 };
 
 export default function RootLayout({

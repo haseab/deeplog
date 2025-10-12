@@ -3735,24 +3735,6 @@ export function TimeTrackerTable({
             });
           }
 
-          // Horizontal scrolling for mobile - get the specific cell
-          const selectedCellElement = document.querySelector(
-            `[data-entry-id="${entry.id}"] td:nth-child(${
-              selectedCell.cellIndex + 1
-            })`
-          ) as HTMLElement;
-
-          if (selectedCellElement) {
-            const isMobileViewport = window.innerWidth < 768; // sm breakpoint
-
-            if (isMobileViewport) {
-              selectedCellElement.scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-                inline: "nearest",
-              });
-            }
-          }
         }
       });
     }
@@ -3809,68 +3791,70 @@ export function TimeTrackerTable({
           showShortcuts={true}
         />
       )}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                id="date"
-                variant={"outline"}
-                className={cn(
-                  "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                  !date && "text-muted-foreground"
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                {date?.from ? (
-                  date.to ? (
-                    <>
-                      {format(date.from, "LLL dd, y")} -{" "}
-                      {format(date.to, "LLL dd, y")}
-                    </>
+      <div className="mb-4">
+        {/* Desktop layout - single row */}
+        <div className="hidden md:flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date"
+                  variant={"outline"}
+                  className={cn(
+                    "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                    !date && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  {date?.from ? (
+                    date.to ? (
+                      <>
+                        {format(date.from, "LLL dd, y")} -{" "}
+                        {format(date.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(date.from, "LLL dd, y")
+                    )
                   ) : (
-                    format(date.from, "LLL dd, y")
-                  )
-                ) : (
-                  <span>Pick a date range</span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-auto p-0 border-border/60"
-              align="start"
-            >
-              <Calendar
-                mode="range"
-                defaultMonth={date?.from}
-                selected={date}
-                onSelect={(selectedRange) => {
-                  if (selectedRange?.from && selectedRange?.to) {
-                    // Set end date to end of day
-                    const endOfDayTo = endOfDay(selectedRange.to);
-                    setDate({ from: selectedRange.from, to: endOfDayTo });
-                  } else {
-                  }
-                }}
-                numberOfMonths={2}
-                className="rounded-md border-0"
-              />
-            </PopoverContent>
-          </Popover>
-          <SyncStatusBadge
-            status={syncStatus}
-            lastSyncTime={lastSyncTime}
-            onReauthenticate={handleReauthenticate}
-            onRetry={() => fetchData()}
-          />
-          <EncryptionStatus
-            isE2EEEnabled={encryption.isE2EEEnabled}
-            isUnlocked={encryption.isUnlocked}
-            onLock={handleLockEncryption}
-            onUnlock={handleUnlockEncryption}
-          />
-        </div>
-        <div className="flex items-center gap-3">
+                    <span>Pick a date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-auto p-0 border-border/60"
+                align="start"
+              >
+                <Calendar
+                  mode="range"
+                  defaultMonth={date?.from}
+                  selected={date}
+                  onSelect={(selectedRange) => {
+                    if (selectedRange?.from && selectedRange?.to) {
+                      // Set end date to end of day
+                      const endOfDayTo = endOfDay(selectedRange.to);
+                      setDate({ from: selectedRange.from, to: endOfDayTo });
+                    } else {
+                    }
+                  }}
+                  numberOfMonths={2}
+                  className="rounded-md border-0"
+                />
+              </PopoverContent>
+            </Popover>
+            <SyncStatusBadge
+              status={syncStatus}
+              lastSyncTime={lastSyncTime}
+              onReauthenticate={handleReauthenticate}
+              onRetry={() => fetchData()}
+            />
+            <EncryptionStatus
+              isE2EEEnabled={encryption.isE2EEEnabled}
+              isUnlocked={encryption.isUnlocked}
+              onLock={handleLockEncryption}
+              onUnlock={handleUnlockEncryption}
+            />
+          </div>
+          <div className="flex items-center gap-3">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -3921,6 +3905,129 @@ export function TimeTrackerTable({
               New (N)
             </TooltipContent>
           </Tooltip>
+        </div>
+        </div>
+
+        {/* Mobile layout - two rows */}
+        <div className="md:hidden space-y-3">
+          {/* First row - Date picker */}
+          <div className="flex items-center">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date-mobile"
+                  variant={"outline"}
+                  className={cn(
+                    "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
+                    !date && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  {date?.from ? (
+                    date.to ? (
+                      <>
+                        {format(date.from, "MMM dd")} - {format(date.to, "MMM dd, y")}
+                      </>
+                    ) : (
+                      format(date.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Pick a date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-auto p-0 border-border/60"
+                align="start"
+              >
+                <Calendar
+                  mode="range"
+                  defaultMonth={date?.from}
+                  selected={date}
+                  onSelect={(selectedRange) => {
+                    if (selectedRange?.from && selectedRange?.to) {
+                      // Set end date to end of day
+                      const endOfDayTo = endOfDay(selectedRange.to);
+                      setDate({ from: selectedRange.from, to: endOfDayTo });
+                    } else {
+                    }
+                  }}
+                  numberOfMonths={1}
+                  className="rounded-md border-0"
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Second row - Buttons and status */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <SyncStatusBadge
+                status={syncStatus}
+                lastSyncTime={lastSyncTime}
+                onReauthenticate={handleReauthenticate}
+                onRetry={() => fetchData()}
+              />
+              <EncryptionStatus
+                isE2EEEnabled={encryption.isE2EEEnabled}
+                isUnlocked={encryption.isUnlocked}
+                onLock={handleLockEncryption}
+                onUnlock={handleUnlockEncryption}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => window.open("https://track.toggl.com/reports/", "_blank")}
+                    size="icon"
+                    variant="outline"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  View Analytics
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleFullscreenToggle}
+                    size="icon"
+                    variant="outline"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    disabled={isTransitioning}
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleNewEntryClick}
+                    size="icon"
+                    variant="outline"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  New (N)
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
         </div>
       </div>
 

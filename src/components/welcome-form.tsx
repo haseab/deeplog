@@ -140,7 +140,7 @@ export function WelcomeForm({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 flex items-start justify-center p-4 pt-[20vh]">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 flex items-start justify-center p-4 pt-[10vh] md:pt-[20vh]">
       <div className="w-full max-w-md space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
         {/* Logo and Title Section */}
         <div className="text-center space-y-4">
@@ -276,12 +276,10 @@ export function WelcomeForm({
         <Card className="border-border/60 shadow-lg shadow-black/5 animate-in fade-in-0 slide-in-from-bottom-4 duration-700 delay-200">
           <CardContent className="pt-6">
             <div className="text-center space-y-2">
-              <p className="text-sm font-medium text-foreground">
-                🔒 Your Privacy Matters
-              </p>
+              <p className="text-sm font-medium text-foreground">🔒 Privacy</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 We do not collect any data. All your information is stored
-                locally on your device and never sent to our servers.
+                locally on your device and never stored on our servers.
               </p>
             </div>
           </CardContent>
