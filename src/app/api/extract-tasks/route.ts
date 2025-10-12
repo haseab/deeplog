@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import crypto from "crypto";
 
 // Trigger keywords to look for in transcripts
 const TASK_KEYWORDS = [
@@ -38,7 +39,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash the provided password and compare with stored hash
-    const crypto = require('crypto');
     const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
     const allowedHash = process.env.EXTRACT_TASKS_PASSWORD_HASH;
 
