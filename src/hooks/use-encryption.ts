@@ -76,7 +76,8 @@ export function useEncryption() {
 
     console.log('[E2EE Hook DEBUG] Loading state from localStorage:', {
       enabled,
-      pinHash: pinHash ? 'exists' : 'missing',
+      pinHash: pinHash ? pinHash.substring(0, 16) + '...' : 'missing',
+      deviceId: getDeviceId().substring(0, 16) + '...',
       isUnlocked,
       hasKey: !!key,
       encryptedEntriesCount: encryptedEntries.size
@@ -212,6 +213,13 @@ export function useEncryption() {
 
     // Verify PIN by hashing and comparing
     const enteredPinHash = hashPin(pin);
+    console.log('[E2EE] Unlock attempt:', {
+      enteredPin: pin,
+      enteredPinHash: enteredPinHash.substring(0, 16) + '...',
+      storedPinHash: state.pinHash.substring(0, 16) + '...',
+      match: enteredPinHash === state.pinHash
+    });
+
     if (enteredPinHash !== state.pinHash) {
       const newAttempts = state.failedAttempts + 1;
 
@@ -236,6 +244,7 @@ export function useEncryption() {
     try {
       const deviceId = getDeviceId();
       const key = deriveKeyFromHash(enteredPinHash, deviceId);
+      console.log('[E2EE] Unlock successful');
 
       sessionKeyRef.current = key;
 
