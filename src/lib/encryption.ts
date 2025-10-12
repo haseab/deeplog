@@ -49,17 +49,12 @@ export function hashPin(pin: string): string {
  * Simple SHA-256 - fast and sufficient for local-only encryption
  * Note: Device ID removed to allow same PIN to work across devices
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function deriveKeyFromHash(pinHash: string, _deviceId: string): Buffer {
   const material = pinHash + SALT;
-  console.log('[Encryption] Deriving key:', {
-    pinHash: pinHash.substring(0, 16) + '...',
-    material: material.substring(0, 32) + '...',
-    deviceIdIgnored: _deviceId ? 'yes' : 'no'
-  });
   const hash = createHash('sha256')
     .update(material)
     .digest();
-  console.log('[Encryption] Key derived:', hash.toString('hex').substring(0, 16) + '...');
   return hash;
 }
 
@@ -103,11 +98,6 @@ export function decryptDescription(ciphertext: string, key: Buffer, _entryId: nu
   if (!ciphertext || ciphertext.length === 0) return ciphertext;
 
   try {
-    console.log('[Encryption] Attempting decrypt:', {
-      ciphertext: ciphertext.substring(0, 30) + '...',
-      key: key.toString('hex').substring(0, 16) + '...'
-    });
-
     // Split the combined string
     const parts = ciphertext.split(':');
     if (parts.length !== 3) {
@@ -126,7 +116,6 @@ export function decryptDescription(ciphertext: string, key: Buffer, _entryId: nu
     let decrypted = decipher.update(encrypted, 'base64', 'utf8');
     decrypted += decipher.final('utf8');
 
-    console.log('[Encryption] Decrypt success:', decrypted);
     return decrypted;
   } catch (error) {
     console.error('[Encryption] Failed to decrypt:', error);

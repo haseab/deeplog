@@ -565,21 +565,12 @@ export function TimeTrackerTable({
 
   // Decrypt pinned entries for display
   const decryptedPinnedEntries = React.useMemo(() => {
-    console.log('[E2EE] Decrypting pinned entries:', {
-      isE2EEEnabled: encryption.isE2EEEnabled,
-      isUnlocked: encryption.isUnlocked,
-      hasSessionKey: !!encryption.getSessionKey(),
-      totalPinnedEntries: pinnedEntries.length,
-    });
-
     if (!encryption.isE2EEEnabled || !encryption.isUnlocked) {
-      console.log('[E2EE] Skipping pinned entries decryption - not enabled or locked');
       return pinnedEntries;
     }
 
     const sessionKey = encryption.getSessionKey();
     if (!sessionKey) {
-      console.log('[E2EE] Skipping pinned entries decryption - no session key');
       return pinnedEntries;
     }
 
@@ -587,13 +578,6 @@ export function TimeTrackerTable({
       // Check if description looks encrypted (format: IV:AuthTag:Ciphertext)
       const looksEncrypted = entry.description && entry.description.includes(':') && entry.description.split(':').length === 3;
       const entryId = parseInt(entry.id, 10);
-      const isMarkedAsEncrypted = encryption.isEntryEncrypted(entryId);
-
-      console.log(`[E2EE] Pinned entry ${entry.id}:`, {
-        description: entry.description?.substring(0, 50) + '...',
-        looksEncrypted,
-        isMarkedAsEncrypted,
-      });
 
       if (looksEncrypted) {
         try {
@@ -602,29 +586,16 @@ export function TimeTrackerTable({
             sessionKey,
             entryId
           );
-          console.log(`[E2EE] Decrypted pinned entry ${entry.id}:`, {
-            encrypted: entry.description?.substring(0, 50) + '...',
-            decrypted: decryptedDescription,
-          });
           return { ...entry, description: decryptedDescription };
         } catch (error) {
           console.error(`[E2EE] Failed to decrypt pinned entry ${entry.id}:`, error);
           return entry;
         }
       }
-      console.log(`[E2EE] Pinned entry ${entry.id} not encrypted, returning as-is`);
       return entry;
     });
-  }, [pinnedEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey, encryption.isEntryEncrypted]);
+  }, [pinnedEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey]);
 
-  // Debug: log encryption state changes
-  React.useEffect(() => {
-    console.log('[TimeTrackerTable] Encryption state updated:', {
-      isE2EEEnabled: encryption.isE2EEEnabled,
-      isUnlocked: encryption.isUnlocked,
-      hasSessionKey: !!encryption.getSessionKey()
-    });
-  }, [encryption.isE2EEEnabled, encryption.isUnlocked]);
 
   const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
   const [pinError, setPinError] = React.useState<string>("");
@@ -674,38 +645,26 @@ export function TimeTrackerTable({
       return timeEntries;
     }
 
-    const tempEntries = timeEntries.filter(e => e.id < 0);
-    if (tempEntries.length > 0) {
-      console.log('[E2EE] Decrypting temp entries:', tempEntries.map(e => ({
-        id: e.id,
-        description: e.description?.substring(0, 50) + '...',
-        isMarkedAsEncrypted: encryption.isEntryEncrypted(e.id),
-      })));
-    }
-
     return timeEntries.map((entry) => {
-      if (encryption.isEntryEncrypted(entry.id)) {
+      // Check if description looks encrypted (IV:AuthTag:Ciphertext format)
+      const looksEncrypted = entry.description?.includes(':') && entry.description?.split(':').length === 3;
+
+      if (looksEncrypted) {
         try {
           const decryptedDescription = decryptDescription(
             entry.description,
             sessionKey,
             entry.id
           );
-          if (entry.id < 0) {
-            console.log(`[E2EE] Decrypted temp entry ${entry.id}:`, {
-              encrypted: entry.description?.substring(0, 50) + '...',
-              decrypted: decryptedDescription,
-            });
-          }
           return { ...entry, description: decryptedDescription };
-        } catch (error) {
-          console.error(`[E2EE] Failed to decrypt entry ${entry.id}:`, error);
+        } catch {
+          // Not actually encrypted or wrong key, return as-is
           return entry;
         }
       }
       return entry;
     });
-  }, [timeEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey, encryption.isEntryEncrypted]);
+  }, [timeEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
@@ -1251,14 +1210,6 @@ export function TimeTrackerTable({
         projectName?: string;
         tags?: string[];
       }) => {
-        console.log('[E2EE] handleBulkEntryUpdate called:', {
-          entryId,
-          originalDescription: updates.description?.substring(0, 50) + '...',
-          looksEncrypted: updates.description?.includes(':') && updates.description?.split(':').length === 3,
-          isE2EEEnabled: encryption.isE2EEEnabled,
-          isUnlocked: encryption.isUnlocked,
-        });
-
         // Encrypt description if E2EE is enabled
         let finalDescription = updates.description;
         if (finalDescription !== undefined && encryption.isE2EEEnabled && encryption.isUnlocked) {
@@ -1267,10 +1218,6 @@ export function TimeTrackerTable({
             try {
               finalDescription = encryptDescription(finalDescription, sessionKey, entryId);
               encryption.markEntryEncrypted(entryId);
-              console.log('[E2EE] Encrypted description in bulk update:', {
-                original: updates.description?.substring(0, 50) + '...',
-                encrypted: finalDescription.substring(0, 50) + '...',
-              });
             } catch (error) {
               console.error('[E2EE] Failed to encrypt description in bulk update:', error);
             }

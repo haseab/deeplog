@@ -74,14 +74,6 @@ export function useEncryption() {
       }
     }
 
-    console.log('[E2EE Hook DEBUG] Loading state from localStorage:', {
-      enabled,
-      pinHash: pinHash ? pinHash.substring(0, 16) + '...' : 'missing',
-      deviceId: getDeviceId().substring(0, 16) + '...',
-      isUnlocked,
-      hasKey: !!key,
-      encryptedEntriesCount: encryptedEntries.size
-    });
 
     setState({
       isE2EEEnabled: enabled,
@@ -213,12 +205,6 @@ export function useEncryption() {
 
     // Verify PIN by hashing and comparing
     const enteredPinHash = hashPin(pin);
-    console.log('[E2EE] Unlock attempt:', {
-      enteredPin: pin,
-      enteredPinHash: enteredPinHash.substring(0, 16) + '...',
-      storedPinHash: state.pinHash.substring(0, 16) + '...',
-      match: enteredPinHash === state.pinHash
-    });
 
     if (enteredPinHash !== state.pinHash) {
       const newAttempts = state.failedAttempts + 1;
@@ -244,7 +230,6 @@ export function useEncryption() {
     try {
       const deviceId = getDeviceId();
       const key = deriveKeyFromHash(enteredPinHash, deviceId);
-      console.log('[E2EE] Unlock successful');
 
       sessionKeyRef.current = key;
 
@@ -282,34 +267,19 @@ export function useEncryption() {
    */
   const changePin = useCallback(
     (oldPin: string, newPin: string): { success: boolean; error?: string } => {
-      console.log('[E2EE] changePin called:', {
-        oldPinLength: oldPin.length,
-        newPinLength: newPin.length,
-        hasPinHash: !!state.pinHash,
-      });
-
       if (!state.pinHash) {
-        console.log('[E2EE] changePin failed: No PIN configured');
         return { success: false, error: 'No PIN configured' };
       }
 
       // Verify old PIN by hashing and comparing
       const oldPinHash = hashPin(oldPin);
-      console.log('[E2EE] PIN hash comparison:', {
-        enteredPin: oldPin,
-        oldPinHash: oldPinHash,
-        storedPinHash: state.pinHash,
-        match: oldPinHash === state.pinHash,
-      });
 
       if (oldPinHash !== state.pinHash) {
-        console.log('[E2EE] changePin failed: Incorrect current PIN');
         return { success: false, error: 'Incorrect current PIN' };
       }
 
       const validation = validatePin(newPin);
       if (!validation.valid) {
-        console.log('[E2EE] changePin failed: Invalid new PIN:', validation.error);
         return { success: false, error: validation.error };
       }
 
@@ -328,7 +298,6 @@ export function useEncryption() {
           pinHash: newPinHash,
         }));
 
-        console.log('[E2EE] changePin success');
         return { success: true };
       } catch (error) {
         console.error('[E2EE] Failed to change PIN:', error);
