@@ -66,17 +66,15 @@ export async function POST(request: NextRequest) {
         );
 
         if (hasTaskKeyword) {
-          // Get context: previous line + current line + next line
-          const contextLines = [];
-
-          if (i > 0) {
-            contextLines.push(segments[i - 1].content);
-          }
-          contextLines.push(segment.content);
-          if (i < segments.length - 1) {
-            contextLines.push(segments[i + 1].content);
+          // Get entire consecutive transcript (without silence/gaps)
+          // Start from current segment and work backwards to find the beginning
+          let startIndex = i;
+          while (startIndex > 0) {
+            startIndex--;
           }
 
+          // Collect all consecutive segments (entire transcript)
+          const contextLines = segments.map((s: { content: string }) => s.content);
           const context = contextLines.join(" ");
 
           extractedTasks.push({
@@ -84,6 +82,9 @@ export async function POST(request: NextRequest) {
             timestamp: transcript.startTime,
             transcriptId: transcript.id,
           });
+
+          // Break after finding one match in this transcript to avoid duplicates
+          break;
         }
       }
     }
@@ -91,9 +92,14 @@ export async function POST(request: NextRequest) {
     // Process tasks with GPT-4o and create in Todoist
     const createdTasks = [];
 
-    for (const task of extractedTasks) {
+    // Build the prompt with all conversations labeled
+    const conversationsText = extractedTasks.map((task, index) => {
+      return `Conversation ${index + 1}:\n${task.context}`;
+    }).join('\n\n---\n\n');
+
+    if (extractedTasks.length > 0) {
       try {
-        // Call GPT-4o to generate a concise task
+        // Call GPT-4o to extract tasks from all conversations
         const gptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -101,60 +107,76 @@ export async function POST(request: NextRequest) {
             "Authorization": `Bearer ${openaiApiKey}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini", // Using mini for cost efficiency
+            model: "gpt-4o-mini",
             messages: [
               {
                 role: "system",
-                content: "You are a task extraction assistant. Given context from a conversation, extract and return ONLY a single, concise, actionable task. No explanations, no quotes, just the task itself. Maximum 100 characters."
+                content: "You are a task extraction assistant. Given multiple conversations, extract actionable tasks considering the full context of each conversation. Only extract genuine tasks - consider the conversation context to determine if something is truly a task or just casual discussion. Return a JSON object with a 'tasks' array containing just the task strings. Maximum 100 characters per task."
               },
               {
                 role: "user",
-                content: `Extract a task from this context: "${task.context}"`
+                content: `Extract tasks from these conversations:\n\n${conversationsText}\n\nReturn JSON format: {"tasks": ["task 1", "task 2", ...]}`
               }
             ],
             temperature: 0.3,
-            max_tokens: 50,
+            max_tokens: 500,
+            response_format: { type: "json_object" }
           }),
         });
 
         if (!gptResponse.ok) {
           console.error("GPT API error:", await gptResponse.text());
-          continue;
+        } else {
+          const gptData = await gptResponse.json();
+          const responseContent = gptData.choices[0]?.message?.content?.trim();
+
+          if (responseContent) {
+            // Parse the JSON response
+            let tasksArray = [];
+            try {
+              const parsed = JSON.parse(responseContent);
+              tasksArray = parsed.tasks || [];
+            } catch (e) {
+              console.error("Failed to parse GPT response:", e);
+            }
+
+            // Create each task in Todoist
+            for (const taskContent of tasksArray) {
+              if (!taskContent || typeof taskContent !== 'string') continue;
+
+              try {
+                const todoistResponse = await fetch("https://api.todoist.com/rest/v2/tasks", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${todoistApiKey}`,
+                  },
+                  body: JSON.stringify({
+                    content: taskContent,
+                    description: `Extracted from transcript`,
+                    labels: ["auto-extracted", "from-transcript"],
+                  }),
+                });
+
+                if (!todoistResponse.ok) {
+                  console.error("Todoist API error:", await todoistResponse.text());
+                  continue;
+                }
+
+                const todoistTask = await todoistResponse.json();
+                createdTasks.push({
+                  task: taskContent,
+                  todoistId: todoistTask.id,
+                });
+              } catch (error) {
+                console.error("Error creating Todoist task:", error);
+              }
+            }
+          }
         }
-
-        const gptData = await gptResponse.json();
-        const taskContent = gptData.choices[0]?.message?.content?.trim();
-
-        if (!taskContent) continue;
-
-        // Create task in Todoist
-        const todoistResponse = await fetch("https://api.todoist.com/rest/v2/tasks", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${todoistApiKey}`,
-          },
-          body: JSON.stringify({
-            content: taskContent,
-            description: `Extracted from transcript on ${new Date(task.timestamp).toLocaleDateString()}`,
-            labels: ["auto-extracted", "from-transcript"],
-          }),
-        });
-
-        if (!todoistResponse.ok) {
-          console.error("Todoist API error:", await todoistResponse.text());
-          continue;
-        }
-
-        const todoistTask = await todoistResponse.json();
-        createdTasks.push({
-          task: taskContent,
-          todoistId: todoistTask.id,
-          transcriptId: task.transcriptId,
-        });
 
       } catch (error) {
-        console.error("Error processing task:", error);
+        console.error("Error processing tasks:", error);
       }
     }
 
