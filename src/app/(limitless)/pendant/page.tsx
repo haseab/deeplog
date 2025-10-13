@@ -3,6 +3,7 @@
 import { LimitlessTranscriptionTable } from "@/components/limitless-transcription-table";
 import { AppSettings } from "@/components/app-settings";
 import { WelcomeForm } from "@/components/welcome-form";
+import { EncryptionProvider } from "@/contexts/encryption-context";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
@@ -122,17 +123,19 @@ function LimitlessPageContent() {
 
 export default function LimitlessPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-          <p className="text-muted-foreground animate-pulse">
-            Loading...
-          </p>
+    <EncryptionProvider>
+      <Suspense fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-muted-foreground animate-pulse">
+              Loading...
+            </p>
+          </div>
         </div>
-      </div>
-    }>
-      <LimitlessPageContent />
-    </Suspense>
+      }>
+        <LimitlessPageContent />
+      </Suspense>
+    </EncryptionProvider>
   );
 }
