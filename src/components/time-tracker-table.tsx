@@ -1,8 +1,8 @@
 "use client";
 
-import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { useEncryptionContext } from "@/contexts/encryption-context";
-import { encryptDescription, decryptDescription } from "@/lib/encryption";
+import { usePinnedEntries } from "@/hooks/use-pinned-entries";
+import { decryptDescription, encryptDescription } from "@/lib/encryption";
 import {
   SyncQueueManager,
   type OperationType,
@@ -55,13 +55,13 @@ import { ActionsMenu } from "./actions-menu";
 import { CombineEntryDialog } from "./combine-entry-dialog";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { DurationEditor } from "./duration-editor";
+import { EncryptionStatus } from "./encryption-status";
 import { ExpandableDescription } from "./expandable-description";
+import { PinDialog } from "./pin-dialog";
 import { ProjectSelector } from "./project-selector";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
-import { PinDialog } from "./pin-dialog";
-import { EncryptionStatus } from "./encryption-status";
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -165,293 +165,442 @@ const MemoizedTableRow = React.memo(
     }
 
     return (
-      <TableRow
-        key={entry.tempId || entry.id}
-        data-entry-id={entry.id}
-        className={cn(
-          "hover:bg-accent/20 border-border/40 group hover:shadow-sm",
-          isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
-        )}
-      >
-        <TableCell className="px-2 w-8">
-          {syncStatus === "pending" && (
-            <div title="Update queued">
-              <Clock className="w-4 h-4 text-yellow-500" />
+      <>
+        {/* Mobile View */}
+        <TableRow
+          key={`${entry.tempId || entry.id}-mobile`}
+          data-entry-id={entry.id}
+          className={cn(
+            "md:hidden hover:bg-accent/20 border-border/40 group",
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+          )}
+        >
+          <TableCell colSpan={8} className="p-3 max-w-0">
+            <div className="space-y-0 max-w-full overflow-hidden">
+              {/* Description */}
+              <div className="max-w-full overflow-hidden">
+                <ExpandableDescription
+                  description={entry.description || ""}
+                  onSave={(newDescription) =>
+                    onDescriptionSave(entry.id)(newDescription)
+                  }
+                  onEditingChange={setIsEditingCell}
+                  onNavigateNext={navigateToNextCell}
+                  projects={projects}
+                  availableTags={availableTags}
+                  onRecentTimerSelect={(selected) => {
+                    const tagNames = availableTags
+                      .filter((tag) => selected.tagIds.includes(tag.id))
+                      .map((tag) => tag.name);
+
+                    const project = projects.find(
+                      (p) => p.id === selected.projectId
+                    );
+
+                    onBulkEntryUpdateByRowIndex(entry.id)({
+                      description: selected.description,
+                      projectName: project?.name,
+                      tags: tagNames,
+                    });
+                  }}
+                  data-testid="expandable-description"
+                />
+              </div>
+
+              {/* Project + Tags row */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="shrink-0 max-w-[52%]">
+                  <ProjectSelector
+                    currentProject={entry.project_name || ""}
+                    currentProjectColor={entry.project_color}
+                    onProjectChange={(newProject) =>
+                      onProjectChange(entry.id)(newProject)
+                    }
+                    projects={projects}
+                    onOpenChange={setIsProjectSelectorOpen}
+                    onNavigateNext={navigateToNextCell}
+                    onNavigatePrev={navigateToPrevCell}
+                    onNavigateDown={navigateToNextRow}
+                    onProjectCreated={onProjectCreated}
+                    data-testid="project-selector"
+                  />
+                </div>
+                <div className="shrink-0 max-w-[48%]">
+                  <TagSelector
+                    currentTags={entry.tags || []}
+                    onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                    availableTags={availableTags}
+                    onOpenChange={setIsTagSelectorOpen}
+                    onNavigateNext={navigateToNextCell}
+                    onNavigatePrev={navigateToPrevCell}
+                    onTagCreated={onTagCreated}
+                    data-testid="tag-selector"
+                  />
+                </div>
+              </div>
+
+              {/* Time + Actions row */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <TimeEditor
+                    startTime={entry.start}
+                    endTime={entry.stop}
+                    onSave={(startTime, endTime) =>
+                      onTimeChange(entry.id)(startTime, endTime)
+                    }
+                    onEditingChange={setIsTimeEditorOpen}
+                    onNavigateNext={navigateToNextCell}
+                    onNavigateDown={navigateToNextRow}
+                    onNavigatePrev={navigateToPrevCell}
+                    prevEntryEnd={prevEntryEnd}
+                    nextEntryStart={nextEntryStart}
+                    data-testid="time-editor"
+                  />
+                </div>
+                <div className="shrink-0">
+                  <ActionsMenu
+                    onPin={() => onPin(entry)}
+                    onUnpin={() => onUnpin(entry.id.toString())}
+                    isPinned={isPinned}
+                    onSplit={() => onSplit(entry)}
+                    onCombine={() => onCombine(entry)}
+                    onStartEntry={() => onStartEntry(entry)}
+                    onStopTimer={() => onStopTimer(entry)}
+                    onDelete={() => onDelete(entry)}
+                    onOpenChange={setIsActionsMenuOpen}
+                    onNavigateNext={navigateToNextCell}
+                    isSelected={false}
+                    isRunning={!entry.stop || entry.duration === -1}
+                    data-testid="actions-menu"
+                  />
+                </div>
+              </div>
+
+              {/* Sync status indicator */}
+              {syncStatus && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {syncStatus === "pending" && (
+                    <>
+                      <Clock className="w-3 h-3 text-yellow-500" />
+                      <span>Queued</span>
+                    </>
+                  )}
+                  {syncStatus === "syncing" && (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                      <span>Syncing...</span>
+                    </>
+                  )}
+                  {syncStatus === "synced" && (
+                    <>
+                      <Check className="w-3 h-3 text-green-500" />
+                      <span>Synced</span>
+                    </>
+                  )}
+                  {syncStatus === "error" && (
+                    <button
+                      onClick={() => onRetrySync(entry.id)}
+                      className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                    >
+                      <AlertCircle className="w-3 h-3 text-red-500" />
+                      <span className="text-red-500">Failed - retry</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-          {syncStatus === "syncing" && (
-            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-          )}
-          {syncStatus === "synced" && (
-            <Check className="w-4 h-4 text-green-500" />
-          )}
-          {syncStatus === "error" && (
-            <button
-              onClick={() => onRetrySync(entry.id)}
-              className="hover:opacity-70 transition-opacity"
-              title="Click to retry"
-            >
-              <AlertCircle className="w-4 h-4 text-red-500" />
-            </button>
-          )}
-        </TableCell>
-        <TableCell
+          </TableCell>
+        </TableRow>
+
+        {/* Desktop View */}
+        <TableRow
+          key={entry.tempId || entry.id}
+          data-entry-id={entry.id}
           className={cn(
-            "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 0 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
           )}
-          onClick={() => onSelectCell(rowIndex, 0)}
         >
-          {format(new Date(entry.start), "yyyy-MM-dd")}
-        </TableCell>
-        {isFullscreen ? (
-          <>
-            <TableCell
-              className={cn(
-                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 1 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 1)}
-            >
-              <ProjectSelector
-                currentProject={entry.project_name || ""}
-                currentProjectColor={entry.project_color}
-                onProjectChange={(newProject) =>
-                  onProjectChange(entry.id)(newProject)
-                }
-                projects={projects}
-                onOpenChange={setIsProjectSelectorOpen}
-                onNavigateNext={navigateToNextCell}
-                onNavigatePrev={navigateToPrevCell}
-                onNavigateDown={navigateToNextRow}
-                onProjectCreated={onProjectCreated}
-                data-testid="project-selector"
-              />
-            </TableCell>
-            <TableCell
-              className={cn(
-                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 2 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 2)}
-            >
-              <TagSelector
-                currentTags={entry.tags || []}
-                onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                availableTags={availableTags}
-                onOpenChange={setIsTagSelectorOpen}
-                onNavigateNext={navigateToNextCell}
-                onNavigatePrev={navigateToPrevCell}
-                onTagCreated={onTagCreated}
-                data-testid="tag-selector"
-              />
-            </TableCell>
-            <TableCell
-              className={cn(
-                "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 3 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 3)}
-            >
-              <ExpandableDescription
-                description={entry.description || ""}
-                onSave={(newDescription) =>
-                  onDescriptionSave(entry.id)(newDescription)
-                }
-                onEditingChange={setIsEditingCell}
-                onNavigateNext={navigateToNextCell}
-                projects={projects}
-                availableTags={availableTags}
-                onRecentTimerSelect={(selected) => {
-                  // Pass the captured entry.id - helper will resolve to current ID
-
-                  const tagNames = availableTags
-                    .filter((tag) => selected.tagIds.includes(tag.id))
-                    .map((tag) => tag.name);
-
-                  const project = projects.find(
-                    (p) => p.id === selected.projectId
-                  );
-
-                  onBulkEntryUpdateByRowIndex(entry.id)({
-                    description: selected.description,
-                    projectName: project?.name,
-                    tags: tagNames,
-                  });
-                }}
-                data-testid="expandable-description"
-              />
-            </TableCell>
-          </>
-        ) : (
-          <>
-            <TableCell
-              className={cn(
-                "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 1 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 1)}
-            >
-              <ExpandableDescription
-                description={entry.description || ""}
-                onSave={(newDescription) =>
-                  onDescriptionSave(entry.id)(newDescription)
-                }
-                onEditingChange={setIsEditingCell}
-                onNavigateNext={navigateToNextCell}
-                projects={projects}
-                availableTags={availableTags}
-                onRecentTimerSelect={(selected) => {
-                  // Pass the captured entry.id - helper will resolve to current ID
-
-                  const tagNames = availableTags
-                    .filter((tag) => selected.tagIds.includes(tag.id))
-                    .map((tag) => tag.name);
-
-                  const project = projects.find(
-                    (p) => p.id === selected.projectId
-                  );
-
-                  onBulkEntryUpdateByRowIndex(entry.id)({
-                    description: selected.description,
-                    projectName: project?.name,
-                    tags: tagNames,
-                  });
-                }}
-                data-testid="expandable-description"
-              />
-            </TableCell>
-            <TableCell
-              className={cn(
-                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 2 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 2)}
-            >
-              <ProjectSelector
-                currentProject={entry.project_name || ""}
-                currentProjectColor={entry.project_color}
-                onProjectChange={(newProject) =>
-                  onProjectChange(entry.id)(newProject)
-                }
-                projects={projects}
-                onOpenChange={setIsProjectSelectorOpen}
-                onNavigateNext={navigateToNextCell}
-                onNavigatePrev={navigateToPrevCell}
-                onNavigateDown={navigateToNextRow}
-                onProjectCreated={onProjectCreated}
-                data-testid="project-selector"
-              />
-            </TableCell>
-            <TableCell
-              className={cn(
-                "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                selectedCell?.rowIndex === rowIndex &&
-                  selectedCell?.cellIndex === 3 &&
-                  "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-              )}
-              onClick={() => onSelectCell(rowIndex, 3)}
-            >
-              <TagSelector
-                currentTags={entry.tags || []}
-                onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                availableTags={availableTags}
-                onOpenChange={setIsTagSelectorOpen}
-                onNavigateNext={navigateToNextCell}
-                onNavigatePrev={navigateToPrevCell}
-                onTagCreated={onTagCreated}
-                data-testid="tag-selector"
-              />
-            </TableCell>
-          </>
-        )}
-        <TableCell
-          className={cn(
-            "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 4 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 4)}
-        >
-          <TimeEditor
-            startTime={entry.start}
-            endTime={entry.stop}
-            onSave={(startTime, endTime) =>
-              onTimeChange(entry.id)(startTime, endTime)
-            }
-            onEditingChange={setIsTimeEditorOpen}
-            onNavigateNext={navigateToNextCell}
-            onNavigateDown={navigateToNextRow}
-            onNavigatePrev={navigateToPrevCell}
-            prevEntryEnd={prevEntryEnd}
-            nextEntryStart={nextEntryStart}
-            data-testid="time-editor"
-          />
-        </TableCell>
-        <TableCell
-          className={cn(
-            "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 5 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 5)}
-        >
-          <DurationEditor
-            duration={entry.duration}
-            startTime={entry.start}
-            endTime={entry.stop}
-            onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
-            onSaveWithStartTimeAdjustment={(newDuration) =>
-              onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
-            }
-            onEditingChange={setIsEditingCell}
-            onNavigateDown={navigateToNextRow}
-            data-testid="duration-editor"
-          />
-        </TableCell>
-        <TableCell
-          className={cn(
-            "px-4 py-2 cursor-pointer sm:w-16 w-12",
-            selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 6 &&
-              "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-          )}
-          onClick={() => onSelectCell(rowIndex, 6)}
-        >
-          <ActionsMenu
-            onPin={() => onPin(entry)}
-            onUnpin={() => onUnpin(entry.id.toString())}
-            isPinned={isPinned}
-            onSplit={() => onSplit(entry)}
-            onCombine={() => onCombine(entry)}
-            onStartEntry={() => onStartEntry(entry)}
-            onStopTimer={() => onStopTimer(entry)}
-            onDelete={() => onDelete(entry)}
-            onOpenChange={setIsActionsMenuOpen}
-            onNavigateNext={navigateToNextCell}
-            isSelected={
+          <TableCell className="px-2 w-8 md:table-cell hidden">
+            {syncStatus === "pending" && (
+              <div title="Update queued">
+                <Clock className="w-4 h-4 text-yellow-500" />
+              </div>
+            )}
+            {syncStatus === "syncing" && (
+              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+            )}
+            {syncStatus === "synced" && (
+              <Check className="w-4 h-4 text-green-500" />
+            )}
+            {syncStatus === "error" && (
+              <button
+                onClick={() => onRetrySync(entry.id)}
+                className="hover:opacity-70 transition-opacity"
+                title="Click to retry"
+              >
+                <AlertCircle className="w-4 h-4 text-red-500" />
+              </button>
+            )}
+          </TableCell>
+          <TableCell
+            className={cn(
+              "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer md:table-cell hidden",
               selectedCell?.rowIndex === rowIndex &&
-              selectedCell?.cellIndex === 6
-            }
-            isRunning={!entry.stop || entry.duration === -1}
-            data-testid="actions-menu"
-          />
-        </TableCell>
-      </TableRow>
+                selectedCell?.cellIndex === 0 &&
+                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            )}
+            onClick={() => onSelectCell(rowIndex, 0)}
+          >
+            {format(new Date(entry.start), "yyyy-MM-dd")}
+          </TableCell>
+          {isFullscreen ? (
+            <>
+              <TableCell
+                className={cn(
+                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 1 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 1)}
+              >
+                <ProjectSelector
+                  currentProject={entry.project_name || ""}
+                  currentProjectColor={entry.project_color}
+                  onProjectChange={(newProject) =>
+                    onProjectChange(entry.id)(newProject)
+                  }
+                  projects={projects}
+                  onOpenChange={setIsProjectSelectorOpen}
+                  onNavigateNext={navigateToNextCell}
+                  onNavigatePrev={navigateToPrevCell}
+                  onNavigateDown={navigateToNextRow}
+                  onProjectCreated={onProjectCreated}
+                  data-testid="project-selector"
+                />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 2 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 2)}
+              >
+                <TagSelector
+                  currentTags={entry.tags || []}
+                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                  availableTags={availableTags}
+                  onOpenChange={setIsTagSelectorOpen}
+                  onNavigateNext={navigateToNextCell}
+                  onNavigatePrev={navigateToPrevCell}
+                  onTagCreated={onTagCreated}
+                  data-testid="tag-selector"
+                />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 3 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 3)}
+              >
+                <ExpandableDescription
+                  description={entry.description || ""}
+                  onSave={(newDescription) =>
+                    onDescriptionSave(entry.id)(newDescription)
+                  }
+                  onEditingChange={setIsEditingCell}
+                  onNavigateNext={navigateToNextCell}
+                  projects={projects}
+                  availableTags={availableTags}
+                  onRecentTimerSelect={(selected) => {
+                    // Pass the captured entry.id - helper will resolve to current ID
+
+                    const tagNames = availableTags
+                      .filter((tag) => selected.tagIds.includes(tag.id))
+                      .map((tag) => tag.name);
+
+                    const project = projects.find(
+                      (p) => p.id === selected.projectId
+                    );
+
+                    onBulkEntryUpdateByRowIndex(entry.id)({
+                      description: selected.description,
+                      projectName: project?.name,
+                      tags: tagNames,
+                    });
+                  }}
+                  data-testid="expandable-description"
+                />
+              </TableCell>
+            </>
+          ) : (
+            <>
+              <TableCell
+                className={cn(
+                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 1 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 1)}
+              >
+                <ExpandableDescription
+                  description={entry.description || ""}
+                  onSave={(newDescription) =>
+                    onDescriptionSave(entry.id)(newDescription)
+                  }
+                  onEditingChange={setIsEditingCell}
+                  onNavigateNext={navigateToNextCell}
+                  projects={projects}
+                  availableTags={availableTags}
+                  onRecentTimerSelect={(selected) => {
+                    // Pass the captured entry.id - helper will resolve to current ID
+
+                    const tagNames = availableTags
+                      .filter((tag) => selected.tagIds.includes(tag.id))
+                      .map((tag) => tag.name);
+
+                    const project = projects.find(
+                      (p) => p.id === selected.projectId
+                    );
+
+                    onBulkEntryUpdateByRowIndex(entry.id)({
+                      description: selected.description,
+                      projectName: project?.name,
+                      tags: tagNames,
+                    });
+                  }}
+                  data-testid="expandable-description"
+                />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 2 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 2)}
+              >
+                <ProjectSelector
+                  currentProject={entry.project_name || ""}
+                  currentProjectColor={entry.project_color}
+                  onProjectChange={(newProject) =>
+                    onProjectChange(entry.id)(newProject)
+                  }
+                  projects={projects}
+                  onOpenChange={setIsProjectSelectorOpen}
+                  onNavigateNext={navigateToNextCell}
+                  onNavigatePrev={navigateToPrevCell}
+                  onNavigateDown={navigateToNextRow}
+                  onProjectCreated={onProjectCreated}
+                  data-testid="project-selector"
+                />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 3 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 3)}
+              >
+                <TagSelector
+                  currentTags={entry.tags || []}
+                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                  availableTags={availableTags}
+                  onOpenChange={setIsTagSelectorOpen}
+                  onNavigateNext={navigateToNextCell}
+                  onNavigatePrev={navigateToPrevCell}
+                  onTagCreated={onTagCreated}
+                  data-testid="tag-selector"
+                />
+              </TableCell>
+            </>
+          )}
+          <TableCell
+            className={cn(
+              "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
+              selectedCell?.rowIndex === rowIndex &&
+                selectedCell?.cellIndex === 4 &&
+                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            )}
+            onClick={() => onSelectCell(rowIndex, 4)}
+          >
+            <TimeEditor
+              startTime={entry.start}
+              endTime={entry.stop}
+              onSave={(startTime, endTime) =>
+                onTimeChange(entry.id)(startTime, endTime)
+              }
+              onEditingChange={setIsTimeEditorOpen}
+              onNavigateNext={navigateToNextCell}
+              onNavigateDown={navigateToNextRow}
+              onNavigatePrev={navigateToPrevCell}
+              prevEntryEnd={prevEntryEnd}
+              nextEntryStart={nextEntryStart}
+              data-testid="time-editor"
+            />
+          </TableCell>
+          <TableCell
+            className={cn(
+              "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
+              selectedCell?.rowIndex === rowIndex &&
+                selectedCell?.cellIndex === 5 &&
+                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            )}
+            onClick={() => onSelectCell(rowIndex, 5)}
+          >
+            <DurationEditor
+              duration={entry.duration}
+              startTime={entry.start}
+              endTime={entry.stop}
+              onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
+              onSaveWithStartTimeAdjustment={(newDuration) =>
+                onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
+              }
+              onEditingChange={setIsEditingCell}
+              onNavigateDown={navigateToNextRow}
+              data-testid="duration-editor"
+            />
+          </TableCell>
+          <TableCell
+            className={cn(
+              "px-4 py-2 cursor-pointer sm:w-16 w-12",
+              selectedCell?.rowIndex === rowIndex &&
+                selectedCell?.cellIndex === 6 &&
+                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            )}
+            onClick={() => onSelectCell(rowIndex, 6)}
+          >
+            <ActionsMenu
+              onPin={() => onPin(entry)}
+              onUnpin={() => onUnpin(entry.id.toString())}
+              isPinned={isPinned}
+              onSplit={() => onSplit(entry)}
+              onCombine={() => onCombine(entry)}
+              onStartEntry={() => onStartEntry(entry)}
+              onStopTimer={() => onStopTimer(entry)}
+              onDelete={() => onDelete(entry)}
+              onOpenChange={setIsActionsMenuOpen}
+              onNavigateNext={navigateToNextCell}
+              isSelected={
+                selectedCell?.rowIndex === rowIndex &&
+                selectedCell?.cellIndex === 6
+              }
+              isRunning={!entry.stop || entry.duration === -1}
+              data-testid="actions-menu"
+            />
+          </TableCell>
+        </TableRow>
+      </>
     );
   },
   (prevProps, nextProps) => {
@@ -502,8 +651,7 @@ const MemoizedTableRow = React.memo(
       prevProps.availableTags === nextProps.availableTags;
     const onProjectCreatedEqual =
       prevProps.onProjectCreated === nextProps.onProjectCreated;
-    const onTagCreatedEqual =
-      prevProps.onTagCreated === nextProps.onTagCreated;
+    const onTagCreatedEqual = prevProps.onTagCreated === nextProps.onTagCreated;
     const setIsEditingCellEqual =
       prevProps.setIsEditingCell === nextProps.setIsEditingCell;
     const setIsProjectSelectorOpenEqual =
@@ -576,7 +724,10 @@ export function TimeTrackerTable({
 
     return pinnedEntries.map((entry) => {
       // Check if description looks encrypted (format: IV:AuthTag:Ciphertext)
-      const looksEncrypted = entry.description && entry.description.includes(':') && entry.description.split(':').length === 3;
+      const looksEncrypted =
+        entry.description &&
+        entry.description.includes(":") &&
+        entry.description.split(":").length === 3;
       const entryId = parseInt(entry.id, 10);
 
       if (looksEncrypted) {
@@ -588,14 +739,21 @@ export function TimeTrackerTable({
           );
           return { ...entry, description: decryptedDescription };
         } catch (error) {
-          console.error(`[E2EE] Failed to decrypt pinned entry ${entry.id}:`, error);
+          console.error(
+            `[E2EE] Failed to decrypt pinned entry ${entry.id}:`,
+            error
+          );
           return entry;
         }
       }
       return entry;
     });
-  }, [pinnedEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey]);
-
+  }, [
+    pinnedEntries,
+    encryption.isE2EEEnabled,
+    encryption.isUnlocked,
+    encryption.getSessionKey,
+  ]);
 
   const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
   const [pinError, setPinError] = React.useState<string>("");
@@ -647,7 +805,9 @@ export function TimeTrackerTable({
 
     return timeEntries.map((entry) => {
       // Check if description looks encrypted (IV:AuthTag:Ciphertext format)
-      const looksEncrypted = entry.description?.includes(':') && entry.description?.split(':').length === 3;
+      const looksEncrypted =
+        entry.description?.includes(":") &&
+        entry.description?.split(":").length === 3;
 
       if (looksEncrypted) {
         try {
@@ -664,7 +824,12 @@ export function TimeTrackerTable({
       }
       return entry;
     });
-  }, [timeEntries, encryption.isE2EEEnabled, encryption.isUnlocked, encryption.getSessionKey]);
+  }, [
+    timeEntries,
+    encryption.isE2EEEnabled,
+    encryption.isUnlocked,
+    encryption.getSessionKey,
+  ]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
@@ -890,10 +1055,14 @@ export function TimeTrackerTable({
             const sessionKey = encryption.getSessionKey();
             if (sessionKey) {
               try {
-                finalDescription = encryptDescription(newDescription, sessionKey, realId);
+                finalDescription = encryptDescription(
+                  newDescription,
+                  sessionKey,
+                  realId
+                );
                 encryption.markEntryEncrypted(realId);
               } catch (error) {
-                console.error('[E2EE] Failed to encrypt description:', error);
+                console.error("[E2EE] Failed to encrypt description:", error);
               }
             }
           }
@@ -930,31 +1099,38 @@ export function TimeTrackerTable({
 
             // Encrypt description if E2EE is enabled and unlocked
             let finalDescription = newDescription;
-            console.log('[E2EE DEBUG] Editing entry:', {
+            console.log("[E2EE DEBUG] Editing entry:", {
               isE2EEEnabled: encryption.isE2EEEnabled,
               isUnlocked: encryption.isUnlocked,
               hasSessionKey: !!encryption.getSessionKey(),
               originalDescription: newDescription,
-              entryId
+              entryId,
             });
 
             if (encryption.isE2EEEnabled && encryption.isUnlocked) {
               const sessionKey = encryption.getSessionKey();
               if (sessionKey) {
                 try {
-                  finalDescription = encryptDescription(newDescription, sessionKey, entryId);
+                  finalDescription = encryptDescription(
+                    newDescription,
+                    sessionKey,
+                    entryId
+                  );
                   encryption.markEntryEncrypted(entryId);
-                  console.log('[E2EE DEBUG] Encrypted edited description:', {
+                  console.log("[E2EE DEBUG] Encrypted edited description:", {
                     original: newDescription,
                     encrypted: finalDescription,
-                    lengthMatch: newDescription.length === finalDescription.length
+                    lengthMatch:
+                      newDescription.length === finalDescription.length,
                   });
                 } catch (error) {
-                  console.error('[E2EE] Failed to encrypt description:', error);
+                  console.error("[E2EE] Failed to encrypt description:", error);
                 }
               }
             } else {
-              console.log('[E2EE DEBUG] Skipping encryption - not enabled or locked');
+              console.log(
+                "[E2EE DEBUG] Skipping encryption - not enabled or locked"
+              );
             }
 
             const response = await fetch(`/api/time-entries/${entryId}`, {
@@ -1003,7 +1179,9 @@ export function TimeTrackerTable({
         { project_name: newProject },
         "UPDATE_PROJECT",
         () => {
-          const selectedProject = projectsRef.current.find((p) => p.name === newProject);
+          const selectedProject = projectsRef.current.find(
+            (p) => p.name === newProject
+          );
           const newProjectColor =
             newProject === "No Project" || newProject === ""
               ? "#6b7280"
@@ -1031,7 +1209,9 @@ export function TimeTrackerTable({
         const originalEntries = [...currentEntries];
 
         // Find the project color for optimistic update using ref for up-to-date data
-        const selectedProject = projectsRef.current.find((p) => p.name === newProject);
+        const selectedProject = projectsRef.current.find(
+          (p) => p.name === newProject
+        );
         const newProjectColor =
           newProject === "No Project" || newProject === ""
             ? "#6b7280"
@@ -1175,13 +1355,13 @@ export function TimeTrackerTable({
 
   const handleTagCreated = React.useCallback((newTag: Tag) => {
     // Update ref immediately for synchronous access
-    if (!availableTagsRef.current.find(t => t.id === newTag.id)) {
+    if (!availableTagsRef.current.find((t) => t.id === newTag.id)) {
       availableTagsRef.current = [...availableTagsRef.current, newTag];
     }
 
     // Also update state for UI
     setAvailableTags((current) => {
-      if (current.find(t => t.id === newTag.id)) {
+      if (current.find((t) => t.id === newTag.id)) {
         return current;
       }
       return [...current, newTag];
@@ -1190,13 +1370,13 @@ export function TimeTrackerTable({
 
   const handleProjectCreated = React.useCallback((newProject: Project) => {
     // Update ref immediately for synchronous access
-    if (!projectsRef.current.find(p => p.id === newProject.id)) {
+    if (!projectsRef.current.find((p) => p.id === newProject.id)) {
       projectsRef.current = [...projectsRef.current, newProject];
     }
 
     // Also update state for UI
     setProjects((current) => {
-      if (current.find(p => p.id === newProject.id)) {
+      if (current.find((p) => p.id === newProject.id)) {
         return current;
       }
       return [...current, newProject];
@@ -1212,14 +1392,25 @@ export function TimeTrackerTable({
       }) => {
         // Encrypt description if E2EE is enabled
         let finalDescription = updates.description;
-        if (finalDescription !== undefined && encryption.isE2EEEnabled && encryption.isUnlocked) {
+        if (
+          finalDescription !== undefined &&
+          encryption.isE2EEEnabled &&
+          encryption.isUnlocked
+        ) {
           const sessionKey = encryption.getSessionKey();
           if (sessionKey) {
             try {
-              finalDescription = encryptDescription(finalDescription, sessionKey, entryId);
+              finalDescription = encryptDescription(
+                finalDescription,
+                sessionKey,
+                entryId
+              );
               encryption.markEntryEncrypted(entryId);
             } catch (error) {
-              console.error('[E2EE] Failed to encrypt description in bulk update:', error);
+              console.error(
+                "[E2EE] Failed to encrypt description in bulk update:",
+                error
+              );
             }
           }
         }
@@ -1789,7 +1980,9 @@ export function TimeTrackerTable({
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
       // Find the index of the entry being deleted
-      const deletedIndex = timeEntries.findIndex((e) => e.id === entryToDelete.id);
+      const deletedIndex = timeEntries.findIndex(
+        (e) => e.id === entryToDelete.id
+      );
 
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
@@ -2082,7 +2275,10 @@ export function TimeTrackerTable({
                 ...e,
                 stop: "",
                 duration: -1,
-                syncStatus: (currentIsTempId || olderIsTempId) ? "pending" as SyncStatus : e.syncStatus,
+                syncStatus:
+                  currentIsTempId || olderIsTempId
+                    ? ("pending" as SyncStatus)
+                    : e.syncStatus,
               };
             } else {
               // Extend older entry to current entry's stop time
@@ -2095,7 +2291,10 @@ export function TimeTrackerTable({
                 ...e,
                 stop: entryToCombine.stop!,
                 duration: newDuration,
-                syncStatus: (currentIsTempId || olderIsTempId) ? "pending" as SyncStatus : e.syncStatus,
+                syncStatus:
+                  currentIsTempId || olderIsTempId
+                    ? ("pending" as SyncStatus)
+                    : e.syncStatus,
               };
             }
           }
@@ -2189,9 +2388,7 @@ export function TimeTrackerTable({
       syncQueue.queueOperation(operation);
       // Set sync status on the older entry (the one that remains visible)
       // Even though we queue on the temp ID, we display status on the older entry
-      setEntrySyncStatus((prev) =>
-        new Map(prev).set(olderEntry.id, "pending")
-      );
+      setEntrySyncStatus((prev) => new Map(prev).set(olderEntry.id, "pending"));
 
       toast("Combine queued", {
         description: "Changes will sync once entry is created",
@@ -2342,10 +2539,14 @@ export function TimeTrackerTable({
             const sessionKey = encryption.getSessionKey();
             if (sessionKey) {
               try {
-                finalDescription = encryptDescription(description, sessionKey, tempId);
+                finalDescription = encryptDescription(
+                  description,
+                  sessionKey,
+                  tempId
+                );
                 encryption.markEntryEncrypted(tempId);
               } catch (error) {
-                console.error('[E2EE] Failed to encrypt description:', error);
+                console.error("[E2EE] Failed to encrypt description:", error);
                 // Continue with unencrypted description if encryption fails
               }
             }
@@ -2484,13 +2685,21 @@ export function TimeTrackerTable({
       // Decrypt description if it's encrypted (due to React.memo caching stale entry objects)
       let description = entry.description;
 
-      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entry.id)) {
+      if (
+        encryption.isE2EEEnabled &&
+        encryption.isUnlocked &&
+        encryption.isEntryEncrypted(entry.id)
+      ) {
         const sessionKey = encryption.getSessionKey();
         if (sessionKey) {
           try {
-            description = decryptDescription(entry.description, sessionKey, entry.id);
+            description = decryptDescription(
+              entry.description,
+              sessionKey,
+              entry.id
+            );
           } catch (error) {
-            console.error('[E2EE] Failed to decrypt entry description:', error);
+            console.error("[E2EE] Failed to decrypt entry description:", error);
           }
         }
       }
@@ -2505,42 +2714,41 @@ export function TimeTrackerTable({
     [startNewTimeEntry, encryption]
   );
 
-  const handleStopTimer = React.useCallback(
-    async (entry: TimeEntry) => {
-      const now = new Date();
-      const start = new Date(entry.start);
-      const durationInSeconds = Math.floor((now.getTime() - start.getTime()) / 1000);
+  const handleStopTimer = React.useCallback(async (entry: TimeEntry) => {
+    const now = new Date();
+    const start = new Date(entry.start);
+    const durationInSeconds = Math.floor(
+      (now.getTime() - start.getTime()) / 1000
+    );
 
-      try {
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const response = await fetch(`/api/time-entries/${entry.id}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-toggl-session-token": sessionToken || "",
-          },
-          body: JSON.stringify({
-            stop: now.toISOString(),
-          }),
-        });
+    try {
+      const sessionToken = localStorage.getItem("toggl_session_token");
+      const response = await fetch(`/api/time-entries/${entry.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          stop: now.toISOString(),
+        }),
+      });
 
-        if (!response.ok) throw new Error("Failed to stop timer");
+      if (!response.ok) throw new Error("Failed to stop timer");
 
-        // Update the time entries to reflect the stopped timer
-        setTimeEntries((prev) =>
-          prev.map((e) =>
-            e.id === entry.id
-              ? { ...e, stop: now.toISOString(), duration: durationInSeconds }
-              : e
-          )
-        );
-      } catch (error) {
-        console.error("Error stopping timer:", error);
-        toast.error("Failed to stop timer");
-      }
-    },
-    []
-  );
+      // Update the time entries to reflect the stopped timer
+      setTimeEntries((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { ...e, stop: now.toISOString(), duration: durationInSeconds }
+            : e
+        )
+      );
+    } catch (error) {
+      console.error("Error stopping timer:", error);
+      toast.error("Failed to stop timer");
+    }
+  }, []);
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
@@ -2871,57 +3079,60 @@ export function TimeTrackerTable({
     [isFullscreen] // Need isFullscreen to determine column mapping
   );
 
-  const navigateToNextCell = React.useCallback((wrapToSameRow = false) => {
-    // Store current cell info before updating state
-    let shouldAutoOpen = false;
-    let targetRowIndex = 0;
-    let targetCellIndex = 0;
+  const navigateToNextCell = React.useCallback(
+    (wrapToSameRow = false) => {
+      // Store current cell info before updating state
+      let shouldAutoOpen = false;
+      let targetRowIndex = 0;
+      let targetCellIndex = 0;
 
-    setSelectedCell((currentSelectedCell) => {
-      if (!currentSelectedCell) return null;
+      setSelectedCell((currentSelectedCell) => {
+        if (!currentSelectedCell) return null;
 
-      const maxCellIndex = 6; // 7 columns: date, project, tags, description, time, duration, actions
-      const currentEntriesLength = timeEntriesRef.current.length;
+        const maxCellIndex = 6; // 7 columns: date, project, tags, description, time, duration, actions
+        const currentEntriesLength = timeEntriesRef.current.length;
 
-      if (currentSelectedCell.cellIndex < maxCellIndex) {
-        const nextCellIndex = currentSelectedCell.cellIndex + 1;
+        if (currentSelectedCell.cellIndex < maxCellIndex) {
+          const nextCellIndex = currentSelectedCell.cellIndex + 1;
 
-        // Check if we should auto-open project selector (1), tag selector (2), description (3), time editor (4), or duration editor (5)
-        if (
-          nextCellIndex === 1 ||
-          nextCellIndex === 2 ||
-          nextCellIndex === 3 ||
-          nextCellIndex === 4 ||
-          nextCellIndex === 5
-        ) {
+          // Check if we should auto-open project selector (1), tag selector (2), description (3), time editor (4), or duration editor (5)
+          if (
+            nextCellIndex === 1 ||
+            nextCellIndex === 2 ||
+            nextCellIndex === 3 ||
+            nextCellIndex === 4 ||
+            nextCellIndex === 5
+          ) {
+            shouldAutoOpen = true;
+            targetRowIndex = currentSelectedCell.rowIndex;
+            targetCellIndex = nextCellIndex;
+          }
+
+          return {
+            ...currentSelectedCell,
+            cellIndex: nextCellIndex,
+          };
+        } else if (wrapToSameRow) {
+          // When Option+Tab is pressed at the end, wrap to cellIndex 1 of same row
           shouldAutoOpen = true;
           targetRowIndex = currentSelectedCell.rowIndex;
-          targetCellIndex = nextCellIndex;
+          targetCellIndex = 1;
+          return { rowIndex: currentSelectedCell.rowIndex, cellIndex: 1 };
+        } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
+          // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
+          return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
         }
 
-        return {
-          ...currentSelectedCell,
-          cellIndex: nextCellIndex,
-        };
-      } else if (wrapToSameRow) {
-        // When Option+Tab is pressed at the end, wrap to cellIndex 1 of same row
-        shouldAutoOpen = true;
-        targetRowIndex = currentSelectedCell.rowIndex;
-        targetCellIndex = 1;
-        return { rowIndex: currentSelectedCell.rowIndex, cellIndex: 1 };
-      } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
-        // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
-        return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
+        return currentSelectedCell; // No change if at the end
+      });
+
+      // Call activateCell AFTER state update, outside the callback
+      if (shouldAutoOpen) {
+        setTimeout(() => activateCell(targetRowIndex, targetCellIndex), 0);
       }
-
-      return currentSelectedCell; // No change if at the end
-    });
-
-    // Call activateCell AFTER state update, outside the callback
-    if (shouldAutoOpen) {
-      setTimeout(() => activateCell(targetRowIndex, targetCellIndex), 0);
-    }
-  }, [activateCell]);
+    },
+    [activateCell]
+  );
 
   const navigateToPrevCell = React.useCallback(() => {
     setSelectedCell((currentSelectedCell) => {
@@ -3106,13 +3317,24 @@ export function TimeTrackerTable({
       let description = entry.description;
       const entryId = parseInt(entry.id, 10);
 
-      if (encryption.isE2EEEnabled && encryption.isUnlocked && encryption.isEntryEncrypted(entryId)) {
+      if (
+        encryption.isE2EEEnabled &&
+        encryption.isUnlocked &&
+        encryption.isEntryEncrypted(entryId)
+      ) {
         const sessionKey = encryption.getSessionKey();
         if (sessionKey) {
           try {
-            description = decryptDescription(entry.description, sessionKey, entryId);
+            description = decryptDescription(
+              entry.description,
+              sessionKey,
+              entryId
+            );
           } catch (error) {
-            console.error('[E2EE] Failed to decrypt pinned entry description:', error);
+            console.error(
+              "[E2EE] Failed to decrypt pinned entry description:",
+              error
+            );
           }
         }
       }
@@ -3338,7 +3560,7 @@ export function TimeTrackerTable({
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
-      const isActionShortcut = ['d', 'x', 'c', 's', 'p'].includes(e.key);
+      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(e.key);
       if (
         isEditingCell ||
         isProjectSelectorOpen ||
@@ -3461,7 +3683,7 @@ export function TimeTrackerTable({
         // Find the row closest to the middle of the viewport
         const containerRect = container.getBoundingClientRect();
         const viewportMiddle = containerRect.top + containerRect.height / 2;
-        const rows = container.querySelectorAll('[data-entry-id]');
+        const rows = container.querySelectorAll("[data-entry-id]");
 
         let targetRowIndex = 0;
         let closestDistance = Infinity;
@@ -3840,7 +4062,6 @@ export function TimeTrackerTable({
               behavior: "smooth",
             });
           }
-
         }
       });
     }
@@ -3914,217 +4135,99 @@ export function TimeTrackerTable({
     setPinDialogOpen(true);
   }, []);
 
-  const handlePinSuccess = React.useCallback((pin: string) => {
-    const result = encryption.unlockE2EE(pin);
-    if (result.success) {
-      toast.success("Encryption unlocked");
-      setPinDialogOpen(false);
-      setPinError("");
-    } else {
-      setPinError(result.error || "Failed to unlock");
-    }
-  }, [encryption]);
+  const handlePinSuccess = React.useCallback(
+    (pin: string) => {
+      const result = encryption.unlockE2EE(pin);
+      if (result.success) {
+        toast.success("Encryption unlocked");
+        setPinDialogOpen(false);
+        setPinError("");
+      } else {
+        setPinError(result.error || "Failed to unlock");
+      }
+    },
+    [encryption]
+  );
 
   // No need to show unlock dialog - it auto-unlocks from localStorage
 
   return (
     <TooltipProvider delayDuration={0}>
-    <div
-      className={cn(
-        "space-y-6 overflow-auto overscroll-none",
-        isFullscreen
-          ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
-          : "h-[calc(100vh-8rem)] border rounded-xl p-6"
-      )}
-      ref={tableRef}
-    >
-      {showPinnedEntries && (
-        <PinnedTimeEntries
-          pinnedEntries={decryptedPinnedEntries}
-          onUnpin={handleUnpinEntry}
-          onStartTimer={handleStartTimerFromPinned}
-          onNewTimer={() => {
-            setShowPinnedEntries(false);
-            handleNewTimer();
-          }}
-          onNewEntry={() => {
-            setShowPinnedEntries(false);
-            handleNewStoppedEntry();
-          }}
-          showShortcuts={true}
-        />
-      )}
-      <div className="mb-4">
-        {/* Desktop layout - single row */}
-        <div className="hidden md:flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  id="date"
-                  variant={"outline"}
-                  className={cn(
-                    "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                    !date && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                  {date?.from ? (
-                    date.to ? (
-                      <>
-                        {format(date.from, "LLL dd, y")} -{" "}
-                        {format(date.to, "LLL dd, y")}
-                      </>
+      <div
+        className={cn(
+          "space-y-6 overflow-auto overscroll-none",
+          isFullscreen
+            ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
+            : "h-[calc(100vh-8rem)] border rounded-xl p-6"
+        )}
+        ref={tableRef}
+      >
+        {showPinnedEntries && (
+          <PinnedTimeEntries
+            pinnedEntries={decryptedPinnedEntries}
+            onUnpin={handleUnpinEntry}
+            onStartTimer={handleStartTimerFromPinned}
+            onNewTimer={() => {
+              setShowPinnedEntries(false);
+              handleNewTimer();
+            }}
+            onNewEntry={() => {
+              setShowPinnedEntries(false);
+              handleNewStoppedEntry();
+            }}
+            showShortcuts={true}
+          />
+        )}
+        <div className="mb-4">
+          {/* Desktop layout - single row */}
+          <div className="hidden md:flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="date"
+                    variant={"outline"}
+                    className={cn(
+                      "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                      !date && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                    {date?.from ? (
+                      date.to ? (
+                        <>
+                          {format(date.from, "LLL dd, y")} -{" "}
+                          {format(date.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(date.from, "LLL dd, y")
+                      )
                     ) : (
-                      format(date.from, "LLL dd, y")
-                    )
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-auto p-0 border-border/60"
-                align="start"
-              >
-                <Calendar
-                  mode="range"
-                  defaultMonth={date?.from}
-                  selected={date}
-                  onSelect={(selectedRange) => {
-                    if (selectedRange?.from && selectedRange?.to) {
-                      // Set end date to end of day
-                      const endOfDayTo = endOfDay(selectedRange.to);
-                      setDate({ from: selectedRange.from, to: endOfDayTo });
-                    } else {
-                    }
-                  }}
-                  numberOfMonths={2}
-                  className="rounded-md border-0"
-                />
-              </PopoverContent>
-            </Popover>
-            <SyncStatusBadge
-              status={syncStatus}
-              lastSyncTime={lastSyncTime}
-              onReauthenticate={handleReauthenticate}
-              onRetry={() => fetchData()}
-            />
-            <EncryptionStatus
-              isE2EEEnabled={encryption.isE2EEEnabled}
-              isUnlocked={encryption.isUnlocked}
-              onLock={handleLockEncryption}
-              onUnlock={handleUnlockEncryption}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={() => window.open("https://track.toggl.com/reports/", "_blank")}
-                size="icon"
-                variant="outline"
-                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-              >
-                <BarChart3 className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              View Analytics
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={handleFullscreenToggle}
-                size="icon"
-                variant="outline"
-                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-                disabled={isTransitioning}
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="w-4 h-4" />
-                ) : (
-                  <Maximize2 className="w-4 h-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={handleNewEntryClick}
-                size="icon"
-                variant="outline"
-                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              New (N)
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        </div>
-
-        {/* Mobile layout - two rows */}
-        <div className="md:hidden space-y-3">
-          {/* First row - Date picker */}
-          <div className="flex items-center">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  id="date-mobile"
-                  variant={"outline"}
-                  className={cn(
-                    "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
-                    !date && "text-muted-foreground"
-                  )}
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto p-0 border-border/60"
+                  align="start"
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                  {date?.from ? (
-                    date.to ? (
-                      <>
-                        {format(date.from, "MMM dd")} - {format(date.to, "MMM dd, y")}
-                      </>
-                    ) : (
-                      format(date.from, "LLL dd, y")
-                    )
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-auto p-0 border-border/60"
-                align="start"
-              >
-                <Calendar
-                  mode="range"
-                  defaultMonth={date?.from}
-                  selected={date}
-                  onSelect={(selectedRange) => {
-                    if (selectedRange?.from && selectedRange?.to) {
-                      // Set end date to end of day
-                      const endOfDayTo = endOfDay(selectedRange.to);
-                      setDate({ from: selectedRange.from, to: endOfDayTo });
-                    } else {
-                    }
-                  }}
-                  numberOfMonths={1}
-                  className="rounded-md border-0"
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {/* Second row - Buttons and status */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+                  <Calendar
+                    mode="range"
+                    defaultMonth={date?.from}
+                    selected={date}
+                    onSelect={(selectedRange) => {
+                      if (selectedRange?.from && selectedRange?.to) {
+                        // Set end date to end of day
+                        const endOfDayTo = endOfDay(selectedRange.to);
+                        setDate({ from: selectedRange.from, to: endOfDayTo });
+                      } else {
+                      }
+                    }}
+                    numberOfMonths={2}
+                    className="rounded-md border-0"
+                  />
+                </PopoverContent>
+              </Popover>
               <SyncStatusBadge
                 status={syncStatus}
                 lastSyncTime={lastSyncTime}
@@ -4138,21 +4241,21 @@ export function TimeTrackerTable({
                 onUnlock={handleUnlockEncryption}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    onClick={() => window.open("https://track.toggl.com/reports/", "_blank")}
+                    onClick={() =>
+                      window.open("https://track.toggl.com/reports/", "_blank")
+                    }
                     size="icon"
                     variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
                   >
                     <BarChart3 className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  View Analytics
-                </TooltipContent>
+                <TooltipContent>View Analytics</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -4160,7 +4263,7 @@ export function TimeTrackerTable({
                     onClick={handleFullscreenToggle}
                     size="icon"
                     variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
                     disabled={isTransitioning}
                   >
                     {isFullscreen ? (
@@ -4180,225 +4283,352 @@ export function TimeTrackerTable({
                     onClick={handleNewEntryClick}
                     size="icon"
                     variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
                   >
                     <Plus className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  New (N)
-                </TooltipContent>
+                <TooltipContent>New (N)</TooltipContent>
               </Tooltip>
             </div>
           </div>
-        </div>
-      </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="flex flex-col items-center space-y-4">
-            <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <p className="text-muted-foreground animate-pulse">
-              Loading time entries...
-            </p>
+          {/* Mobile layout - two rows */}
+          <div className="md:hidden space-y-3">
+            {/* First row - Date picker */}
+            <div className="flex items-center">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="date-mobile"
+                    variant={"outline"}
+                    className={cn(
+                      "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
+                      !date && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                    {date?.from ? (
+                      date.to ? (
+                        <>
+                          {format(date.from, "MMM dd")} -{" "}
+                          {format(date.to, "MMM dd, y")}
+                        </>
+                      ) : (
+                        format(date.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto p-0 border-border/60"
+                  align="start"
+                >
+                  <Calendar
+                    mode="range"
+                    defaultMonth={date?.from}
+                    selected={date}
+                    onSelect={(selectedRange) => {
+                      if (selectedRange?.from && selectedRange?.to) {
+                        // Set end date to end of day
+                        const endOfDayTo = endOfDay(selectedRange.to);
+                        setDate({ from: selectedRange.from, to: endOfDayTo });
+                      } else {
+                      }
+                    }}
+                    numberOfMonths={1}
+                    className="rounded-md border-0"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Second row - Buttons and status */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <SyncStatusBadge
+                  status={syncStatus}
+                  lastSyncTime={lastSyncTime}
+                  onReauthenticate={handleReauthenticate}
+                  onRetry={() => fetchData()}
+                />
+                <EncryptionStatus
+                  isE2EEEnabled={encryption.isE2EEEnabled}
+                  isUnlocked={encryption.isUnlocked}
+                  onLock={handleLockEncryption}
+                  onUnlock={handleUnlockEncryption}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() =>
+                        window.open(
+                          "https://track.toggl.com/reports/",
+                          "_blank"
+                        )
+                      }
+                      size="icon"
+                      variant="outline"
+                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>View Analytics</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleFullscreenToggle}
+                      size="icon"
+                      variant="outline"
+                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                      disabled={isTransitioning}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleNewEntryClick}
+                      size="icon"
+                      variant="outline"
+                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New (N)</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
           </div>
         </div>
-      ) : (
-        <div
-          className={cn(
-            "bg-card transition-opacity duration-500",
-            isFullscreen
-              ? "overflow-x-auto"
-              : "rounded-lg border border-border/60 shadow-sm overflow-hidden",
-            isTransitioning && "opacity-30"
-          )}
-        >
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-muted/30 transition-colors duration-200 border-border/60">
-                <TableHead className="px-2 w-8"></TableHead>
-                <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
-                  Date
-                </TableHead>
-                {isFullscreen ? (
-                  <>
-                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                      Project
-                    </TableHead>
-                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                      Tags
-                    </TableHead>
-                    <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                      Description
-                    </TableHead>
-                  </>
-                ) : (
-                  <>
-                    <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                      Description
-                    </TableHead>
-                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                      Project
-                    </TableHead>
-                    <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                      Tags
-                    </TableHead>
-                  </>
-                )}
-                <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
-                  Time
-                </TableHead>
-                <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
-                  Duration
-                </TableHead>
-                <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {decryptedEntries.map((entry, rowIndex) => {
-                // Calculate adjacent entries for snap functionality
-                // Entries are sorted newest-first (descending chronologically)
-                // rowIndex - 1 = newer entry (happened after current) = next chronologically
-                // rowIndex + 1 = older entry (happened before current) = previous chronologically
-                const prevEntry =
-                  rowIndex < decryptedEntries.length - 1
-                    ? decryptedEntries[rowIndex + 1]
-                    : null;
-                const nextEntry =
-                  rowIndex > 0 ? decryptedEntries[rowIndex - 1] : null;
 
-                return (
-                  <MemoizedTableRow
-                    key={entry.tempId || entry.id}
-                    entry={entry}
-                    rowIndex={rowIndex}
-                    prevEntryEnd={prevEntry?.stop || null}
-                    nextEntryStart={nextEntry?.start || null}
-                    selectedCell={selectedCell}
-                    onSelectCell={handleSelectCell}
-                    onDescriptionSave={handleDescriptionSave}
-                    onProjectChange={handleProjectChange}
-                    onTagsChange={handleTagsChange}
-                    onBulkEntryUpdate={handleBulkEntryUpdate}
-                    onBulkEntryUpdateByRowIndex={
-                      handleBulkEntryUpdateByRowIndex
-                    }
-                    onTimeChange={handleTimeChange}
-                    onDurationChange={handleDurationChange}
-                    onDurationChangeWithStartTimeAdjustment={
-                      handleDurationChangeWithStartTimeAdjustment
-                    }
-                    onDelete={handleDeleteWithConfirmation}
-                    onPin={handlePinEntry}
-                    onUnpin={handleUnpinEntry}
-                    onSplit={handleSplit}
-                    onCombine={handleCombine}
-                    onStartEntry={handleCopyAndStartEntry}
-                    onStopTimer={handleStopTimer}
-                    isPinned={isPinned(entry.id.toString())}
-                    projects={projects}
-                    availableTags={availableTags}
-                    onProjectCreated={handleProjectCreated}
-                    onTagCreated={handleTagCreated}
-                    setIsEditingCell={setIsEditingCell}
-                    setIsProjectSelectorOpen={setIsProjectSelectorOpen}
-                    setIsTagSelectorOpen={setIsTagSelectorOpen}
-                    setIsActionsMenuOpen={setIsActionsMenuOpen}
-                    setIsTimeEditorOpen={setIsTimeEditorOpen}
-                    navigateToNextCell={navigateToNextCell}
-                    navigateToPrevCell={navigateToPrevCell}
-                    navigateToNextRow={navigateToNextRow}
-                    isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
-                    syncStatus={entrySyncStatus.get(entry.id)}
-                    onRetrySync={handleRetrySync}
-                    isFullscreen={isFullscreen}
-                  />
-                );
-              })}
-              {hasMore && (
-                <TableRow>
-                  <TableCell colSpan={8} className="h-20 text-center">
-                    <div className="flex items-center justify-center my-4 mb-8">
-                      {isLoadingMore ? (
-                        <div className="flex items-center justify-center space-x-2">
-                          <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                          <span className="text-muted-foreground">
-                            Loading more entries...
-                          </span>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={loadMore}
-                          disabled={loading || isLoadingMore}
-                          className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
-                        >
-                          Load More Entries
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <p className="text-muted-foreground animate-pulse">
+                Loading time entries...
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "bg-card transition-opacity duration-500 rounded-lg",
+              isFullscreen
+                ? "overflow-x-auto"
+                : "rounded-lg border border-border/60 shadow-sm overflow-hidden",
+              isTransitioning && "opacity-30"
+            )}
+          >
+            <Table className="md:table-auto table-fixed w-full">
+              <TableHeader>
+                <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
+                  <TableHead className="px-2 w-8"></TableHead>
+                  <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
+                    Date
+                  </TableHead>
+                  {isFullscreen ? (
+                    <>
+                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                        Project
+                      </TableHead>
+                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                        Tags
+                      </TableHead>
+                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+                        Description
+                      </TableHead>
+                    </>
+                  ) : (
+                    <>
+                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+                        Description
+                      </TableHead>
+                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                        Project
+                      </TableHead>
+                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                        Tags
+                      </TableHead>
+                    </>
+                  )}
+                  <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
+                    Time
+                  </TableHead>
+                  <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
+                    Duration
+                  </TableHead>
+                  <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {decryptedEntries.map((entry, rowIndex) => {
+                  // Calculate adjacent entries for snap functionality
+                  // Entries are sorted newest-first (descending chronologically)
+                  // rowIndex - 1 = newer entry (happened after current) = next chronologically
+                  // rowIndex + 1 = older entry (happened before current) = previous chronologically
+                  const prevEntry =
+                    rowIndex < decryptedEntries.length - 1
+                      ? decryptedEntries[rowIndex + 1]
+                      : null;
+                  const nextEntry =
+                    rowIndex > 0 ? decryptedEntries[rowIndex - 1] : null;
+
+                  return (
+                    <MemoizedTableRow
+                      key={entry.tempId || entry.id}
+                      entry={entry}
+                      rowIndex={rowIndex}
+                      prevEntryEnd={prevEntry?.stop || null}
+                      nextEntryStart={nextEntry?.start || null}
+                      selectedCell={selectedCell}
+                      onSelectCell={handleSelectCell}
+                      onDescriptionSave={handleDescriptionSave}
+                      onProjectChange={handleProjectChange}
+                      onTagsChange={handleTagsChange}
+                      onBulkEntryUpdate={handleBulkEntryUpdate}
+                      onBulkEntryUpdateByRowIndex={
+                        handleBulkEntryUpdateByRowIndex
+                      }
+                      onTimeChange={handleTimeChange}
+                      onDurationChange={handleDurationChange}
+                      onDurationChangeWithStartTimeAdjustment={
+                        handleDurationChangeWithStartTimeAdjustment
+                      }
+                      onDelete={handleDeleteWithConfirmation}
+                      onPin={handlePinEntry}
+                      onUnpin={handleUnpinEntry}
+                      onSplit={handleSplit}
+                      onCombine={handleCombine}
+                      onStartEntry={handleCopyAndStartEntry}
+                      onStopTimer={handleStopTimer}
+                      isPinned={isPinned(entry.id.toString())}
+                      projects={projects}
+                      availableTags={availableTags}
+                      onProjectCreated={handleProjectCreated}
+                      onTagCreated={handleTagCreated}
+                      setIsEditingCell={setIsEditingCell}
+                      setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                      setIsTagSelectorOpen={setIsTagSelectorOpen}
+                      setIsActionsMenuOpen={setIsActionsMenuOpen}
+                      setIsTimeEditorOpen={setIsTimeEditorOpen}
+                      navigateToNextCell={navigateToNextCell}
+                      navigateToPrevCell={navigateToPrevCell}
+                      navigateToNextRow={navigateToNextRow}
+                      isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
+                      syncStatus={entrySyncStatus.get(entry.id)}
+                      onRetrySync={handleRetrySync}
+                      isFullscreen={isFullscreen}
+                    />
+                  );
+                })}
+                {hasMore && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-20 text-center">
+                      <div className="flex items-center justify-center my-4 mb-8">
+                        {isLoadingMore ? (
+                          <div className="flex items-center justify-center space-x-2">
+                            <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                            <span className="text-muted-foreground">
+                              Loading more entries...
+                            </span>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            onClick={loadMore}
+                            disabled={loading || isLoadingMore}
+                            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+                          >
+                            Load More Entries
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <div className="flex justify-center">
+          <p className="text-sm text-muted-foreground">
+            Showing {timeEntries.length} entries
+            {hasMore && " (click to load more)"}
+          </p>
         </div>
-      )}
 
-      <div className="flex justify-center">
-        <p className="text-sm text-muted-foreground">
-          Showing {timeEntries.length} entries
-          {hasMore && " (click to load more)"}
-        </p>
-      </div>
+        <DeleteConfirmationDialog
+          open={deleteDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteDialogOpen(open);
+            if (!open) {
+              deleteDialogOpenRef.current = false;
+              setEntryToDelete(null);
+            }
+          }}
+          entry={entryToDelete}
+          onConfirm={handleConfirmDelete}
+        />
 
-      <DeleteConfirmationDialog
-        open={deleteDialogOpen}
-        onOpenChange={(open) => {
-          setDeleteDialogOpen(open);
-          if (!open) {
-            deleteDialogOpenRef.current = false;
-            setEntryToDelete(null);
+        <SplitEntryDialog
+          open={splitDialogOpen}
+          onOpenChange={(open) => {
+            splitDialogOpenRef.current = open;
+            setSplitDialogOpen(open);
+          }}
+          onConfirm={handleConfirmSplit}
+          entryDescription={entryToSplit?.description}
+        />
+        <CombineEntryDialog
+          open={combineDialogOpen}
+          onOpenChange={(open) => {
+            combineDialogOpenRef.current = open;
+            setCombineDialogOpen(open);
+          }}
+          currentEntry={entryToCombine}
+          previousEntry={
+            entryToCombine
+              ? decryptedEntries[
+                  decryptedEntries.findIndex(
+                    (e) => e.id === entryToCombine.id
+                  ) + 1
+                ]
+              : null
           }
-        }}
-        entry={entryToDelete}
-        onConfirm={handleConfirmDelete}
-      />
-
-      <SplitEntryDialog
-        open={splitDialogOpen}
-        onOpenChange={(open) => {
-          splitDialogOpenRef.current = open;
-          setSplitDialogOpen(open);
-        }}
-        onConfirm={handleConfirmSplit}
-        entryDescription={entryToSplit?.description}
-      />
-      <CombineEntryDialog
-        open={combineDialogOpen}
-        onOpenChange={(open) => {
-          combineDialogOpenRef.current = open;
-          setCombineDialogOpen(open);
-        }}
-        currentEntry={entryToCombine}
-        previousEntry={
-          entryToCombine
-            ? decryptedEntries[
-                decryptedEntries.findIndex((e) => e.id === entryToCombine.id) + 1
-              ]
-            : null
-        }
-        onConfirm={handleConfirmCombine}
-      />
-      <PinDialog
-        open={pinDialogOpen}
-        onOpenChange={setPinDialogOpen}
-        mode="verify"
-        onSuccess={handlePinSuccess}
-        error={pinError}
-        lockoutTimeRemaining={encryption.isLockedOut() ? encryption.getLockoutTimeRemaining() : undefined}
-      />
-    </div>
+          onConfirm={handleConfirmCombine}
+        />
+        <PinDialog
+          open={pinDialogOpen}
+          onOpenChange={setPinDialogOpen}
+          mode="verify"
+          onSuccess={handlePinSuccess}
+          error={pinError}
+          lockoutTimeRemaining={
+            encryption.isLockedOut()
+              ? encryption.getLockoutTimeRemaining()
+              : undefined
+          }
+        />
+      </div>
     </TooltipProvider>
   );
 }

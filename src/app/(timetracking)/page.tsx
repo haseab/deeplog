@@ -100,20 +100,18 @@ export default function Home() {
       >
         <div className="container mx-auto py-8 px-4 max-w-7xl">
         {!isFullscreen && (
-          <div className="flex justify-between items-center mb-8">
-            <div>
-              <div className="flex items-center space-x-2">
-                <Image
-                  src="/deeplog.svg"
-                  alt="deeplog Logo"
-                  width={28}
-                  height={28}
-                  className="dark:invert transition-transform duration-200 hover:scale-110"
-                />
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                  DeepLog
-                </h1>
-              </div>
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center space-x-2 mx-auto">
+              <Image
+                src="/deeplog.svg"
+                alt="deeplog Logo"
+                width={28}
+                height={28}
+                className="dark:invert transition-transform duration-200 hover:scale-110"
+              />
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                DeepLog
+              </h1>
             </div>
             <div className="flex items-center space-x-2">
               <AppSettings showTogglKey={true} showLimitlessKey={true} onResetCredentials={handleCredentialsReset} />

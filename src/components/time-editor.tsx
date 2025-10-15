@@ -508,9 +508,9 @@ export function TimeEditor({
         <div className="space-y-4">
           {/* Start and End Time on same row */}
           <div className="space-y-2">
-            <div className="flex gap-8 items-start">
+            <div className="flex md:flex-row flex-col md:gap-8 gap-2 items-start">
               {/* Start Time */}
-              <div className="flex-1 space-y-1.5">
+              <div className="md:flex-1 w-full space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs text-muted-foreground">Start</Label>
                   {prevEntryEnd && (
@@ -568,7 +568,7 @@ export function TimeEditor({
               </div>
 
               {/* End Time */}
-              <div className="flex-1 space-y-1.5">
+              <div className="md:flex-1 w-full space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs text-muted-foreground">
                     End{" "}
@@ -634,9 +634,9 @@ export function TimeEditor({
 
           {/* Start and End Date on same row */}
           <div className="space-y-2">
-            <div className="flex gap-8 items-start">
+            <div className="flex md:flex-row flex-col md:gap-8 gap-2 items-start">
               {/* Start Date */}
-              <div className="flex-1 space-y-1.5">
+              <div className="md:flex-1 w-full space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
                   Start Date
                 </Label>
@@ -654,7 +654,7 @@ export function TimeEditor({
               </div>
 
               {/* End Date */}
-              <div className="flex-1 space-y-1.5">
+              <div className="md:flex-1 w-full space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
                   End Date
                 </Label>

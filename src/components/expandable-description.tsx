@@ -675,7 +675,7 @@ export function ExpandableDescription({
       data-testid={dataTestId}
       className="cursor-pointer hover:bg-accent/30 rounded-md p-2 transition-transform duration-200 hover:scale-[1.01] group active:scale-[0.99] w-full min-w-0 max-w-full overflow-hidden"
     >
-      <div className="truncate w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm group-hover:text-accent-foreground transition-colors min-w-0 max-w-full">
+      <div className="w-full overflow-hidden text-ellipsis text-sm group-hover:text-accent-foreground transition-colors min-w-0 max-w-full md:truncate md:whitespace-nowrap break-words">
         <ReactMarkdown
           components={{
             p: ({ children }) => <span>{children}</span>,

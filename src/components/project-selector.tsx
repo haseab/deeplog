@@ -216,7 +216,7 @@ export function ProjectSelector({
             "hover:scale-[1.01] active:scale-[0.99]"
           )}
         >
-          <div className="flex items-center truncate">
+          <div className="flex items-center min-w-0">
             {currentProjectColor && (
               <div
                 className="w-3 h-3 rounded-full mr-2 shrink-0 transition-all duration-200 group-hover:scale-110"
@@ -224,7 +224,7 @@ export function ProjectSelector({
               />
             )}
             <span
-              className="truncate transition-all duration-200 group-hover:translate-x-0.5 mr-1"
+              className="transition-all duration-200 group-hover:translate-x-0.5 mr-1 break-words"
               style={{ color: currentProjectColor || "inherit" }}
             >
               {currentProject || "No Project"}
