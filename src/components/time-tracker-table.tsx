@@ -3746,6 +3746,63 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries]);
 
+  // Update selected cell to follow manual scroll
+  React.useEffect(() => {
+    if (!tableRef.current || timeEntries.length === 0) return;
+
+    const container = tableRef.current;
+    let scrollTimeout: NodeJS.Timeout;
+
+    const handleScroll = () => {
+      // Debounce the scroll handler
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const containerRect = container.getBoundingClientRect();
+        const viewportCenter = containerRect.top + containerRect.height / 2;
+
+        // Find the row closest to the center of the viewport
+        let closestRow: { index: number; distance: number } | null = null;
+
+        timeEntries.forEach((entry, index) => {
+          const rowElement = document.querySelector(
+            `[data-entry-id="${entry.id}"]`
+          ) as HTMLElement;
+
+          if (rowElement) {
+            const rowRect = rowElement.getBoundingClientRect();
+            const rowCenter = rowRect.top + rowRect.height / 2;
+            const distance = Math.abs(rowCenter - viewportCenter);
+
+            if (!closestRow || distance < closestRow.distance) {
+              closestRow = { index, distance };
+            }
+          }
+        });
+
+        // Update selectedCell if we found a closer row
+        if (closestRow !== null) {
+          setSelectedCell((current) => {
+            // Only update if the row changed
+            if (!current || current.rowIndex !== closestRow!.index) {
+              return {
+                rowIndex: closestRow!.index,
+                cellIndex: current?.cellIndex ?? 1, // Preserve cellIndex or default to 1
+              };
+            }
+            return current;
+          });
+        }
+      }, 150); // 150ms debounce
+    };
+
+    container.addEventListener("scroll", handleScroll);
+
+    return () => {
+      clearTimeout(scrollTimeout);
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [timeEntries]);
+
   // Handle encryption lock/unlock
   const handleLockEncryption = React.useCallback(() => {
     encryption.lockE2EE();
