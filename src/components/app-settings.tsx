@@ -227,32 +227,32 @@ export function AppSettings({
           Settings (⌘⇧,)
         </TooltipContent>
       </Tooltip>
-      <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden h-[90vh] md:h-auto max-[768px]:w-[calc(100%-2rem)] rounded-xl">
         <DialogTitle className="sr-only">Settings</DialogTitle>
-        <div className="flex h-[600px]">
+        <div className="flex flex-col md:flex-row h-full md:h-[600px]">
           {/* Sidebar */}
-          <div className="w-56 border-r bg-muted/30 p-6">
-            <div className="mb-6">
+          <div className="md:w-56 border-b md:border-b-0 md:border-r bg-muted/30 p-4 md:p-6">
+            <div className="mb-4 md:mb-6 hidden md:block">
               <h2 className="text-lg font-semibold">Settings</h2>
               <p className="text-xs text-muted-foreground mt-1">
                 Manage your preferences
               </p>
             </div>
-            <nav className="space-y-1">
+            <nav className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-x-visible">
               {menuItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    className={`flex items-center gap-2 md:gap-3 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap md:w-full ${
                       activeSection === item.id
                         ? "bg-background text-foreground shadow-sm font-medium"
                         : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="hidden md:inline">{item.label}</span>
                   </button>
                 );
               })}
@@ -261,7 +261,7 @@ export function AppSettings({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
               {activeSection === "general" && (
                 <div className="space-y-6">
                   <div>
