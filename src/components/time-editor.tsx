@@ -470,7 +470,7 @@ export function TimeEditor({
     }
   };
 
-  // Format display text to include dates when they differ
+  // Format display text - always show just time, no dates
   const displayText = React.useMemo(() => {
     const isRunning = !endTime || endTime === "";
     const startDateObj = new Date(startTime);
@@ -478,13 +478,6 @@ export function TimeEditor({
 
     if (isRunning) {
       return `${format(startDateObj, "HH:mm")} - Now`;
-    }
-
-    if (endDateObj && !isSameDay(startDateObj, endDateObj)) {
-      return `${format(startDateObj, "MMM d, HH:mm")} - ${format(
-        endDateObj,
-        "MMM d, HH:mm"
-      )}`;
     }
 
     return `${format(startDateObj, "HH:mm")} - ${format(endDateObj!, "HH:mm")}`;
