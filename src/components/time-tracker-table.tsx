@@ -2926,6 +2926,12 @@ export function TimeTrackerTable({
     const debouncedFetch = () => {
       if (!isMounted) return; // Don't fetch on initial mount
 
+      // Don't sync if there's an active toast to prevent accidental data loss
+      const toastActive = hasActiveToast();
+      if (toastActive) {
+        return;
+      }
+
       // Don't sync if any input field is being edited
       if (
         isEditingCell ||
