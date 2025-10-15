@@ -195,8 +195,8 @@ export function TimeEditor({
         return;
       }
 
-      if (finalEndDateTime <= finalStartDateTime) {
-        setError("End time must be after start time");
+      if (finalEndDateTime < finalStartDateTime) {
+        setError("End time must be at or after start time");
         return;
       }
     }
