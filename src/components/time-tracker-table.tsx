@@ -2793,7 +2793,7 @@ export function TimeTrackerTable({
     [isFullscreen] // Need isFullscreen to determine column mapping
   );
 
-  const navigateToNextCell = React.useCallback(() => {
+  const navigateToNextCell = React.useCallback((wrapToSameRow = false) => {
     // Store current cell info before updating state
     let shouldAutoOpen = false;
     let targetRowIndex = 0;
@@ -2825,6 +2825,12 @@ export function TimeTrackerTable({
           ...currentSelectedCell,
           cellIndex: nextCellIndex,
         };
+      } else if (wrapToSameRow) {
+        // When Option+Tab is pressed at the end, wrap to cellIndex 1 of same row
+        shouldAutoOpen = true;
+        targetRowIndex = currentSelectedCell.rowIndex;
+        targetCellIndex = 1;
+        return { rowIndex: currentSelectedCell.rowIndex, cellIndex: 1 };
       } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
         // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
         return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
@@ -3472,21 +3478,37 @@ export function TimeTrackerTable({
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
           } else if (selectedCell) {
             if (e.shiftKey) {
-              // Shift+Tab: Move backward
-              if (selectedCell.cellIndex > 0) {
+              // Shift+Tab or Option+Shift+Tab: Move backward
+              if (selectedCell.cellIndex > 1) {
                 setSelectedCell({
                   ...selectedCell,
                   cellIndex: selectedCell.cellIndex - 1,
                 });
-              } else if (selectedCell.rowIndex > 0) {
-                setSelectedCell({
-                  rowIndex: selectedCell.rowIndex - 1,
-                  cellIndex: keyboardNavigationData.maxCellIndex,
-                });
+              } else if (selectedCell.cellIndex === 1) {
+                // At first editable cell
+                if (e.altKey) {
+                  // Option+Shift+Tab: wrap to last cell of same row
+                  setSelectedCell({
+                    ...selectedCell,
+                    cellIndex: keyboardNavigationData.maxCellIndex,
+                  });
+                } else if (selectedCell.rowIndex > 0) {
+                  // Shift+Tab: wrap to last cell (actions) of previous row
+                  setSelectedCell({
+                    rowIndex: selectedCell.rowIndex - 1,
+                    cellIndex: keyboardNavigationData.maxCellIndex,
+                  });
+                } else {
+                  // At first row, wrap to last cell of same row
+                  setSelectedCell({
+                    ...selectedCell,
+                    cellIndex: keyboardNavigationData.maxCellIndex,
+                  });
+                }
               }
             } else {
-              // Tab: Move forward
-              navigateToNextCell();
+              // Tab or Option+Tab: Move forward
+              navigateToNextCell(e.altKey);
             }
           }
           break;
