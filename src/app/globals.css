@@ -146,6 +146,12 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  @media (max-width: 768px) {
+    html {
+      font-size: 20px;
+    }
+  }
+
   .flash-success {
     animation: flash-success 0.3s ease-in-out;
   }

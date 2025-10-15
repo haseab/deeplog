@@ -95,7 +95,7 @@ export function RecentTimersPopover({
     <Popover open={open && recentTimers.length > 0} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        className="w-[500px] p-2 border-border/60"
+        className="w-[500px] max-w-[calc(100vw-2rem)] p-2 border-border/60 max-h-[60vh] overflow-y-auto"
         align="start"
         side="bottom"
         onOpenAutoFocus={(e) => e.preventDefault()}
