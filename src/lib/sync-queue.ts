@@ -14,7 +14,8 @@ export type OperationType =
   | 'UPDATE_DURATION'
   | 'UPDATE_BULK'
   | 'DELETE'
-  | 'STOP';
+  | 'STOP'
+  | 'COMBINE';
 
 export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'error';
 

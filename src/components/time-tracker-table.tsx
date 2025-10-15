@@ -1867,13 +1867,6 @@ export function TimeTrackerTable({
   );
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
-    // Check if this is a temp ID
-    const syncQueue = syncQueueRef.current;
-    if (syncQueue.isTempId(entry.id)) {
-      toast.error("Cannot split an entry that hasn't been synced yet");
-      return;
-    }
-
     setEntryToSplit(entry);
     setSplitDialogOpen(true);
   }, []);
@@ -2038,25 +2031,10 @@ export function TimeTrackerTable({
 
   const handleCombine = React.useCallback(
     (entry: TimeEntry) => {
-      // Check if this is a temp ID
-      const syncQueue = syncQueueRef.current;
-      if (syncQueue.isTempId(entry.id)) {
-        toast.error("Cannot combine an entry that hasn't been synced yet");
-        return;
-      }
-
       // Find chronologically previous entry (older entry, which is at HIGHER index since list is sorted newest first)
       const currentIndex = timeEntries.findIndex((e) => e.id === entry.id);
       if (currentIndex === timeEntries.length - 1) {
         toast.error("Cannot combine the last entry (oldest entry)");
-        return;
-      }
-
-      const olderEntry = timeEntries[currentIndex + 1];
-
-      // Check if older entry is also a temp ID
-      if (syncQueue.isTempId(olderEntry.id)) {
-        toast.error("Cannot combine with an entry that hasn't been synced yet");
         return;
       }
 
@@ -2080,6 +2058,10 @@ export function TimeTrackerTable({
     }
 
     const olderEntry = timeEntries[currentIndex + 1];
+    const syncQueue = syncQueueRef.current;
+    const currentIsTempId = syncQueue.isTempId(entryToCombine.id);
+    const olderIsTempId = syncQueue.isTempId(olderEntry.id);
+
     const isCurrentEntryRunning =
       !entryToCombine.stop || entryToCombine.duration === -1;
 
@@ -2100,6 +2082,7 @@ export function TimeTrackerTable({
                 ...e,
                 stop: "",
                 duration: -1,
+                syncStatus: (currentIsTempId || olderIsTempId) ? "pending" as SyncStatus : e.syncStatus,
               };
             } else {
               // Extend older entry to current entry's stop time
@@ -2112,6 +2095,7 @@ export function TimeTrackerTable({
                 ...e,
                 stop: entryToCombine.stop!,
                 duration: newDuration,
+                syncStatus: (currentIsTempId || olderIsTempId) ? "pending" as SyncStatus : e.syncStatus,
               };
             }
           }
@@ -2121,9 +2105,103 @@ export function TimeTrackerTable({
       return updatedEntries;
     });
 
-    // Make API call
     const sessionToken = localStorage.getItem("toggl_session_token");
 
+    // If either entry has a temp ID, queue the operation
+    if (currentIsTempId || olderIsTempId) {
+      // If both are temp IDs, we can't execute yet - need both to have real IDs
+      if (currentIsTempId && olderIsTempId) {
+        toast.error("Cannot combine two entries that haven't been synced yet");
+        // Revert optimistic UI update
+        setTimeEntries(originalEntries);
+        return;
+      }
+
+      // Only one is a temp ID - queue it
+      const operation: QueuedOperation = {
+        type: "COMBINE",
+        tempId: currentIsTempId ? entryToCombine.id : olderEntry.id,
+        payload: {
+          currentEntryId: entryToCombine.id,
+          olderEntryId: olderEntry.id,
+          isCurrentEntryRunning,
+        },
+        retryCount: 0,
+        timestamp: Date.now(),
+        execute: async (realId: number) => {
+          // Determine which ID to use - replace the temp ID with the real ID
+          const finalCurrentId = currentIsTempId ? realId : entryToCombine.id;
+          const finalOlderId = olderIsTempId ? realId : olderEntry.id;
+
+          const response = await fetch("/api/time-entries/combine", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken || "",
+            },
+            body: JSON.stringify({
+              currentEntryId: finalCurrentId,
+              olderEntryId: finalOlderId,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("API Error:", response.status, errorText);
+            throw new Error(`Combine failed (${response.status})`);
+          }
+
+          const data = await response.json();
+
+          // Update UI with server response
+          setTimeEntries((currentEntries) =>
+            currentEntries.map((e) =>
+              e.id === finalOlderId
+                ? {
+                    ...e,
+                    stop: data.updatedEntry.stop,
+                    duration: data.updatedEntry.duration,
+                  }
+                : e
+            )
+          );
+
+          // Update sync status to synced on the older entry
+          setEntrySyncStatus((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(finalOlderId, "synced");
+            return newMap;
+          });
+
+          // Clear sync status after 2 seconds
+          setTimeout(() => {
+            setEntrySyncStatus((prev) => {
+              const newMap = new Map(prev);
+              newMap.delete(finalOlderId);
+              return newMap;
+            });
+          }, 2000);
+
+          toast.success(data.message || "Entries combined successfully");
+        },
+      };
+
+      syncQueue.queueOperation(operation);
+      // Set sync status on the older entry (the one that remains visible)
+      // Even though we queue on the temp ID, we display status on the older entry
+      setEntrySyncStatus((prev) =>
+        new Map(prev).set(olderEntry.id, "pending")
+      );
+
+      toast("Combine queued", {
+        description: "Changes will sync once entry is created",
+        duration: 2000,
+      });
+
+      return;
+    }
+
+    // Both IDs are real - execute immediately
     toast(`Combining entries...`, {
       duration: toastDuration,
     });
