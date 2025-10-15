@@ -37,8 +37,8 @@ export function SplitEntryDialog({
   const handleConfirm = () => {
     const minutes = parseInt(offsetMinutes);
 
-    if (isNaN(minutes) || minutes <= 0) {
-      setError("Please enter a number greater than 0");
+    if (isNaN(minutes) || minutes < 0) {
+      setError("Please enter a number 0 or greater");
       return;
     }
 
@@ -80,7 +80,7 @@ export function SplitEntryDialog({
             <Input
               id="offsetMinutes"
               type="number"
-              min="1"
+              min="0"
               value={offsetMinutes}
               onChange={(e) => {
                 setOffsetMinutes(e.target.value);

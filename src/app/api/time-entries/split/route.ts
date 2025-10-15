@@ -7,8 +7,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { entryId, offsetMinutes } = body;
 
-    if (!entryId || offsetMinutes === undefined || offsetMinutes <= 0) {
-      return createErrorResponse("entryId and offsetMinutes (greater than 0) are required", 400);
+    if (!entryId || offsetMinutes === undefined || offsetMinutes < 0) {
+      return createErrorResponse("entryId and offsetMinutes (0 or greater) are required", 400);
     }
 
     // Get the time entry
