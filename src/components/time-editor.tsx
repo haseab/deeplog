@@ -494,7 +494,7 @@ export function TimeEditor({
             "hover:scale-[1.01] active:scale-[0.99] hover:font-medium"
           )}
         >
-          <Clock className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0" />
+          <Clock className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0 hidden md:block" />
           <span className="truncate transition-all duration-200 group-hover:translate-x-0.5">
             {displayText}
           </span>

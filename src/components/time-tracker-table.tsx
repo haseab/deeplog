@@ -207,8 +207,8 @@ const MemoizedTableRow = React.memo(
                 />
               </div>
 
-              {/* Project + Tags row */}
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Project + Time row */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="shrink-0 max-w-[52%]">
                   <ProjectSelector
                     currentProject={entry.project_name || ""}
@@ -226,22 +226,6 @@ const MemoizedTableRow = React.memo(
                   />
                 </div>
                 <div className="shrink-0 max-w-[48%]">
-                  <TagSelector
-                    currentTags={entry.tags || []}
-                    onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                    availableTags={availableTags}
-                    onOpenChange={setIsTagSelectorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigatePrev={navigateToPrevCell}
-                    onTagCreated={onTagCreated}
-                    data-testid="tag-selector"
-                  />
-                </div>
-              </div>
-
-              {/* Time + Actions row */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex-1 min-w-0">
                   <TimeEditor
                     startTime={entry.start}
                     endTime={entry.stop}
@@ -257,7 +241,39 @@ const MemoizedTableRow = React.memo(
                     data-testid="time-editor"
                   />
                 </div>
+              </div>
+
+              {/* Tags + Duration + Actions row */}
+              <div className="flex items-center justify-between gap-2">
                 <div className="shrink-0">
+                  <TagSelector
+                    currentTags={entry.tags || []}
+                    onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                    availableTags={availableTags}
+                    onOpenChange={setIsTagSelectorOpen}
+                    onNavigateNext={navigateToNextCell}
+                    onNavigatePrev={navigateToPrevCell}
+                    onTagCreated={onTagCreated}
+                    data-testid="tag-selector"
+                  />
+                </div>
+                <div className="flex items-center shrink-0">
+                  <DurationEditor
+                    duration={entry.duration}
+                    startTime={entry.start}
+                    endTime={entry.stop}
+                    onSave={(newDuration) =>
+                      onDurationChange(entry.id)(newDuration)
+                    }
+                    onSaveWithStartTimeAdjustment={(newDuration) =>
+                      onDurationChangeWithStartTimeAdjustment(entry.id)(
+                        newDuration
+                      )
+                    }
+                    onEditingChange={setIsEditingCell}
+                    onNavigateDown={navigateToNextRow}
+                    data-testid="duration-editor"
+                  />
                   <ActionsMenu
                     onPin={() => onPin(entry)}
                     onUnpin={() => onUnpin(entry.id.toString())}

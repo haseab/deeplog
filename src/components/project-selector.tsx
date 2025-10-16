@@ -224,7 +224,7 @@ export function ProjectSelector({
               />
             )}
             <span
-              className="transition-all duration-200 group-hover:translate-x-0.5 mr-1 md:truncate break-words"
+              className="transition-all duration-200 group-hover:translate-x-0.5 mr-1 md:truncate break-words text-base md:text-sm"
               style={{ color: currentProjectColor || "inherit" }}
             >
               {currentProject || "No Project"}

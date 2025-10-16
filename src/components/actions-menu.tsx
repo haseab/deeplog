@@ -182,7 +182,7 @@ export function ActionsMenu({
         <Button
           variant="ghost"
           className={cn(
-            "h-8 w-8 p-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 opacity-100",
+            "h-8 w-auto p-0 !px-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 opacity-100",
             isSelected && "bg-accent/20 ring-1 ring-accent/30"
           )}
           data-testid={dataTestId}

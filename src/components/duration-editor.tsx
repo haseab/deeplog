@@ -252,23 +252,23 @@ export function DurationEditor({
     <div
       onClick={handleActivate}
       className={cn(
-        "font-mono text-sm cursor-pointer px-2 py-1 rounded transition-colors flex items-center gap-2",
+        "font-mono text-sm cursor-pointer px-1 py-1 rounded transition-colors flex items-center gap-2",
         "hover:bg-accent/40"
       )}
       data-testid={dataTestId}
     >
-      <LiveDuration
-        startTime={startTime}
-        stopTime={endTime}
-        staticDuration={duration}
-        className="block min-w-[60px]"
-      />
       {isRunning && (
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 md:order-2">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75"></div>
         </div>
       )}
+      <LiveDuration
+        startTime={startTime}
+        stopTime={endTime}
+        staticDuration={duration}
+        className="block min-w-[60px] md:order-1"
+      />
     </div>
   );
 }
