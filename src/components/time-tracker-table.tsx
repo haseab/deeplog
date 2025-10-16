@@ -3025,8 +3025,9 @@ export function TimeTrackerTable({
         } else {
           switch (cellIndex) {
             case 1: // Description (normal)
+              // Query for visible desktop row only (not mobile)
               const descriptionElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="expandable-description"]`
               ) as HTMLElement;
               if (descriptionElement) {
                 descriptionElement.click();
@@ -3051,24 +3052,27 @@ export function TimeTrackerTable({
               }
               break;
             case 4: // Time (normal)
+              // Query for visible desktop row only (not mobile)
               const timeElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="time-editor"]`
               ) as HTMLElement;
               if (timeElement) {
                 timeElement.click();
               }
               break;
             case 5: // Duration (normal)
+              // Query for visible desktop row only (not mobile)
               const durationElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="duration-editor"]`
               ) as HTMLElement;
               if (durationElement) {
                 durationElement.click();
               }
               break;
             case 6: // Actions (normal)
+              // Query for visible desktop row only (not mobile)
               const menuElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="actions-menu"]`
               ) as HTMLElement;
               if (menuElement) {
                 menuElement.click();
