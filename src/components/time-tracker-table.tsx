@@ -4020,9 +4020,20 @@ export function TimeTrackerTable({
 
       // Use requestAnimationFrame to ensure DOM is updated
       requestAnimationFrame(() => {
-        const rowElement = document.querySelector(
+        // Query for all matching rows and find the visible one
+        const rowElements = document.querySelectorAll(
           `[data-entry-id="${entry.id}"]`
-        ) as HTMLElement;
+        );
+
+        let rowElement: HTMLElement | null = null;
+        for (const el of Array.from(rowElements)) {
+          const htmlEl = el as HTMLElement;
+          // Check if element is actually visible (not display: none)
+          if (htmlEl.offsetParent !== null) {
+            rowElement = htmlEl;
+            break;
+          }
+        }
 
         if (rowElement && tableRef.current) {
           const container = tableRef.current;
@@ -4091,9 +4102,20 @@ export function TimeTrackerTable({
         let closestRow: { index: number; distance: number } | null = null;
 
         timeEntries.forEach((entry, index) => {
-          const rowElement = document.querySelector(
+          // Query for all matching rows and find the visible one
+          const rowElements = document.querySelectorAll(
             `[data-entry-id="${entry.id}"]`
-          ) as HTMLElement;
+          );
+
+          let rowElement: HTMLElement | null = null;
+          for (const el of Array.from(rowElements)) {
+            const htmlEl = el as HTMLElement;
+            // Check if element is actually visible (not display: none)
+            if (htmlEl.offsetParent !== null) {
+              rowElement = htmlEl;
+              break;
+            }
+          }
 
           if (rowElement) {
             const rowRect = rowElement.getBoundingClientRect();
