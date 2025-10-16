@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Check, ChevronDown, Plus, Search, Tag, X } from "lucide-react";
+import { Check, ChevronDown, Plus, Search, Tag as TagIcon, X } from "lucide-react";
 import React from "react";
 import type { Tag } from "../types";
 import { toast } from "@/lib/toast";
@@ -224,7 +224,7 @@ export function TagSelector({
           )}
         >
           <div className="flex items-center w-full min-h-[20px]">
-            <Tag className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0" />
+            <TagIcon className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0" />
             {currentTags.length > 0 ? (
               <div className="flex flex-wrap gap-1 flex-1 mr-2">
                 {currentTags.slice(0, 3).map((tag) => (
