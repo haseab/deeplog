@@ -3033,16 +3033,18 @@ export function TimeTrackerTable({
               }
               break;
             case 2: // Project (normal)
+              // Query for visible desktop row only (not mobile)
               const projectElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="project-selector"]`
               ) as HTMLElement;
               if (projectElement) {
                 projectElement.click();
               }
               break;
             case 3: // Tags (normal)
+              // Query for visible desktop row only (not mobile)
               const tagElement = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="tag-selector"]`
               ) as HTMLElement;
               if (tagElement) {
                 tagElement.click();
