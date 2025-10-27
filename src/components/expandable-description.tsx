@@ -201,6 +201,7 @@ export function ExpandableDescription({
       }),
       Link.configure({
         openOnClick: false,
+        autolink: false,
         HTMLAttributes: {
           class: "text-blue-500 hover:underline transition-colors",
         },
