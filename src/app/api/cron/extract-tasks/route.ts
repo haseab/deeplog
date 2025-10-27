@@ -305,7 +305,7 @@ async function processUserTasks(
           {
             role: "system",
             content:
-              "You are a task extraction assistant. You will receive a conversation transcript with timestamps and silence gaps. Look for key phrases where someone mentions tasks, reminders, or things to do. Extract each distinct actionable task. Each task should be concise (max 100 characters). Return a JSON object with a 'tasks' array containing the task strings. Silence gaps (5+ seconds) indicate topic changes and help identify separate tasks.",
+              "You are a task extraction assistant. You will receive a conversation transcript with timestamps and silence gaps. Look for key phrases where someone mentions something they need to do or something they want to remember. However each task must be distinct and actionable. For instance 'Schedule a meeting' is too broad. However 'Schedule a meeting with John' is precise. Each task should be only one sentence. Return a JSON object with a 'tasks' array containing the task strings. It is ok to return no tasks if there are no actionable tasks in the conversation. Silence gaps (5+ seconds) indicate topic changes and help identify separate tasks.",
           },
           {
             role: "user",
