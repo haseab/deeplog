@@ -3588,7 +3588,7 @@ export function TimeTrackerTable({
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
-      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(e.key);
+      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(e.key.toLowerCase());
       if (
         isEditingCell ||
         isProjectSelectorOpen ||
@@ -3599,7 +3599,7 @@ export function TimeTrackerTable({
         return;
 
       // Handle 'n' key - show pinned entries if available, otherwise create new timer
-      if (e.key === "n" && !isInInput) {
+      if (e.key.toLowerCase() === "n" && !isInInput) {
         e.preventDefault();
 
         // If already showing pinned entries, create new timer
@@ -3635,7 +3635,7 @@ export function TimeTrackerTable({
       }
 
       // Handle 'e' key - create new stopped entry
-      if (e.key === "e" && !isInInput) {
+      if (e.key.toLowerCase() === "e" && !isInInput) {
         e.preventDefault();
 
         // If showing pinned entries, close them first
@@ -3672,7 +3672,7 @@ export function TimeTrackerTable({
 
       // Only handle plain 'r' for refresh, allow Cmd+R/Ctrl+R for browser refresh
       // Block refresh if there's an active toast to prevent accidental data loss
-      if (e.key === "r" && !isInInput && !e.ctrlKey && !e.metaKey) {
+      if (e.key.toLowerCase() === "r" && !isInInput && !e.ctrlKey && !e.metaKey) {
         const toastActive = hasActiveToast();
         if (toastActive) {
           // Don't refresh while toast is showing
@@ -3689,13 +3689,13 @@ export function TimeTrackerTable({
         return;
       }
 
-      if (e.key === "u" && !isInInput) {
+      if (e.key.toLowerCase() === "u" && !isInInput) {
         e.preventDefault();
         triggerUndo();
         return;
       }
 
-      if (e.key === "f" && !isInInput && !e.metaKey && !e.ctrlKey) {
+      if (e.key.toLowerCase() === "f" && !isInInput && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         handleFullscreenToggle();
         return;
@@ -3763,8 +3763,11 @@ export function TimeTrackerTable({
         return;
       }
 
-      switch (e.key) {
-        case "Escape":
+      // Normalize key to lowercase for case-insensitive comparison
+      const key = e.key.toLowerCase();
+
+      switch (key) {
+        case "escape":
           e.preventDefault();
           e.stopPropagation();
 
@@ -3787,7 +3790,7 @@ export function TimeTrackerTable({
           // }
           break;
 
-        case "Enter":
+        case "enter":
           e.preventDefault();
           if (selectedCell) {
             activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
@@ -3797,7 +3800,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "Tab":
+        case "tab":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -3841,7 +3844,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "ArrowDown":
+        case "arrowdown":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -3860,7 +3863,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "ArrowUp":
+        case "arrowup":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -3878,7 +3881,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "ArrowLeft":
+        case "arrowleft":
           e.preventDefault();
           // cellIndex 0 is date column (not editable), so stop at cellIndex 1
           if (selectedCell && selectedCell.cellIndex > 1) {
@@ -3889,7 +3892,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "ArrowRight":
+        case "arrowright":
           e.preventDefault();
           if (
             !selectedCell &&
@@ -3908,7 +3911,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "Home":
+        case "home":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
             setSelectedCell({ rowIndex: 0, cellIndex: 0 });
@@ -3917,7 +3920,7 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "End":
+        case "end":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
             setSelectedCell({
