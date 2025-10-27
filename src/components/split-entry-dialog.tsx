@@ -111,7 +111,7 @@ export function SplitEntryDialog({
           >
             Cancel
           </Button>
-          <Button onClick={handleConfirm}>
+          <Button onClick={() => handleConfirm(false)}>
             Split Entry
           </Button>
         </DialogFooter>
