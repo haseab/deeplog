@@ -16,7 +16,7 @@ import * as React from "react";
 interface SplitEntryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (offsetMinutes: number) => void;
+  onConfirm: (offsetMinutes: number, isReverse?: boolean) => void;
   entryDescription?: string;
 }
 
@@ -34,7 +34,7 @@ export function SplitEntryDialog({
     e.target.select();
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = (isReverse = false) => {
     const minutes = parseInt(offsetMinutes);
 
     if (isNaN(minutes) || minutes < 0) {
@@ -42,7 +42,7 @@ export function SplitEntryDialog({
       return;
     }
 
-    onConfirm(minutes);
+    onConfirm(minutes, isReverse);
     onOpenChange(false);
     setOffsetMinutes("5");
     setError("");
@@ -70,6 +70,9 @@ export function SplitEntryDialog({
             <span className="block mt-2">
               How many minutes from the end do you want to split?
             </span>
+            <span className="block mt-1 text-xs text-muted-foreground">
+              Press Option+Enter to split from the start instead
+            </span>
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
@@ -90,7 +93,7 @@ export function SplitEntryDialog({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleConfirm();
+                  handleConfirm(e.altKey);
                 }
               }}
               className="col-span-3"

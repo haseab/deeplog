@@ -2081,7 +2081,7 @@ export function TimeTrackerTable({
   }, []);
 
   const handleConfirmSplit = React.useCallback(
-    (offsetMinutes: number) => {
+    (offsetMinutes: number, isReverse = false) => {
       if (!entryToSplit) return;
 
       let originalEntries: TimeEntry[] = [];
@@ -2091,7 +2091,10 @@ export function TimeTrackerTable({
       const offsetMs = offsetMinutes * 60 * 1000;
 
       // Split point is offsetMinutes from the end (or from now if running)
-      const splitPoint = endTime.getTime() - offsetMs;
+      // OR offsetMinutes from the start if isReverse is true
+      const splitPoint = isReverse
+        ? startTime.getTime() + offsetMs
+        : endTime.getTime() - offsetMs;
 
       // Generate temp ID for the second entry
       const tempId = -Date.now();
@@ -2114,7 +2117,9 @@ export function TimeTrackerTable({
         tempId: tempId,
         start: new Date(splitPoint).toISOString(),
         stop: isRunning ? "" : endTime.toISOString(),
-        duration: isRunning ? -1 : Math.floor(offsetMs / 1000),
+        duration: isRunning
+          ? -1
+          : Math.floor((endTime.getTime() - splitPoint) / 1000),
       };
       splitEntries.push(secondEntry);
 
@@ -2151,6 +2156,7 @@ export function TimeTrackerTable({
         body: JSON.stringify({
           entryId: entryToSplit.id,
           offsetMinutes,
+          isReverse,
         }),
       })
         .then(async (response) => {

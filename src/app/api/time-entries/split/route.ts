@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
-    const { entryId, offsetMinutes } = body;
+    const { entryId, offsetMinutes, isReverse = false } = body;
 
     if (!entryId || offsetMinutes === undefined || offsetMinutes < 0) {
       return createErrorResponse("entryId and offsetMinutes (0 or greater) are required", 400);
@@ -42,7 +42,10 @@ export async function POST(request: NextRequest) {
     const offsetMs = offsetMinutes * 60 * 1000;
 
     // Split point is offsetMinutes from the end (or from now if running)
-    const splitPoint = endTime.getTime() - offsetMs;
+    // OR offsetMinutes from the start if isReverse is true
+    const splitPoint = isReverse
+      ? startTime.getTime() + offsetMs
+      : endTime.getTime() - offsetMs;
 
     console.log(`[Split API] Original entry:`, {
       id: entry.id,
@@ -184,7 +187,7 @@ export async function POST(request: NextRequest) {
       JSON.stringify({
         updatedEntry,
         createdEntry,
-        message: `Split into 2 parts with ${offsetMinutes} minutes offset from end`,
+        message: `Split into 2 parts with ${offsetMinutes} minutes offset from ${isReverse ? "start" : "end"}`,
       }),
       {
         status: 200,
