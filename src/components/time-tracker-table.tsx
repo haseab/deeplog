@@ -398,32 +398,12 @@ const MemoizedTableRow = React.memo(
               </TableCell>
               <TableCell
                 className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
                   selectedCell?.rowIndex === rowIndex &&
                     selectedCell?.cellIndex === 2 &&
                     "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
                 )}
                 onClick={() => onSelectCell(rowIndex, 2)}
-              >
-                <TagSelector
-                  currentTags={entry.tags || []}
-                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                  availableTags={availableTags}
-                  onOpenChange={setIsTagSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onTagCreated={onTagCreated}
-                  data-testid="tag-selector"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 3 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 3)}
               >
                 <ExpandableDescription
                   description={entry.description || ""}
@@ -452,6 +432,26 @@ const MemoizedTableRow = React.memo(
                     });
                   }}
                   data-testid="expandable-description"
+                />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === 3 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, 3)}
+              >
+                <TagSelector
+                  currentTags={entry.tags || []}
+                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+                  availableTags={availableTags}
+                  onOpenChange={setIsTagSelectorOpen}
+                  onNavigateNext={navigateToNextCell}
+                  onNavigatePrev={navigateToPrevCell}
+                  onTagCreated={onTagCreated}
+                  data-testid="tag-selector"
                 />
               </TableCell>
             </>
@@ -2991,7 +2991,7 @@ export function TimeTrackerTable({
       requestAnimationFrame(() => {
         // Column mapping depends on fullscreen mode
         // Normal mode: Date(0), Description(1), Project(2), Tags(3), Time(4), Duration(5), Actions(6)
-        // Fullscreen mode: Date(0), Project(1), Tags(2), Description(3), Time(4), Duration(5), Actions(6)
+        // Fullscreen mode: Date(0), Project(1), Description(2), Tags(3), Time(4), Duration(5), Actions(6)
 
         if (isFullscreen) {
           switch (cellIndex) {
@@ -3003,20 +3003,21 @@ export function TimeTrackerTable({
                 projectElementFS.click();
               }
               break;
-            case 2: // Tags (fullscreen)
+            case 2: // Description (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
+              const descriptionElementFS = document.querySelector(
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="expandable-description"]`
+              ) as HTMLElement;
+              if (descriptionElementFS) {
+                descriptionElementFS.click();
+              }
+              break;
+            case 3: // Tags (fullscreen)
               const tagElementFS = document.querySelector(
                 `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
               ) as HTMLElement;
               if (tagElementFS) {
                 tagElementFS.click();
-              }
-              break;
-            case 3: // Description (fullscreen)
-              const descriptionElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="expandable-description"]`
-              ) as HTMLElement;
-              if (descriptionElementFS) {
-                descriptionElementFS.click();
               }
               break;
             case 4: // Time (fullscreen)
@@ -4502,11 +4503,11 @@ export function TimeTrackerTable({
                       <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
                         Project
                       </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Tags
-                      </TableHead>
                       <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
                         Description
+                      </TableHead>
+                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+                        Tags
                       </TableHead>
                     </>
                   ) : (
