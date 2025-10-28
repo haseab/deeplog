@@ -266,6 +266,7 @@ export function TagSelector({
       <PopoverContent
         className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-80 p-0 border-border/60"
         align="start"
+        side="bottom"
       >
         <div className="flex items-center border-b border-border/40 px-3 py-2 w-32">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50 transition-colors" />

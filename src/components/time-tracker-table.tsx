@@ -2996,8 +2996,9 @@ export function TimeTrackerTable({
         if (isFullscreen) {
           switch (cellIndex) {
             case 1: // Project (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
               const projectElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="project-selector"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="project-selector"]`
               ) as HTMLElement;
               if (projectElementFS) {
                 projectElementFS.click();
@@ -3013,32 +3014,36 @@ export function TimeTrackerTable({
               }
               break;
             case 3: // Tags (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
               const tagElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="tag-selector"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="tag-selector"]`
               ) as HTMLElement;
               if (tagElementFS) {
                 tagElementFS.click();
               }
               break;
             case 4: // Time (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
               const timeElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="time-editor"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="time-editor"]`
               ) as HTMLElement;
               if (timeElementFS) {
                 timeElementFS.click();
               }
               break;
             case 5: // Duration (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
               const durationElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="duration-editor"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="duration-editor"]`
               ) as HTMLElement;
               if (durationElementFS) {
                 durationElementFS.click();
               }
               break;
             case 6: // Actions (fullscreen)
+              // In fullscreen, use the desktop view (not mobile view)
               const menuElementFS = document.querySelector(
-                `[data-entry-id="${entry.id}"] [data-testid="actions-menu"]`
+                `[data-entry-id="${entry.id}"]:not(.md\\:hidden) [data-testid="actions-menu"]`
               ) as HTMLElement;
               if (menuElementFS) {
                 menuElementFS.click();
