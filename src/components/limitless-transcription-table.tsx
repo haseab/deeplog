@@ -66,8 +66,22 @@ export function LimitlessTranscriptionTable({
         // Parse natural language query for time ranges
         const query = activeQuery.trim().toLowerCase();
 
+        // Handle "y1", "y2", "y3" shortcuts for yesterday, 2 days ago, 3 days ago, etc.
+        const yShortcutMatch = query.match(/^y(\d+)$/);
+        if (yShortcutMatch) {
+          const daysAgo = parseInt(yShortcutMatch[1], 10);
+          const targetDate = new Date();
+          targetDate.setDate(targetDate.getDate() - daysAgo);
+          targetDate.setHours(0, 0, 0, 0);
+
+          const endDate = new Date(targetDate);
+          endDate.setHours(23, 59, 59, 999);
+
+          startTime = targetDate;
+          endTime = endDate;
+        }
         // Handle custom phrases that chrono might not understand
-        if (
+        else if (
           query === "this last hour" ||
           query === "last hour" ||
           query === "past hour"
@@ -212,13 +226,30 @@ export function LimitlessTranscriptionTable({
   }, [hasMore, loading, cursor, fetchTranscriptions]);
 
   const handleSearch = () => {
-    // Update URL with the new query
+    // Check if user typed "y1", "y2", "y3" etc and convert to actual date
+    const yShortcutMatch = nlpQuery.trim().toLowerCase().match(/^y(\d+)$/);
+    let queryToUse = nlpQuery;
+
+    if (yShortcutMatch) {
+      const daysAgo = parseInt(yShortcutMatch[1], 10);
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() - daysAgo);
+
+      // Format as "YYYY-MM-DD"
+      const formattedDate = format(targetDate, "yyyy-MM-dd");
+      queryToUse = formattedDate;
+
+      // Update the input field to show the actual date
+      setNlpQuery(formattedDate);
+    }
+
+    // Update URL with the query
     const params = new URLSearchParams();
-    params.set("q", nlpQuery);
+    params.set("q", queryToUse);
     router.push(`${pathname}?${params.toString()}`);
 
     // Set the active query to trigger a new search
-    setActiveQuery(nlpQuery);
+    setActiveQuery(queryToUse);
   };
 
   // Update local state when URL changes (e.g., from back/forward navigation)
