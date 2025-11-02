@@ -65,7 +65,6 @@ export function TimeEditor({
   React.useEffect(() => {
     const apiKey = localStorage.getItem("limitless_api_key");
     const hasKey = !!apiKey;
-    console.log("[TimeEditor] Limitless API key check:", { hasKey, apiKey: apiKey ? "***" : null });
     setHasLimitlessKey(hasKey);
   }, []);
 
@@ -522,12 +521,10 @@ export function TimeEditor({
   }, [hasLimitlessKey, startTime, endTime]);
 
   const handleClockClick = (e: React.MouseEvent) => {
-    console.log("[TimeEditor] Clock clicked:", { hasLimitlessKey, pendantUrl });
     e.stopPropagation();
     e.preventDefault();
 
     if (hasLimitlessKey && pendantUrl) {
-      console.log("[TimeEditor] Opening pendant URL:", pendantUrl);
       window.open(pendantUrl, '_blank');
     }
   };

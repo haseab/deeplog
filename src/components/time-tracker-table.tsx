@@ -3751,6 +3751,17 @@ export function TimeTrackerTable({
         return;
       }
 
+      // Option+Number: Jump to specific column (before isInInput check)
+      if (e.altKey && /^Digit[1-6]$/.test(e.code) && selectedCell && !isInInput) {
+        e.preventDefault();
+        const targetColumn = Number.parseInt(e.code.replace('Digit', ''));
+        setSelectedCell({
+          ...selectedCell,
+          cellIndex: targetColumn,
+        });
+        return;
+      }
+
       // Navigation shortcuts (only when not in input)
       if (isInInput) {
         return;
