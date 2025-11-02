@@ -66,22 +66,8 @@ export function LimitlessTranscriptionTable({
         // Parse natural language query for time ranges
         const query = activeQuery.trim().toLowerCase();
 
-        // Handle "y1", "y2", "y3" shortcuts for yesterday, 2 days ago, 3 days ago, etc.
-        const yShortcutMatch = query.match(/^y(\d+)$/);
-        if (yShortcutMatch) {
-          const daysAgo = parseInt(yShortcutMatch[1], 10);
-          const targetDate = new Date();
-          targetDate.setDate(targetDate.getDate() - daysAgo);
-          targetDate.setHours(0, 0, 0, 0);
-
-          const endDate = new Date(targetDate);
-          endDate.setHours(23, 59, 59, 999);
-
-          startTime = targetDate;
-          endTime = endDate;
-        }
         // Handle custom phrases that chrono might not understand
-        else if (
+        if (
           query === "this last hour" ||
           query === "last hour" ||
           query === "past hour"
@@ -227,7 +213,8 @@ export function LimitlessTranscriptionTable({
 
   const handleSearch = () => {
     // Check if user typed "y1", "y2", "y3" etc and convert to actual date
-    const yShortcutMatch = nlpQuery.trim().toLowerCase().match(/^y(\d+)$/);
+    // Supports both "y1" and "y1 2 to 5pm" formats
+    const yShortcutMatch = nlpQuery.trim().toLowerCase().match(/^y(\d+)(\s+.*)?$/);
     let queryToUse = nlpQuery;
 
     if (yShortcutMatch) {
@@ -237,10 +224,13 @@ export function LimitlessTranscriptionTable({
 
       // Format as "YYYY-MM-DD"
       const formattedDate = format(targetDate, "yyyy-MM-dd");
-      queryToUse = formattedDate;
+
+      // If there's additional text after "y1" (like "2 to 5pm"), append it
+      const additionalText = yShortcutMatch[2] || "";
+      queryToUse = formattedDate + additionalText;
 
       // Update the input field to show the actual date
-      setNlpQuery(formattedDate);
+      setNlpQuery(queryToUse);
     }
 
     // Update URL with the query
