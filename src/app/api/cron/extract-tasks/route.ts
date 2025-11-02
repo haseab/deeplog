@@ -377,7 +377,7 @@ async function processUserTasks(
               end
             ).toLocaleDateString()}`,
             labels: ["auto-extracted", "from-transcript"],
-            due_string: "tomorrow at 8am",
+            due_string: "tomorrow at 9am",
           }),
         }
       );
