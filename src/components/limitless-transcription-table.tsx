@@ -233,6 +233,31 @@ export function LimitlessTranscriptionTable({
       setNlpQuery(queryToUse);
     }
 
+    // Convert 24-hour military time formats (e.g., "1405" -> "14:05", "205" -> "02:05")
+    queryToUse = queryToUse.replace(/\b(\d{3,4})\b/g, (match) => {
+      // Only process 3 or 4 digit numbers that look like times
+      if (match.length === 3) {
+        // e.g., "205" -> "02:05"
+        const hours = match.slice(0, 1).padStart(2, '0');
+        const minutes = match.slice(1);
+        return `${hours}:${minutes}`;
+      } else if (match.length === 4) {
+        // e.g., "1405" -> "14:05"
+        const hours = match.slice(0, 2);
+        const minutes = match.slice(2);
+        // Validate it's a reasonable time (hours 0-23, minutes 0-59)
+        const h = parseInt(hours, 10);
+        const m = parseInt(minutes, 10);
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+          return `${hours}:${minutes}`;
+        }
+      }
+      return match; // Return unchanged if not a valid time
+    });
+
+    // Update the input field to show the formatted query
+    setNlpQuery(queryToUse);
+
     // Update URL with the query
     const params = new URLSearchParams();
     params.set("q", queryToUse);
