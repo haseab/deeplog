@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { addDays, format, parse, subDays } from "date-fns";
 import { Clock } from "lucide-react";
 import * as React from "react";
+import Link from "next/link";
 
 interface TimeEditorProps {
   startTime: string;
@@ -57,6 +58,16 @@ export function TimeEditor({
   const endTimeHoursRef = React.useRef<HTMLInputElement>(null);
   const endTimeMinutesRef = React.useRef<HTMLInputElement>(null);
   const endTimeSecondsRef = React.useRef<HTMLInputElement>(null);
+
+  // Check if Limitless API key exists
+  const [hasLimitlessKey, setHasLimitlessKey] = React.useState(false);
+
+  React.useEffect(() => {
+    const apiKey = localStorage.getItem("limitless_api_key");
+    const hasKey = !!apiKey;
+    console.log("[TimeEditor] Limitless API key check:", { hasKey, apiKey: apiKey ? "***" : null });
+    setHasLimitlessKey(hasKey);
+  }, []);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
@@ -483,6 +494,44 @@ export function TimeEditor({
     return `${format(startDateObj, "HH:mm")} - ${format(endDateObj!, "HH:mm")}`;
   }, [startTime, endTime]);
 
+  // Generate Limitless pendant URL with time range
+  const pendantUrl = React.useMemo(() => {
+    if (!hasLimitlessKey) return null;
+
+    const startDateObj = new Date(startTime);
+    const endDateObj = endTime ? new Date(endTime) : new Date();
+
+    // Check if start and end are on the same day
+    const sameDay = format(startDateObj, "yyyy-MM-dd") === format(endDateObj, "yyyy-MM-dd");
+
+    let query: string;
+    if (sameDay) {
+      // Format: "from 2025-11-02 11:25am to 11:35am"
+      const dateStr = format(startDateObj, "yyyy-MM-dd");
+      const startTimeStr = format(startDateObj, "h:mma").toLowerCase();
+      const endTimeStr = format(endDateObj, "h:mma").toLowerCase();
+      query = `from ${dateStr} ${startTimeStr} to ${endTimeStr}`;
+    } else {
+      // Format: "from 2025-11-02 11:25am to 2025-11-03 1:35pm"
+      const startFormatted = format(startDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+      const endFormatted = format(endDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+      query = `from ${startFormatted} to ${endFormatted}`;
+    }
+
+    return `/pendant?q=${encodeURIComponent(query)}`;
+  }, [hasLimitlessKey, startTime, endTime]);
+
+  const handleClockClick = (e: React.MouseEvent) => {
+    console.log("[TimeEditor] Clock clicked:", { hasLimitlessKey, pendantUrl });
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (hasLimitlessKey && pendantUrl) {
+      console.log("[TimeEditor] Opening pendant URL:", pendantUrl);
+      window.open(pendantUrl, '_blank');
+    }
+  };
+
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
@@ -494,7 +543,21 @@ export function TimeEditor({
             "hover:scale-[1.01] active:scale-[0.99] hover:font-medium"
           )}
         >
-          <Clock className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0 hidden md:block" />
+          <div
+            className={cn(
+              "mr-2 shrink-0 hidden md:flex items-center justify-center",
+              hasLimitlessKey && "cursor-pointer p-1 -m-1 rounded hover:bg-blue-500/10"
+            )}
+            onClick={handleClockClick}
+            title={hasLimitlessKey ? "Click to view in Limitless" : undefined}
+          >
+            <Clock
+              className={cn(
+                "h-3 w-3 opacity-50 group-hover:opacity-70 transition-all",
+                hasLimitlessKey && "hover:!text-blue-500 hover:!opacity-100 hover:scale-125"
+              )}
+            />
+          </div>
           <span className="truncate transition-all duration-200 group-hover:translate-x-0.5">
             {displayText}
           </span>
