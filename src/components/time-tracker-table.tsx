@@ -4137,52 +4137,83 @@ export function TimeTrackerTable({
       // Debounce the scroll handler
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
-        const containerRect = container.getBoundingClientRect();
-        const viewportCenter = containerRect.top + containerRect.height / 2;
+        setSelectedCell((current) => {
+          if (!current) return current;
 
-        // Find the row closest to the center of the viewport
-        let closestRow: { index: number; distance: number } | null = null;
+          const containerRect = container.getBoundingClientRect();
 
-        timeEntries.forEach((entry, index) => {
-          // Query for all matching rows and find the visible one
+          // Check if current selected row is out of view
+          const currentEntry = timeEntries[current.rowIndex];
+          if (!currentEntry) return current;
+
           const rowElements = document.querySelectorAll(
-            `[data-entry-id="${entry.id}"]`
+            `[data-entry-id="${currentEntry.id}"]`
           );
 
-          let rowElement: HTMLElement | null = null;
+          let currentRowElement: HTMLElement | null = null;
           for (const el of Array.from(rowElements)) {
             const htmlEl = el as HTMLElement;
-            // Check if element is actually visible (not display: none)
             if (htmlEl.offsetParent !== null) {
-              rowElement = htmlEl;
+              currentRowElement = htmlEl;
               break;
             }
           }
 
-          if (rowElement) {
-            const rowRect = rowElement.getBoundingClientRect();
-            const rowCenter = rowRect.top + rowRect.height / 2;
-            const distance = Math.abs(rowCenter - viewportCenter);
+          if (!currentRowElement) return current;
 
-            if (!closestRow || distance < closestRow.distance) {
-              closestRow = { index, distance };
+          const rowRect = currentRowElement.getBoundingClientRect();
+          const isAboveViewport = rowRect.bottom < containerRect.top;
+          const isBelowViewport = rowRect.top > containerRect.bottom;
+
+          // If current selection is still in view, don't change anything
+          if (!isAboveViewport && !isBelowViewport) {
+            return current;
+          }
+
+          // Current selection is out of view, find the nearest visible row
+          let targetRow: number | null = null;
+
+          for (let index = 0; index < timeEntries.length; index++) {
+            const entry = timeEntries[index];
+            const rowElements = document.querySelectorAll(
+              `[data-entry-id="${entry.id}"]`
+            );
+
+            let rowElement: HTMLElement | null = null;
+            for (const el of Array.from(rowElements)) {
+              const htmlEl = el as HTMLElement;
+              if (htmlEl.offsetParent !== null) {
+                rowElement = htmlEl;
+                break;
+              }
+            }
+
+            if (rowElement) {
+              const rect = rowElement.getBoundingClientRect();
+              const isVisible = rect.bottom >= containerRect.top && rect.top <= containerRect.bottom;
+
+              if (isVisible) {
+                if (isAboveViewport) {
+                  // Scrolling down: selector went above viewport, move to first visible row
+                  targetRow = index;
+                  break;
+                } else if (isBelowViewport) {
+                  // Scrolling up: selector went below viewport, keep updating to find last visible row
+                  targetRow = index;
+                }
+              }
             }
           }
-        });
 
-        // Update selectedCell if we found a closer row
-        if (closestRow !== null) {
-          setSelectedCell((current) => {
-            // Only update if the row changed
-            if (!current || current.rowIndex !== closestRow!.index) {
-              return {
-                rowIndex: closestRow!.index,
-                cellIndex: current?.cellIndex ?? 1, // Preserve cellIndex or default to 1
-              };
-            }
-            return current;
-          });
-        }
+          if (targetRow !== null) {
+            return {
+              rowIndex: targetRow,
+              cellIndex: current.cellIndex,
+            };
+          }
+
+          return current;
+        });
       }, 150); // 150ms debounce
     };
 
