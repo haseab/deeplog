@@ -766,9 +766,7 @@ export function TimeTrackerTable({
     });
   }, [
     pinnedEntries,
-    encryption.isE2EEEnabled,
-    encryption.isUnlocked,
-    encryption.getSessionKey,
+    encryption,
   ]);
 
   const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
@@ -842,9 +840,7 @@ export function TimeTrackerTable({
     });
   }, [
     timeEntries,
-    encryption.isE2EEEnabled,
-    encryption.isUnlocked,
-    encryption.getSessionKey,
+    encryption,
   ]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -2465,7 +2461,7 @@ export function TimeTrackerTable({
         toast.error("Failed to combine entries. Reverting changes.");
         setTimeEntries(originalEntries);
       });
-  }, [entryToCombine, timeEntries, toastDuration]);
+  }, [entryToCombine, timeEntries, toastDuration, encryption]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -4031,6 +4027,11 @@ export function TimeTrackerTable({
     pinnedEntries,
     showPinnedEntries,
     timeEntries,
+    deleteDialogOpen,
+    splitDialogOpen,
+    combineDialogOpen,
+    decryptedEntries,
+    isPinned,
     // Stable callback functions
     activateCell,
     navigateToNextCell,
@@ -4045,6 +4046,8 @@ export function TimeTrackerTable({
     handleCopyAndStartEntry,
     handleStopTimer,
     handleFullscreenToggle,
+    handlePinEntry,
+    handleUnpinEntry,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
