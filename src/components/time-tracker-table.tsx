@@ -3703,6 +3703,12 @@ export function TimeTrackerTable({
         return;
       }
 
+      // Cmd+A: Prevent select all when not in input
+      if (e.key.toLowerCase() === "a" && (e.metaKey || e.ctrlKey) && !isInInput) {
+        e.preventDefault();
+        return;
+      }
+
       // Cmd+Period: Refocus selector to a row within current viewport (middle)
       if (e.key === "." && (e.metaKey || e.ctrlKey) && !isInInput) {
         e.preventDefault();
