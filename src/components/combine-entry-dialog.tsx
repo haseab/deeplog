@@ -93,7 +93,7 @@ export function CombineEntryDialog({
             <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase block">
               Extend
             </span>
-            <div className="rounded-md bg-blue-50 dark:bg-blue-900/10 p-2.5 border border-blue-200 dark:border-blue-800 overflow-hidden">
+            <div className="rounded-md bg-blue-50 dark:bg-blue-900/10 p-2.5 border border-blue-200 dark:border-blue-800 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {previousEntry.description || "(no description)"}
               </p>
@@ -122,7 +122,7 @@ export function CombineEntryDialog({
             <span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase block">
               Delete
             </span>
-            <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 overflow-hidden">
+            <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {currentEntry.description || "(no description)"}
               </p>
@@ -148,11 +148,11 @@ export function CombineEntryDialog({
         </div>
 
         {/* Result */}
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase block">
             Result
           </span>
-          <div className="rounded-md bg-green-50 dark:bg-green-900/10 p-2.5 border border-green-200 dark:border-green-800 overflow-hidden">
+          <div className="rounded-md bg-green-50 dark:bg-green-900/10 p-2.5 border border-green-200 dark:border-green-800 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {previousEntry.description || "(no description)"}
             </p>

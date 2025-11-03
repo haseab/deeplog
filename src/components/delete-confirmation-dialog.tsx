@@ -88,11 +88,11 @@ export function DeleteConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase block">
             Entry to Delete
           </span>
-          <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 overflow-hidden">
+          <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {entry.description || "(no description)"}
             </p>
