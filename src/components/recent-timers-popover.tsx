@@ -8,7 +8,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { searchRecentTimers, type RecentTimerEntry } from "@/lib/recent-timers-cache";
+import { searchRecentTimers, incrementTimerUsage, type RecentTimerEntry } from "@/lib/recent-timers-cache";
 
 type Project = {
   id: number;
@@ -126,6 +126,9 @@ export function RecentTimersPopover({
                   index === highlightedIndex && "bg-gray-200 dark:bg-gray-700"
                 )}
                 onClick={() => {
+                  // Increment usage count
+                  incrementTimerUsage(timer.description, timer.projectId, timer.tagIds);
+
                   onSelect({
                     description: timer.description,
                     projectId: timer.projectId,

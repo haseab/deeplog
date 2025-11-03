@@ -3,6 +3,7 @@ export type RecentTimerEntry = {
   description: string;
   projectId: number | null;
   tagIds: number[];
+  usageCount: number; // Track how many times this timer has been used
 };
 
 const CACHE_KEY = "deeplog_recent_timers";
@@ -11,7 +12,13 @@ export function getRecentTimers(): RecentTimerEntry[] {
   try {
     const cached = localStorage.getItem(CACHE_KEY);
     if (!cached) return [];
-    return JSON.parse(cached) as RecentTimerEntry[];
+    const timers = JSON.parse(cached) as RecentTimerEntry[];
+
+    // Migrate old entries without usageCount
+    return timers.map(timer => ({
+      ...timer,
+      usageCount: timer.usageCount ?? 0
+    }));
   } catch (error) {
     console.error("Failed to load recent timers cache:", error);
     return [];
@@ -43,7 +50,12 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
       }
     }
 
-    // Add to the beginning (most recent first)
+    // Ensure usageCount is set (default to 0 if not provided)
+    if (entry.usageCount === undefined) {
+      entry.usageCount = 0;
+    }
+
+    // Add to the beginning
     timers.unshift(entry);
 
     localStorage.setItem(CACHE_KEY, JSON.stringify(timers));
@@ -87,15 +99,50 @@ export function updateRecentTimersCache(
     (e) => e.description && e.description.length > 0 && e.description.length < 60
   );
 
-  // Add each valid entry to the cache
+  // Add each valid entry to the cache, preserving existing usage counts
   validEntries.forEach((entry) => {
+    // Check if this entry already exists to preserve its usage count
+    const existing = cleanedTimers.find(
+      (t) =>
+        t.description === entry.description &&
+        t.projectId === entry.project_id &&
+        JSON.stringify(t.tagIds.sort()) === JSON.stringify((entry.tag_ids || []).sort())
+    );
+
     addToRecentTimers({
       id: entry.id,
       description: entry.description,
       projectId: entry.project_id,
       tagIds: entry.tag_ids || [],
+      usageCount: existing?.usageCount || 0,
     });
   });
+}
+
+export function incrementTimerUsage(
+  description: string,
+  projectId: number | null,
+  tagIds: number[]
+): void {
+  try {
+    const timers = getRecentTimers();
+
+    // Find matching timer
+    const index = timers.findIndex(
+      (t) =>
+        t.description === description &&
+        t.projectId === projectId &&
+        JSON.stringify(t.tagIds.sort()) === JSON.stringify(tagIds.sort())
+    );
+
+    if (index !== -1) {
+      // Increment usage count
+      timers[index].usageCount = (timers[index].usageCount || 0) + 1;
+      localStorage.setItem(CACHE_KEY, JSON.stringify(timers));
+    }
+  } catch (error) {
+    console.error("Failed to increment timer usage:", error);
+  }
 }
 
 export function fuzzyMatch(query: string, text: string): { matches: boolean; score: number } {
@@ -114,7 +161,7 @@ export function fuzzyMatch(query: string, text: string): { matches: boolean; sco
       const isWordStart = i === 0 || textLower[i - 1] === ' ' || textLower[i - 1] === '-';
 
       if (isWordStart) {
-        score += 10; // Bonus for word start
+        score += 5; // Bonus for word start
       } else {
         score += 1; // Regular match
       }
@@ -142,7 +189,17 @@ export function searchRecentTimers(
   const timers = getRecentTimers();
 
   if (!query.trim()) {
-    return timers.slice(0, limit);
+    // Sort by usage count (descending), then by array position (most recent first)
+    const sorted = [...timers].sort((a, b) => {
+      const usageA = a.usageCount || 0;
+      const usageB = b.usageCount || 0;
+      if (usageB !== usageA) {
+        return usageB - usageA; // Higher usage first
+      }
+      // If usage is the same, maintain original order (newer first)
+      return timers.indexOf(a) - timers.indexOf(b);
+    });
+    return sorted.slice(0, limit);
   }
 
   // Score and filter matches
@@ -152,12 +209,14 @@ export function searchRecentTimers(
       return {
         timer,
         score: result.score,
-        matches: result.matches
+        matches: result.matches,
+        usageCount: timer.usageCount || 0
       };
     })
     .filter((item) => item.matches)
-    .sort((a, b) => b.score - a.score) // Sort by score descending
-    .map((item) => item.timer);
+    .sort((a, b) => b.score - a.score) // Sort by fuzzy score first
+    .slice(0, limit) // Take top N matches
+    .sort((a, b) => b.usageCount - a.usageCount); // Then sort by usage count
 
-  return scoredMatches.slice(0, limit);
+  return scoredMatches.map((item) => item.timer);
 }

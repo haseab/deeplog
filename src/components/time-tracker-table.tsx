@@ -48,7 +48,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { updateRecentTimersCache } from "@/lib/recent-timers-cache";
+import { updateRecentTimersCache, incrementTimerUsage } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
@@ -189,6 +189,9 @@ const MemoizedTableRow = React.memo(
                   projects={projects}
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
+                    // Increment usage count
+                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+
                     const tagNames = availableTags
                       .filter((tag) => selected.tagIds.includes(tag.id))
                       .map((tag) => tag.name);
@@ -415,6 +418,9 @@ const MemoizedTableRow = React.memo(
                   projects={projects}
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
+                    // Increment usage count
+                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+
                     // Pass the captured entry.id - helper will resolve to current ID
 
                     const tagNames = availableTags
@@ -476,6 +482,9 @@ const MemoizedTableRow = React.memo(
                   projects={projects}
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
+                    // Increment usage count
+                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+
                     // Pass the captured entry.id - helper will resolve to current ID
 
                     const tagNames = availableTags
