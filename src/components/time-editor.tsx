@@ -504,16 +504,18 @@ export function TimeEditor({
 
     let query: string;
     if (sameDay) {
-      // Format: "from 2025-11-02 11:25am to 11:35am"
+      // Format: "2025-11-04 from 3:48am to 3:49am"
+      // Date first to prevent parsing "2025" as "20:25"
       const dateStr = format(startDateObj, "yyyy-MM-dd");
       const startTimeStr = format(startDateObj, "h:mma").toLowerCase();
       const endTimeStr = format(endDateObj, "h:mma").toLowerCase();
-      query = `from ${dateStr} ${startTimeStr} to ${endTimeStr}`;
+      query = `${dateStr} from ${startTimeStr} to ${endTimeStr}`;
     } else {
-      // Format: "from 2025-11-02 11:25am to 2025-11-03 1:35pm"
+      // Format: "2025-11-02 11:25am to 2025-11-03 1:35pm"
+      // Both dates included, no "from" needed
       const startFormatted = format(startDateObj, "yyyy-MM-dd h:mma").toLowerCase();
       const endFormatted = format(endDateObj, "yyyy-MM-dd h:mma").toLowerCase();
-      query = `from ${startFormatted} to ${endFormatted}`;
+      query = `${startFormatted} to ${endFormatted}`;
     }
 
     return `/pendant?q=${encodeURIComponent(query)}`;

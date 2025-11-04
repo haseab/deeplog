@@ -47,9 +47,17 @@ export function LimitlessTranscriptionTable({
   const [loading, setLoading] = React.useState(false);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [hasMore, setHasMore] = React.useState(true);
+  // Store the original search time range for "load before" functionality
+  // Use ref to avoid dependency issues in fetchTranscriptions
+  const originalSearchRangeRef = React.useRef<{
+    startTime: Date;
+    endTime: Date;
+  } | null>(null);
+  // Use state to track if we have a range (for button visibility)
+  const [hasOriginalSearchRange, setHasOriginalSearchRange] = React.useState(false);
 
   const fetchTranscriptions = React.useCallback(
-    async (showLoadingState = true, resetData = true, nextCursor?: string) => {
+    async (showLoadingState = true, resetData = true, nextCursor?: string, fetchBeforeRange?: boolean) => {
       if (showLoadingState) setLoading(true);
 
       const apiKey = localStorage.getItem("limitless_api_key");
@@ -63,48 +71,60 @@ export function LimitlessTranscriptionTable({
       try {
         let startTime: Date, endTime: Date;
 
-        // Parse natural language query for time ranges
-        const query = activeQuery.trim().toLowerCase();
-
-        // Handle custom phrases that chrono might not understand
-        if (
-          query === "this last hour" ||
-          query === "last hour" ||
-          query === "past hour"
-        ) {
-          const now = new Date();
-          const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-          startTime = oneHourAgo;
-          endTime = now;
+        // If fetching before range, use the original search range's start time as end
+        if (fetchBeforeRange && originalSearchRangeRef.current) {
+          endTime = originalSearchRangeRef.current.startTime;
+          // Don't set startTime - we'll only use end parameter to fetch before
         } else {
-          // Use chrono for standard parsing
-          const results = chrono.parse(activeQuery.trim());
+          // Parse natural language query for time ranges
+          const query = activeQuery.trim().toLowerCase();
 
-          if (results.length > 0) {
-            const result = results[0];
+          // Handle custom phrases that chrono might not understand
+          if (
+            query === "this last hour" ||
+            query === "last hour" ||
+            query === "past hour"
+          ) {
+            const now = new Date();
+            const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+            startTime = oneHourAgo;
+            endTime = now;
+          } else {
+            // Use chrono for standard parsing
+            const results = chrono.parse(activeQuery.trim());
 
-            if (result.start && result.end) {
-              // Time range found (e.g., "today from 3 to 5pm")
-              startTime = result.start.date();
-              endTime = result.end.date();
-            } else if (result.start) {
-              const parsedTime = result.start.date();
+            if (results.length > 0) {
+              const result = results[0];
 
-              // Check if this is a relative time phrase that should create a range
-              if (
-                query.includes("ago") ||
-                query.includes("hours ago") ||
-                query.includes("minutes ago")
-              ) {
-                // For relative times like "2 hours ago", create range from that time to now
-                startTime = parsedTime;
-                endTime = new Date(); // now
+              if (result.start && result.end) {
+                // Time range found (e.g., "today from 3 to 5pm")
+                startTime = result.start.date();
+                endTime = result.end.date();
+              } else if (result.start) {
+                const parsedTime = result.start.date();
+
+                // Check if this is a relative time phrase that should create a range
+                if (
+                  query.includes("ago") ||
+                  query.includes("hours ago") ||
+                  query.includes("minutes ago")
+                ) {
+                  // For relative times like "2 hours ago", create range from that time to now
+                  startTime = parsedTime;
+                  endTime = new Date(); // now
+                } else {
+                  // Single date/time found, use full day
+                  startTime = new Date(parsedTime);
+                  startTime.setHours(0, 0, 0, 0);
+                  endTime = new Date(parsedTime);
+                  endTime.setHours(23, 59, 59, 999);
+                }
               } else {
-                // Single date/time found, use full day
-                startTime = new Date(parsedTime);
-                startTime.setHours(0, 0, 0, 0);
-                endTime = new Date(parsedTime);
-                endTime.setHours(23, 59, 59, 999);
+                // Return empty results instead of showing error
+                setTranscriptions([]);
+                setCursor(null);
+                setHasMore(false);
+                return;
               }
             } else {
               // Return empty results instead of showing error
@@ -113,26 +133,26 @@ export function LimitlessTranscriptionTable({
               setHasMore(false);
               return;
             }
-          } else {
-            // Return empty results instead of showing error
-            setTranscriptions([]);
-            setCursor(null);
-            setHasMore(false);
-            return;
           }
         }
 
         // Build query params with start/end timestamps
-        // Use 20 for initial load, 10 for subsequent loads
-        const limit = resetData ? "20" : "10";
+        // Use 20 for initial load, 10 for subsequent loads or when loading before range
+        const limit = resetData && !fetchBeforeRange ? "20" : "10";
         const params = new URLSearchParams({
-          start: startTime.toISOString(),
-          end: endTime.toISOString(),
           limit: limit,
           direction: "desc",
           includeMarkdown: "true",
           includeHeadings: "true",
         });
+
+        // When fetching before range, only use end parameter
+        if (fetchBeforeRange && endTime) {
+          params.append("end", endTime.toISOString());
+        } else if (startTime && endTime) {
+          params.append("start", startTime.toISOString());
+          params.append("end", endTime.toISOString());
+        }
 
         if (nextCursor) {
           params.append("cursor", nextCursor);
@@ -173,11 +193,19 @@ export function LimitlessTranscriptionTable({
           ? newTranscriptions
           : [];
 
-        if (resetData) {
+        if (resetData && !fetchBeforeRange) {
           setTranscriptions(transcriptionsArray);
           setCursor(responseCursor);
+          // Store the original search range when resetting data (not when loading before)
+          // Only store if we have valid startTime and endTime
+          if (startTime && endTime) {
+            originalSearchRangeRef.current = { startTime, endTime };
+            setHasOriginalSearchRange(true);
+          } else {
+            setHasOriginalSearchRange(false);
+          }
         } else {
-          // Append to existing transcriptions for pagination, filtering out duplicates
+          // Append to existing transcriptions for pagination or loading before range, filtering out duplicates
           setTranscriptions((prev) => {
             const existingIds = new Set(prev.map((t) => t.id));
             const newUniqueTranscriptions = transcriptionsArray.filter(
@@ -203,13 +231,19 @@ export function LimitlessTranscriptionTable({
         if (showLoadingState) setLoading(false);
       }
     },
-    [activeQuery] // Include activeQuery since we use it inside the function
+    [activeQuery] // Don't include originalSearchRange - it's only read when fetchBeforeRange is true
   );
 
   const loadMoreTranscriptions = React.useCallback(async () => {
     if (!hasMore || loading || !cursor) return;
     await fetchTranscriptions(false, false, cursor);
   }, [hasMore, loading, cursor, fetchTranscriptions]);
+
+  const loadBeforeRange = React.useCallback(async () => {
+    if (!originalSearchRangeRef.current || loading) return;
+    // Load 10 transcriptions before the original search range
+    await fetchTranscriptions(true, false, undefined, true);
+  }, [loading, fetchTranscriptions]);
 
   const handleSearch = () => {
     // Check if user typed "y1", "y2", "y3" etc and convert to actual date
@@ -446,10 +480,27 @@ export function LimitlessTranscriptionTable({
       ) : (
         <div className="space-y-4">
           {!Array.isArray(transcriptions) || transcriptions.length === 0 ? (
-            <div className="flex items-center justify-center py-20">
+            <div className="flex flex-col items-center justify-center py-20 space-y-4">
               <p className="text-muted-foreground">
                 No transcriptions found for the selected date range.
               </p>
+              {hasOriginalSearchRange && (
+                <Button
+                  onClick={loadBeforeRange}
+                  variant="outline"
+                  disabled={loading}
+                  className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+                >
+                  {loading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <span>Loading...</span>
+                    </div>
+                  ) : (
+                    "Load 10 transcriptions before this range"
+                  )}
+                </Button>
+              )}
             </div>
           ) : (
             transcriptions.map((transcription) => (
