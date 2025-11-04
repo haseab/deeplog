@@ -69,7 +69,7 @@ export function LimitlessTranscriptionTable({
       }
 
       try {
-        let startTime: Date, endTime: Date;
+        let startTime: Date | undefined, endTime: Date | undefined;
 
         // If fetching before range, use the original search range's start time as end
         if (fetchBeforeRange && originalSearchRangeRef.current) {
