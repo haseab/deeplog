@@ -63,6 +63,39 @@ import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
 
+// Memoized pinned entries to isolate re-renders when visibility toggles
+const MemoizedPinnedEntries = React.memo(
+  function MemoizedPinnedEntries({
+    show,
+    pinnedEntries,
+    onUnpin,
+    onStartTimer,
+    onNewTimer,
+    onNewEntry,
+  }: {
+    show: boolean;
+    pinnedEntries: PinnedEntry[];
+    onUnpin: (id: string) => void;
+    onStartTimer: (entry: PinnedEntry) => void;
+    onNewTimer: () => void;
+    onNewEntry: () => void;
+  }) {
+    // Use inline style for visibility to avoid Tailwind class changes
+    return (
+      <div style={{ display: show ? "block" : "none" }}>
+        <PinnedTimeEntries
+          pinnedEntries={pinnedEntries}
+          onUnpin={onUnpin}
+          onStartTimer={onStartTimer}
+          onNewTimer={onNewTimer}
+          onNewEntry={onNewEntry}
+          showShortcuts={true}
+        />
+      </div>
+    );
+  }
+);
+
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
     entry,
@@ -160,8 +193,9 @@ const MemoizedTableRow = React.memo(
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
   }) {
-    // Debug: Log when component renders to see entry IDs
-    if (entry.id && entry.id < 0 && rowIndex === 0) {
+    // Debug: Log when component renders (only rows 1-3)
+    if (rowIndex >= 1 && rowIndex <= 3) {
+      console.log(`[TableRow] Rendering row ${rowIndex}, entry ID: ${entry.id}`);
     }
 
     return (
@@ -652,9 +686,35 @@ const MemoizedTableRow = React.memo(
       }
     }
 
-    // Return true if props are equal (should NOT rerender)
-    const entryEqual = prevProps.entry === nextProps.entry;
+    // Deep comparison for entry object - compare by value, not reference
+    // This prevents rerenders when entries are recreated in new arrays
+    const prevEntry = prevProps.entry;
+    const nextEntry = nextProps.entry;
+    const entryEqual =
+      prevEntry.id === nextEntry.id &&
+      prevEntry.tempId === nextEntry.tempId &&
+      prevEntry.description === nextEntry.description &&
+      prevEntry.project_id === nextEntry.project_id &&
+      prevEntry.project_name === nextEntry.project_name &&
+      prevEntry.project_color === nextEntry.project_color &&
+      prevEntry.start === nextEntry.start &&
+      prevEntry.stop === nextEntry.stop &&
+      prevEntry.duration === nextEntry.duration &&
+      prevEntry.syncStatus === nextEntry.syncStatus &&
+      prevEntry.tags.length === nextEntry.tags.length &&
+      prevEntry.tags.every((tag, i) => tag === nextEntry.tags[i]) &&
+      prevEntry.tag_ids.length === nextEntry.tag_ids.length &&
+      prevEntry.tag_ids.every((id, i) => id === nextEntry.tag_ids[i]);
+
     const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
+    // Only require rowIndex to be equal if this row is selected (selection state already checked above)
+    // For unselected rows, rowIndex changes don't require rerender since click handlers will be updated via reconciliation
+    const rowIndexChangeRequiresRerender = nextSelectedInThisRow && !rowIndexEqual;
+    
+    const prevEntryEndEqual = prevProps.prevEntryEnd === nextProps.prevEntryEnd;
+    const nextEntryStartEqual = prevProps.nextEntryStart === nextProps.nextEntryStart;
+    const isPinnedEqual = prevProps.isPinned === nextProps.isPinned;
+    const isNewlyLoadedEqual = prevProps.isNewlyLoaded === nextProps.isNewlyLoaded;
     const onSelectCellEqual = prevProps.onSelectCell === nextProps.onSelectCell;
     const onDescriptionSaveEqual =
       prevProps.onDescriptionSave === nextProps.onDescriptionSave;
@@ -699,7 +759,11 @@ const MemoizedTableRow = React.memo(
 
     const shouldNotRerender =
       entryEqual &&
-      rowIndexEqual &&
+      !rowIndexChangeRequiresRerender &&
+      prevEntryEndEqual &&
+      nextEntryStartEqual &&
+      isPinnedEqual &&
+      isNewlyLoadedEqual &&
       onSelectCellEqual &&
       onDescriptionSaveEqual &&
       onProjectChangeEqual &&
@@ -725,6 +789,44 @@ const MemoizedTableRow = React.memo(
       syncStatusEqual &&
       onRetrySyncEqual &&
       isFullscreenEqual;
+
+    // Debug logging (only for rows 1-3)
+    if (!shouldNotRerender && prevProps.rowIndex >= 1 && prevProps.rowIndex <= 3) {
+      const changedProps = [];
+      if (!entryEqual) changedProps.push('entry');
+      if (rowIndexChangeRequiresRerender) changedProps.push('rowIndex (selected)');
+      if (!prevEntryEndEqual) changedProps.push('prevEntryEnd');
+      if (!nextEntryStartEqual) changedProps.push('nextEntryStart');
+      if (!isPinnedEqual) changedProps.push('isPinned');
+      if (!isNewlyLoadedEqual) changedProps.push('isNewlyLoaded');
+      if (!onSelectCellEqual) changedProps.push('onSelectCell');
+      if (!onDescriptionSaveEqual) changedProps.push('onDescriptionSave');
+      if (!onProjectChangeEqual) changedProps.push('onProjectChange');
+      if (!onTagsChangeEqual) changedProps.push('onTagsChange');
+      if (!onBulkEntryUpdateEqual) changedProps.push('onBulkEntryUpdate');
+      if (!onBulkEntryUpdateByRowIndexEqual) changedProps.push('onBulkEntryUpdateByRowIndex');
+      if (!onTimeChangeEqual) changedProps.push('onTimeChange');
+      if (!onDurationChangeEqual) changedProps.push('onDurationChange');
+      if (!onDeleteEqual) changedProps.push('onDelete');
+      if (!onStartEntryEqual) changedProps.push('onStartEntry');
+      if (!projectsEqual) changedProps.push('projects');
+      if (!availableTagsEqual) changedProps.push('availableTags');
+      if (!onProjectCreatedEqual) changedProps.push('onProjectCreated');
+      if (!onTagCreatedEqual) changedProps.push('onTagCreated');
+      if (!setIsEditingCellEqual) changedProps.push('setIsEditingCell');
+      if (!setIsProjectSelectorOpenEqual) changedProps.push('setIsProjectSelectorOpen');
+      if (!setIsTagSelectorOpenEqual) changedProps.push('setIsTagSelectorOpen');
+      if (!setIsActionsMenuOpenEqual) changedProps.push('setIsActionsMenuOpen');
+      if (!setIsTimeEditorOpenEqual) changedProps.push('setIsTimeEditorOpen');
+      if (!navigateToNextCellEqual) changedProps.push('navigateToNextCell');
+      if (!navigateToPrevCellEqual) changedProps.push('navigateToPrevCell');
+      if (!navigateToNextRowEqual) changedProps.push('navigateToNextRow');
+      if (!syncStatusEqual) changedProps.push('syncStatus');
+      if (!onRetrySyncEqual) changedProps.push('onRetrySync');
+      if (!isFullscreenEqual) changedProps.push('isFullscreen');
+
+      console.log(`[TableRow Memo] Row ${prevProps.rowIndex} changed props:`, changedProps);
+    }
 
     return shouldNotRerender;
   }
@@ -780,7 +882,17 @@ export function TimeTrackerTable({
 
   const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
   const [pinError, setPinError] = React.useState<string>("");
+
+  // Use state but with inline display style to avoid layout thrashing
   const [showPinnedEntries, setShowPinnedEntries] = React.useState(false);
+  const showPinnedEntriesRef = React.useRef(false);
+
+  // Update both state and ref
+  const setShowPinnedEntriesValue = React.useCallback((value: boolean) => {
+    showPinnedEntriesRef.current = value;
+    setShowPinnedEntries(value);
+  }, []);
+
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
 
@@ -815,6 +927,9 @@ export function TimeTrackerTable({
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
 
+  // Cache decrypted entries by ID to survive array reordering
+  const decryptedEntriesById = React.useRef<Map<number, { entry: TimeEntry, hash: string }>>(new Map());
+
   // Decrypt entries when E2EE is enabled and unlocked
   const decryptedEntries = React.useMemo(() => {
     if (!encryption.isE2EEEnabled || !encryption.isUnlocked) {
@@ -826,12 +941,26 @@ export function TimeTrackerTable({
       return timeEntries;
     }
 
-    return timeEntries.map((entry) => {
-      // Check if description looks encrypted (IV:AuthTag:Ciphertext format)
+    // Create a hash of relevant properties to detect changes
+    const createHash = (entry: TimeEntry) =>
+      `${entry.id}:${entry.description}:${entry.start}:${entry.stop}:${entry.duration}:${entry.project_id}:${entry.syncStatus}`;
+
+    // Map entries, reusing cached decrypted versions when possible
+    const newDecryptedEntries = timeEntries.map((entry) => {
+      const hash = createHash(entry);
+      const cached = decryptedEntriesById.current.get(entry.id);
+
+      // If we have a cached version with the same hash, reuse it
+      if (cached && cached.hash === hash) {
+        return cached.entry;
+      }
+
+      // Entry changed or is new, decrypt if needed
       const looksEncrypted =
         entry.description?.includes(":") &&
         entry.description?.split(":").length === 3;
 
+      let decryptedEntry = entry;
       if (looksEncrypted) {
         try {
           const decryptedDescription = decryptDescription(
@@ -839,14 +968,27 @@ export function TimeTrackerTable({
             sessionKey,
             entry.id
           );
-          return { ...entry, description: decryptedDescription };
+          decryptedEntry = { ...entry, description: decryptedDescription };
         } catch {
           // Not actually encrypted or wrong key, return as-is
-          return entry;
+          decryptedEntry = entry;
         }
       }
-      return entry;
+
+      // Cache the decrypted entry with its hash
+      decryptedEntriesById.current.set(entry.id, { entry: decryptedEntry, hash });
+      return decryptedEntry;
     });
+
+    // Clean up cache for entries that no longer exist
+    const currentIds = new Set(timeEntries.map(e => e.id));
+    for (const cachedId of decryptedEntriesById.current.keys()) {
+      if (!currentIds.has(cachedId)) {
+        decryptedEntriesById.current.delete(cachedId);
+      }
+    }
+
+    return newDecryptedEntries;
   }, [
     timeEntries,
     encryption,
@@ -2480,12 +2622,14 @@ export function TimeTrackerTable({
       tags: string[] = [],
       stopTime?: string
     ) => {
+      console.log('========== START NEW TIME ENTRY ==========');
       let originalEntries: TimeEntry[] = [];
       let newEntry: TimeEntry | null = null;
       let runningEntry: TimeEntry | null = null;
 
       // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
       const tempId = -Date.now();
+      console.log(`[New Entry] Creating entry with temp ID: ${tempId}`);
 
       // Create timestamp once at the start
       const now = new Date().toISOString();
@@ -3398,28 +3542,39 @@ export function TimeTrackerTable({
     startNewTimeEntry("", "No Project", "#6b7280", [], now);
   }, [startNewTimeEntry]);
 
+  // Stable callbacks for pinned entries container
+  const handlePinnedNewTimer = React.useCallback(() => {
+    setShowPinnedEntriesValue(false);
+    handleNewTimer();
+  }, [setShowPinnedEntriesValue, handleNewTimer]);
+
+  const handlePinnedNewEntry = React.useCallback(() => {
+    setShowPinnedEntriesValue(false);
+    handleNewStoppedEntry();
+  }, [setShowPinnedEntriesValue, handleNewStoppedEntry]);
+
   const handleNewEntryClick = React.useCallback(() => {
     // If already showing pinned entries, create empty timer
-    if (showPinnedEntries) {
-      setShowPinnedEntries(false);
+    if (showPinnedEntriesRef.current) {
+      setShowPinnedEntriesValue(false);
       handleNewTimer();
       return;
     }
 
     // If we have pinned entries, show them
     if (pinnedEntries.length > 0) {
-      setShowPinnedEntries(true);
+      setShowPinnedEntriesValue(true);
 
       // Auto-hide after 3 seconds
       setTimeout(() => {
-        setShowPinnedEntries(false);
+        setShowPinnedEntriesValue(false);
       }, 3000);
       return;
     }
 
     // No pinned entries, just create new timer
     handleNewTimer();
-  }, [showPinnedEntries, pinnedEntries.length, handleNewTimer]);
+  }, [pinnedEntries.length, handleNewTimer, setShowPinnedEntriesValue]);
 
   const handleRefreshData = React.useCallback(() => {
     if (date?.from && date?.to) {
@@ -3616,7 +3771,7 @@ export function TimeTrackerTable({
         // If already showing pinned entries, create new timer
         if (awaitingPinnedNumberRef.current) {
           awaitingPinnedNumberRef.current = false;
-          setShowPinnedEntries(false);
+          setShowPinnedEntriesValue(false);
           if (pinnedTimeoutIdRef.current)
             clearTimeout(pinnedTimeoutIdRef.current);
           handleNewTimer();
@@ -3626,7 +3781,7 @@ export function TimeTrackerTable({
         // If we have pinned entries, show them and wait for action
         if (pinnedEntries.length > 0) {
           awaitingPinnedNumberRef.current = true;
-          setShowPinnedEntries(true);
+          setShowPinnedEntriesValue(true);
 
           // Clear any existing timeout
           if (pinnedTimeoutIdRef.current)
@@ -3635,7 +3790,7 @@ export function TimeTrackerTable({
           // Reset after 3 seconds if no action is taken
           pinnedTimeoutIdRef.current = setTimeout(() => {
             awaitingPinnedNumberRef.current = false;
-            setShowPinnedEntries(false);
+            setShowPinnedEntriesValue(false);
           }, 3000);
           return;
         }
@@ -3652,7 +3807,7 @@ export function TimeTrackerTable({
         // If showing pinned entries, close them first
         if (awaitingPinnedNumberRef.current) {
           awaitingPinnedNumberRef.current = false;
-          setShowPinnedEntries(false);
+          setShowPinnedEntriesValue(false);
           if (pinnedTimeoutIdRef.current)
             clearTimeout(pinnedTimeoutIdRef.current);
         }
@@ -3667,7 +3822,7 @@ export function TimeTrackerTable({
         if (!isNaN(num) && num >= 1 && num <= 9) {
           e.preventDefault();
           awaitingPinnedNumberRef.current = false;
-          setShowPinnedEntries(false);
+          setShowPinnedEntriesValue(false);
           if (pinnedTimeoutIdRef.current)
             clearTimeout(pinnedTimeoutIdRef.current);
 
@@ -3800,9 +3955,9 @@ export function TimeTrackerTable({
           e.stopPropagation();
 
           // If showing pinned entries, hide them
-          if (showPinnedEntries) {
+          if (showPinnedEntriesRef.current) {
             awaitingPinnedNumberRef.current = false;
-            setShowPinnedEntries(false);
+            setShowPinnedEntriesValue(false);
             if (pinnedTimeoutIdRef.current)
               clearTimeout(pinnedTimeoutIdRef.current);
             return;
@@ -4040,7 +4195,6 @@ export function TimeTrackerTable({
     isActionsMenuOpen,
     isTimeEditorOpen,
     pinnedEntries,
-    showPinnedEntries,
     timeEntries,
     deleteDialogOpen,
     splitDialogOpen,
@@ -4281,22 +4435,14 @@ export function TimeTrackerTable({
         )}
         ref={tableRef}
       >
-        {showPinnedEntries && (
-          <PinnedTimeEntries
-            pinnedEntries={decryptedPinnedEntries}
-            onUnpin={handleUnpinEntry}
-            onStartTimer={handleStartTimerFromPinned}
-            onNewTimer={() => {
-              setShowPinnedEntries(false);
-              handleNewTimer();
-            }}
-            onNewEntry={() => {
-              setShowPinnedEntries(false);
-              handleNewStoppedEntry();
-            }}
-            showShortcuts={true}
-          />
-        )}
+        <MemoizedPinnedEntries
+          show={showPinnedEntries}
+          pinnedEntries={decryptedPinnedEntries}
+          onUnpin={handleUnpinEntry}
+          onStartTimer={handleStartTimerFromPinned}
+          onNewTimer={handlePinnedNewTimer}
+          onNewEntry={handlePinnedNewEntry}
+        />
         <div className="mb-4">
           {/* Desktop layout - single row */}
           <div className="hidden md:flex items-center justify-between">
