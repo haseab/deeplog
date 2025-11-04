@@ -15,7 +15,8 @@ type SyncStatus =
   | "syncing"
   | "error"
   | "session_expired"
-  | "offline";
+  | "offline"
+  | "sync_paused";
 
 interface SyncStatusBadgeProps {
   status: SyncStatus;
@@ -85,6 +86,15 @@ export function SyncStatusBadge({
           borderColor: "border-gray-200 dark:border-gray-800",
           description: "No internet connection",
         };
+      case "sync_paused":
+        return {
+          icon: AlertCircle,
+          text: "Sync Paused",
+          color: "text-yellow-600 dark:text-yellow-400",
+          bgColor: "bg-yellow-50 dark:bg-yellow-900/20",
+          borderColor: "border-yellow-200 dark:border-yellow-800",
+          description: "Auto-sync paused - more entries loaded. Refresh to sync.",
+        };
       default:
         return {
           icon: CheckCircle2,
@@ -105,12 +115,12 @@ export function SyncStatusBadge({
       onReauthenticate();
     } else if (status === "error" && onRetry) {
       onRetry();
-    } else if (status === "synced" && onRetry) {
+    } else if ((status === "synced" || status === "sync_paused") && onRetry) {
       onRetry();
     }
   };
 
-  const showRefreshOnHover = status === "synced";
+  const showRefreshOnHover = status === "synced" || status === "sync_paused";
   const isClickable = config.actionable || showRefreshOnHover;
 
   const badge = (
