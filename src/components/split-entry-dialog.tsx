@@ -18,6 +18,8 @@ interface SplitEntryDialogProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: (offsetMinutes: number, isReverse?: boolean) => void;
   entryDescription?: string;
+  entryProjectName?: string;
+  entryProjectColor?: string;
 }
 
 export function SplitEntryDialog({
@@ -25,6 +27,8 @@ export function SplitEntryDialog({
   onOpenChange,
   onConfirm,
   entryDescription,
+  entryProjectName,
+  entryProjectColor,
 }: SplitEntryDialogProps) {
   const [offsetMinutes, setOffsetMinutes] = React.useState("5");
   const [error, setError] = React.useState("");
@@ -62,11 +66,6 @@ export function SplitEntryDialog({
         <DialogHeader>
           <DialogTitle>Split Time Entry</DialogTitle>
           <DialogDescription>
-            {entryDescription && (
-              <span className="block mt-1 font-medium text-foreground/80">
-                &quot;{entryDescription}&quot;
-              </span>
-            )}
             <span className="block mt-2">
               How many minutes from the end do you want to split?
             </span>
@@ -75,6 +74,32 @@ export function SplitEntryDialog({
             </span>
           </DialogDescription>
         </DialogHeader>
+        
+        {(entryDescription || entryProjectName) && (
+          <div className="space-y-1 min-w-0">
+            <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase block">
+              Entry to Split
+            </span>
+            <div className="rounded-md bg-blue-50 dark:bg-blue-900/10 p-2.5 border border-blue-200 dark:border-blue-800 min-w-0">
+              {entryDescription && (
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-words line-clamp-3 overflow-hidden text-ellipsis">
+                  {entryDescription}
+                </p>
+              )}
+              {entryProjectName && (
+                <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                  <div
+                    className="w-2 h-2 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: entryProjectColor || "#6b7280" }}
+                  />
+                  <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                    {entryProjectName || "No Project"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="offsetMinutes" className="text-right">

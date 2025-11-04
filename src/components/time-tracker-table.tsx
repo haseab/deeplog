@@ -4891,6 +4891,8 @@ export function TimeTrackerTable({
           }}
           onConfirm={handleConfirmSplit}
           entryDescription={entryToSplit?.description}
+          entryProjectName={entryToSplit?.project_name}
+          entryProjectColor={entryToSplit?.project_color}
         />
         <CombineEntryDialog
           open={combineDialogOpen}
