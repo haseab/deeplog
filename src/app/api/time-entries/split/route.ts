@@ -7,8 +7,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { entryId, offsetMinutes, isReverse = false } = body;
 
-    if (!entryId || offsetMinutes === undefined || offsetMinutes < 0) {
-      return createErrorResponse("entryId and offsetMinutes (0 or greater) are required", 400);
+    if (!entryId || offsetMinutes === undefined) {
+      return createErrorResponse("entryId and offsetMinutes are required", 400);
     }
 
     // Get the time entry
@@ -41,86 +41,107 @@ export async function POST(request: NextRequest) {
     const duration = endTime.getTime() - startTime.getTime();
     const offsetMs = offsetMinutes * 60 * 1000;
 
-    // Split point is offsetMinutes from the end (or from now if running)
-    // OR offsetMinutes from the start if isReverse is true
-    const splitPoint = isReverse
-      ? startTime.getTime() + offsetMs
-      : endTime.getTime() - offsetMs;
+    // Check if this is a negative split (extending beyond the end)
+    const isNegativeSplit = offsetMinutes < 0;
 
-    console.log(`[Split API] Original entry:`, {
-      id: entry.id,
-      start: entry.start,
-      stop: entry.stop,
-      duration: entry.duration,
-      durationMs: duration,
-      offsetMinutes,
-      splitPoint: new Date(splitPoint).toISOString(),
-    });
+    let updatedEntry = entry;
+    let splitPoint: number;
 
-    // Update the original entry to end at the split point
-    const newEndTime = new Date(splitPoint);
+    if (isNegativeSplit) {
+      // For negative splits: don't modify original entry, create new entry extending forward
+      // Split point is at the end time (where new entry starts)
+      splitPoint = endTime.getTime();
+      console.log(`[Split API] Negative split - extending beyond end:`, {
+        id: entry.id,
+        start: entry.start,
+        stop: entry.stop,
+        duration: entry.duration,
+        offsetMinutes,
+        newEntryStart: new Date(splitPoint).toISOString(),
+        newEntryEnd: new Date(splitPoint - offsetMs).toISOString(), // offsetMs is negative, so subtract to add
+      });
+    } else {
+      // Normal split: split point is offsetMinutes from the end (or from now if running)
+      // OR offsetMinutes from the start if isReverse is true
+      splitPoint = isReverse
+        ? startTime.getTime() + offsetMs
+        : endTime.getTime() - offsetMs;
 
-    // Build update body with only the fields Toggl expects
-    // Don't include duration - let Toggl calculate it from start/stop times
-    const updateBody: Record<string, string | number | boolean | number[] | undefined> = {
-      description: entry.description,
-      start: entry.start,
-      stop: newEndTime.toISOString(),
-      billable: entry.billable,
-      wid: workspaceId,
-      created_with: entry.created_with || "deeplog",
-    };
-
-    // Only include project_id if it exists and is valid
-    if (entry.project_id) {
-      updateBody.project_id = entry.project_id;
-    }
-
-    // Only include tag_ids if they exist
-    if (entry.tag_ids && entry.tag_ids.length > 0) {
-      updateBody.tag_ids = entry.tag_ids;
-    }
-
-    console.log(`[Split API] Updating original entry:`, {
-      id: entry.id,
-      start: updateBody.start,
-      stop: updateBody.stop,
-      project_id: updateBody.project_id,
-      tag_ids: updateBody.tag_ids,
-      calculatedDurationSeconds: Math.round((newEndTime.getTime() - startTime.getTime()) / 1000),
-    });
-
-    const updateResponse = await fetch(
-      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryId}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify(updateBody),
-      }
-    );
-
-    if (!updateResponse.ok) {
-      const errorText = await updateResponse.text();
-      console.error(`[Split API] Failed to update original entry:`, {
-        status: updateResponse.status,
-        statusText: updateResponse.statusText,
-        error: errorText,
+      console.log(`[Split API] Original entry:`, {
+        id: entry.id,
+        start: entry.start,
+        stop: entry.stop,
+        duration: entry.duration,
+        durationMs: duration,
+        offsetMinutes,
+        splitPoint: new Date(splitPoint).toISOString(),
       });
 
-      if (updateResponse.status === 401) {
-        return createErrorResponse("Session expired - please reauthenticate", 401);
+      // Update the original entry to end at the split point
+      const newEndTime = new Date(splitPoint);
+
+      // Build update body with only the fields Toggl expects
+      // Don't include duration - let Toggl calculate it from start/stop times
+      const updateBody: Record<string, string | number | boolean | number[] | undefined> = {
+        description: entry.description,
+        start: entry.start,
+        stop: newEndTime.toISOString(),
+        billable: entry.billable,
+        wid: workspaceId,
+        created_with: entry.created_with || "deeplog",
+      };
+
+      // Only include project_id if it exists and is valid
+      if (entry.project_id) {
+        updateBody.project_id = entry.project_id;
       }
-      throw new Error(`Failed to update original entry: ${errorText}`);
+
+      // Only include tag_ids if they exist
+      if (entry.tag_ids && entry.tag_ids.length > 0) {
+        updateBody.tag_ids = entry.tag_ids;
+      }
+
+      console.log(`[Split API] Updating original entry:`, {
+        id: entry.id,
+        start: updateBody.start,
+        stop: updateBody.stop,
+        project_id: updateBody.project_id,
+        tag_ids: updateBody.tag_ids,
+        calculatedDurationSeconds: Math.round((newEndTime.getTime() - startTime.getTime()) / 1000),
+      });
+
+      const updateResponse = await fetch(
+        `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${sessionToken}`,
+          },
+          body: JSON.stringify(updateBody),
+        }
+      );
+
+      if (!updateResponse.ok) {
+        const errorText = await updateResponse.text();
+        console.error(`[Split API] Failed to update original entry:`, {
+          status: updateResponse.status,
+          statusText: updateResponse.statusText,
+          error: errorText,
+        });
+
+        if (updateResponse.status === 401) {
+          return createErrorResponse("Session expired - please reauthenticate", 401);
+        }
+        throw new Error(`Failed to update original entry: ${errorText}`);
+      }
+
+      updatedEntry = await updateResponse.json();
+      console.log(`[Split API] Successfully updated original entry:`, updatedEntry);
     }
 
-    const updatedEntry = await updateResponse.json();
-    console.log(`[Split API] Successfully updated original entry:`, updatedEntry);
-
-    // Create the second part (from split point to original end or running)
+    // Create the second part
     const requestBody: Record<string, string | number | boolean | number[] | undefined> = {
       description: entry.description,
       start: new Date(splitPoint).toISOString(),
@@ -129,7 +150,11 @@ export async function POST(request: NextRequest) {
       created_with: "deeplog",
     };
 
-    if (isRunning) {
+    if (isNegativeSplit) {
+      // For negative splits: new entry starts at end time and extends forward
+      const extensionMs = Math.abs(offsetMs); // Make it positive
+      requestBody.stop = new Date(splitPoint + extensionMs).toISOString();
+    } else if (isRunning) {
       // Make the second part a running timer
       requestBody.duration = -1;
     } else {
@@ -149,7 +174,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Split API] Creating second part:`, {
       ...requestBody,
-      calculatedDurationSeconds: Math.round(offsetMs / 1000),
+      calculatedDurationSeconds: Math.round(Math.abs(offsetMs) / 1000),
     });
 
     const createResponse = await fetch(
@@ -187,7 +212,9 @@ export async function POST(request: NextRequest) {
       JSON.stringify({
         updatedEntry,
         createdEntry,
-        message: `Split into 2 parts with ${offsetMinutes} minutes offset from ${isReverse ? "start" : "end"}`,
+        message: isNegativeSplit
+          ? `Created new entry extending ${Math.abs(offsetMinutes)} minutes from the end`
+          : `Split into 2 parts with ${offsetMinutes} minutes offset from ${isReverse ? "start" : "end"}`,
       }),
       {
         status: 200,

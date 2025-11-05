@@ -2299,54 +2299,86 @@ export function TimeTrackerTable({
       const endTime = isRunning ? new Date() : new Date(entryToSplit.stop!);
       const offsetMs = offsetMinutes * 60 * 1000;
 
-      // Split point is offsetMinutes from the end (or from now if running)
-      // OR offsetMinutes from the start if isReverse is true
-      const splitPoint = isReverse
-        ? startTime.getTime() + offsetMs
-        : endTime.getTime() - offsetMs;
+      // Check if this is a negative split (extending beyond the end)
+      const isNegativeSplit = offsetMinutes < 0;
 
       // Generate temp ID for the second entry
       const tempId = -Date.now();
 
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
+      let splitPoint: number;
 
-      // Update the first entry (original, ending at split point)
-      const firstEntry: TimeEntry = {
-        ...entryToSplit,
-        stop: new Date(splitPoint).toISOString(),
-        duration: Math.floor((splitPoint - startTime.getTime()) / 1000),
-      };
-      splitEntries.push(firstEntry);
+      if (isNegativeSplit) {
+        // For negative splits: don't modify original entry, create new entry extending forward
+        // Split point is at the end time (where new entry starts)
+        splitPoint = endTime.getTime();
+        
+        // Create new entry starting at end time and extending forward
+        const extensionMs = Math.abs(offsetMs); // Make it positive
+        const secondEntry: TimeEntry = {
+          ...entryToSplit,
+          id: tempId,
+          tempId: tempId,
+          start: new Date(splitPoint).toISOString(),
+          stop: new Date(splitPoint + extensionMs).toISOString(),
+          duration: Math.floor(extensionMs / 1000),
+        };
+        splitEntries.push(secondEntry);
+      } else {
+        // Normal split: split point is offsetMinutes from the end (or from now if running)
+        // OR offsetMinutes from the start if isReverse is true
+        splitPoint = isReverse
+          ? startTime.getTime() + offsetMs
+          : endTime.getTime() - offsetMs;
 
-      // Create second entry (from split point to original end or running)
-      const secondEntry: TimeEntry = {
-        ...entryToSplit,
-        id: tempId,
-        tempId: tempId,
-        start: new Date(splitPoint).toISOString(),
-        stop: isRunning ? "" : endTime.toISOString(),
-        duration: isRunning
-          ? -1
-          : Math.floor((endTime.getTime() - splitPoint) / 1000),
-      };
-      splitEntries.push(secondEntry);
+        // Update the first entry (original, ending at split point)
+        const firstEntry: TimeEntry = {
+          ...entryToSplit,
+          stop: new Date(splitPoint).toISOString(),
+          duration: Math.floor((splitPoint - startTime.getTime()) / 1000),
+        };
+        splitEntries.push(firstEntry);
+
+        // Create second entry (from split point to original end or running)
+        const secondEntry: TimeEntry = {
+          ...entryToSplit,
+          id: tempId,
+          tempId: tempId,
+          start: new Date(splitPoint).toISOString(),
+          stop: isRunning ? "" : endTime.toISOString(),
+          duration: isRunning
+            ? -1
+            : Math.floor((endTime.getTime() - splitPoint) / 1000),
+        };
+        splitEntries.push(secondEntry);
+      }
 
       // Update UI optimistically
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
 
-        const entriesWithoutOriginal = currentEntries.filter(
-          (entry) => entry.id !== entryToSplit.id
-        );
+        if (isNegativeSplit) {
+          // For negative splits: keep original entry, just add the new entry
+          const updatedEntries = [...currentEntries, ...splitEntries];
+          updatedEntries.sort(
+            (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+          );
+          return updatedEntries;
+        } else {
+          // For normal splits: replace original entry with split entries
+          const entriesWithoutOriginal = currentEntries.filter(
+            (entry) => entry.id !== entryToSplit.id
+          );
 
-        // Insert split entries in the correct position (sorted by start time)
-        const updatedEntries = [...entriesWithoutOriginal, ...splitEntries];
-        updatedEntries.sort(
-          (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
-        );
+          // Insert split entries in the correct position (sorted by start time)
+          const updatedEntries = [...entriesWithoutOriginal, ...splitEntries];
+          updatedEntries.sort(
+            (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+          );
 
-        return updatedEntries;
+          return updatedEntries;
+        }
       });
 
       // Make API call

@@ -41,8 +41,8 @@ export function SplitEntryDialog({
   const handleConfirm = (isReverse = false) => {
     const minutes = parseInt(offsetMinutes);
 
-    if (isNaN(minutes) || minutes < 0) {
-      setError("Please enter a number 0 or greater");
+    if (isNaN(minutes)) {
+      setError("Please enter a valid number");
       return;
     }
 
@@ -68,6 +68,9 @@ export function SplitEntryDialog({
           <DialogDescription>
             <span className="block mt-2">
               How many minutes from the end do you want to split?
+            </span>
+            <span className="block mt-1 text-xs text-muted-foreground">
+              Enter a negative value (e.g., -7) to create a new entry starting at the end time and extending forward
             </span>
             <span className="block mt-1 text-xs text-muted-foreground">
               Press Option+Enter to split from the start instead
@@ -108,7 +111,6 @@ export function SplitEntryDialog({
             <Input
               id="offsetMinutes"
               type="number"
-              min="0"
               value={offsetMinutes}
               onChange={(e) => {
                 setOffsetMinutes(e.target.value);
