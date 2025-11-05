@@ -8,7 +8,12 @@ import {
   type OperationType,
   type QueuedOperation,
 } from "@/lib/sync-queue";
-import { hasActiveToast, toast, triggerUndo } from "@/lib/toast";
+import {
+  clearUndoAction,
+  hasActiveToast,
+  toast,
+  triggerUndo,
+} from "@/lib/toast";
 import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import {
@@ -48,7 +53,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { updateRecentTimersCache, incrementTimerUsage } from "@/lib/recent-timers-cache";
+import {
+  incrementTimerUsage,
+  updateRecentTimersCache,
+} from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
@@ -64,37 +72,35 @@ import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
 
 // Memoized pinned entries to isolate re-renders when visibility toggles
-const MemoizedPinnedEntries = React.memo(
-  function MemoizedPinnedEntries({
-    show,
-    pinnedEntries,
-    onUnpin,
-    onStartTimer,
-    onNewTimer,
-    onNewEntry,
-  }: {
-    show: boolean;
-    pinnedEntries: PinnedEntry[];
-    onUnpin: (id: string) => void;
-    onStartTimer: (entry: PinnedEntry) => void;
-    onNewTimer: () => void;
-    onNewEntry: () => void;
-  }) {
-    // Use inline style for visibility to avoid Tailwind class changes
-    return (
-      <div style={{ display: show ? "block" : "none" }}>
-        <PinnedTimeEntries
-          pinnedEntries={pinnedEntries}
-          onUnpin={onUnpin}
-          onStartTimer={onStartTimer}
-          onNewTimer={onNewTimer}
-          onNewEntry={onNewEntry}
-          showShortcuts={true}
-        />
-      </div>
-    );
-  }
-);
+const MemoizedPinnedEntries = React.memo(function MemoizedPinnedEntries({
+  show,
+  pinnedEntries,
+  onUnpin,
+  onStartTimer,
+  onNewTimer,
+  onNewEntry,
+}: {
+  show: boolean;
+  pinnedEntries: PinnedEntry[];
+  onUnpin: (id: string) => void;
+  onStartTimer: (entry: PinnedEntry) => void;
+  onNewTimer: () => void;
+  onNewEntry: () => void;
+}) {
+  // Use inline style for visibility to avoid Tailwind class changes
+  return (
+    <div style={{ display: show ? "block" : "none" }}>
+      <PinnedTimeEntries
+        pinnedEntries={pinnedEntries}
+        onUnpin={onUnpin}
+        onStartTimer={onStartTimer}
+        onNewTimer={onNewTimer}
+        onNewEntry={onNewEntry}
+        showShortcuts={true}
+      />
+    </div>
+  );
+});
 
 const MemoizedTableRow = React.memo(
   function TableRowComponent({
@@ -195,7 +201,9 @@ const MemoizedTableRow = React.memo(
   }) {
     // Debug: Log when component renders (only rows 1-3)
     if (rowIndex >= 1 && rowIndex <= 3) {
-      console.log(`[TableRow] Rendering row ${rowIndex}, entry ID: ${entry.id}`);
+      console.log(
+        `[TableRow] Rendering row ${rowIndex}, entry ID: ${entry.id}`
+      );
     }
 
     return (
@@ -224,7 +232,11 @@ const MemoizedTableRow = React.memo(
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
                     // Increment usage count
-                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+                    incrementTimerUsage(
+                      selected.description,
+                      selected.projectId,
+                      selected.tagIds
+                    );
 
                     const tagNames = availableTags
                       .filter((tag) => selected.tagIds.includes(tag.id))
@@ -453,7 +465,11 @@ const MemoizedTableRow = React.memo(
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
                     // Increment usage count
-                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+                    incrementTimerUsage(
+                      selected.description,
+                      selected.projectId,
+                      selected.tagIds
+                    );
 
                     // Pass the captured entry.id - helper will resolve to current ID
 
@@ -517,7 +533,11 @@ const MemoizedTableRow = React.memo(
                   availableTags={availableTags}
                   onRecentTimerSelect={(selected) => {
                     // Increment usage count
-                    incrementTimerUsage(selected.description, selected.projectId, selected.tagIds);
+                    incrementTimerUsage(
+                      selected.description,
+                      selected.projectId,
+                      selected.tagIds
+                    );
 
                     // Pass the captured entry.id - helper will resolve to current ID
 
@@ -709,12 +729,15 @@ const MemoizedTableRow = React.memo(
     const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
     // Only require rowIndex to be equal if this row is selected (selection state already checked above)
     // For unselected rows, rowIndex changes don't require rerender since click handlers will be updated via reconciliation
-    const rowIndexChangeRequiresRerender = nextSelectedInThisRow && !rowIndexEqual;
-    
+    const rowIndexChangeRequiresRerender =
+      nextSelectedInThisRow && !rowIndexEqual;
+
     const prevEntryEndEqual = prevProps.prevEntryEnd === nextProps.prevEntryEnd;
-    const nextEntryStartEqual = prevProps.nextEntryStart === nextProps.nextEntryStart;
+    const nextEntryStartEqual =
+      prevProps.nextEntryStart === nextProps.nextEntryStart;
     const isPinnedEqual = prevProps.isPinned === nextProps.isPinned;
-    const isNewlyLoadedEqual = prevProps.isNewlyLoaded === nextProps.isNewlyLoaded;
+    const isNewlyLoadedEqual =
+      prevProps.isNewlyLoaded === nextProps.isNewlyLoaded;
     const onSelectCellEqual = prevProps.onSelectCell === nextProps.onSelectCell;
     const onDescriptionSaveEqual =
       prevProps.onDescriptionSave === nextProps.onDescriptionSave;
@@ -791,41 +814,51 @@ const MemoizedTableRow = React.memo(
       isFullscreenEqual;
 
     // Debug logging (only for rows 1-3)
-    if (!shouldNotRerender && prevProps.rowIndex >= 1 && prevProps.rowIndex <= 3) {
+    if (
+      !shouldNotRerender &&
+      prevProps.rowIndex >= 1 &&
+      prevProps.rowIndex <= 3
+    ) {
       const changedProps = [];
-      if (!entryEqual) changedProps.push('entry');
-      if (rowIndexChangeRequiresRerender) changedProps.push('rowIndex (selected)');
-      if (!prevEntryEndEqual) changedProps.push('prevEntryEnd');
-      if (!nextEntryStartEqual) changedProps.push('nextEntryStart');
-      if (!isPinnedEqual) changedProps.push('isPinned');
-      if (!isNewlyLoadedEqual) changedProps.push('isNewlyLoaded');
-      if (!onSelectCellEqual) changedProps.push('onSelectCell');
-      if (!onDescriptionSaveEqual) changedProps.push('onDescriptionSave');
-      if (!onProjectChangeEqual) changedProps.push('onProjectChange');
-      if (!onTagsChangeEqual) changedProps.push('onTagsChange');
-      if (!onBulkEntryUpdateEqual) changedProps.push('onBulkEntryUpdate');
-      if (!onBulkEntryUpdateByRowIndexEqual) changedProps.push('onBulkEntryUpdateByRowIndex');
-      if (!onTimeChangeEqual) changedProps.push('onTimeChange');
-      if (!onDurationChangeEqual) changedProps.push('onDurationChange');
-      if (!onDeleteEqual) changedProps.push('onDelete');
-      if (!onStartEntryEqual) changedProps.push('onStartEntry');
-      if (!projectsEqual) changedProps.push('projects');
-      if (!availableTagsEqual) changedProps.push('availableTags');
-      if (!onProjectCreatedEqual) changedProps.push('onProjectCreated');
-      if (!onTagCreatedEqual) changedProps.push('onTagCreated');
-      if (!setIsEditingCellEqual) changedProps.push('setIsEditingCell');
-      if (!setIsProjectSelectorOpenEqual) changedProps.push('setIsProjectSelectorOpen');
-      if (!setIsTagSelectorOpenEqual) changedProps.push('setIsTagSelectorOpen');
-      if (!setIsActionsMenuOpenEqual) changedProps.push('setIsActionsMenuOpen');
-      if (!setIsTimeEditorOpenEqual) changedProps.push('setIsTimeEditorOpen');
-      if (!navigateToNextCellEqual) changedProps.push('navigateToNextCell');
-      if (!navigateToPrevCellEqual) changedProps.push('navigateToPrevCell');
-      if (!navigateToNextRowEqual) changedProps.push('navigateToNextRow');
-      if (!syncStatusEqual) changedProps.push('syncStatus');
-      if (!onRetrySyncEqual) changedProps.push('onRetrySync');
-      if (!isFullscreenEqual) changedProps.push('isFullscreen');
+      if (!entryEqual) changedProps.push("entry");
+      if (rowIndexChangeRequiresRerender)
+        changedProps.push("rowIndex (selected)");
+      if (!prevEntryEndEqual) changedProps.push("prevEntryEnd");
+      if (!nextEntryStartEqual) changedProps.push("nextEntryStart");
+      if (!isPinnedEqual) changedProps.push("isPinned");
+      if (!isNewlyLoadedEqual) changedProps.push("isNewlyLoaded");
+      if (!onSelectCellEqual) changedProps.push("onSelectCell");
+      if (!onDescriptionSaveEqual) changedProps.push("onDescriptionSave");
+      if (!onProjectChangeEqual) changedProps.push("onProjectChange");
+      if (!onTagsChangeEqual) changedProps.push("onTagsChange");
+      if (!onBulkEntryUpdateEqual) changedProps.push("onBulkEntryUpdate");
+      if (!onBulkEntryUpdateByRowIndexEqual)
+        changedProps.push("onBulkEntryUpdateByRowIndex");
+      if (!onTimeChangeEqual) changedProps.push("onTimeChange");
+      if (!onDurationChangeEqual) changedProps.push("onDurationChange");
+      if (!onDeleteEqual) changedProps.push("onDelete");
+      if (!onStartEntryEqual) changedProps.push("onStartEntry");
+      if (!projectsEqual) changedProps.push("projects");
+      if (!availableTagsEqual) changedProps.push("availableTags");
+      if (!onProjectCreatedEqual) changedProps.push("onProjectCreated");
+      if (!onTagCreatedEqual) changedProps.push("onTagCreated");
+      if (!setIsEditingCellEqual) changedProps.push("setIsEditingCell");
+      if (!setIsProjectSelectorOpenEqual)
+        changedProps.push("setIsProjectSelectorOpen");
+      if (!setIsTagSelectorOpenEqual) changedProps.push("setIsTagSelectorOpen");
+      if (!setIsActionsMenuOpenEqual) changedProps.push("setIsActionsMenuOpen");
+      if (!setIsTimeEditorOpenEqual) changedProps.push("setIsTimeEditorOpen");
+      if (!navigateToNextCellEqual) changedProps.push("navigateToNextCell");
+      if (!navigateToPrevCellEqual) changedProps.push("navigateToPrevCell");
+      if (!navigateToNextRowEqual) changedProps.push("navigateToNextRow");
+      if (!syncStatusEqual) changedProps.push("syncStatus");
+      if (!onRetrySyncEqual) changedProps.push("onRetrySync");
+      if (!isFullscreenEqual) changedProps.push("isFullscreen");
 
-      console.log(`[TableRow Memo] Row ${prevProps.rowIndex} changed props:`, changedProps);
+      console.log(
+        `[TableRow Memo] Row ${prevProps.rowIndex} changed props:`,
+        changedProps
+      );
     }
 
     return shouldNotRerender;
@@ -875,10 +908,7 @@ export function TimeTrackerTable({
       }
       return entry;
     });
-  }, [
-    pinnedEntries,
-    encryption,
-  ]);
+  }, [pinnedEntries, encryption]);
 
   const [pinDialogOpen, setPinDialogOpen] = React.useState(false);
   const [pinError, setPinError] = React.useState<string>("");
@@ -928,7 +958,9 @@ export function TimeTrackerTable({
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
 
   // Cache decrypted entries by ID to survive array reordering
-  const decryptedEntriesById = React.useRef<Map<number, { entry: TimeEntry, hash: string }>>(new Map());
+  const decryptedEntriesById = React.useRef<
+    Map<number, { entry: TimeEntry; hash: string }>
+  >(new Map());
 
   // Decrypt entries when E2EE is enabled and unlocked
   const decryptedEntries = React.useMemo(() => {
@@ -976,12 +1008,15 @@ export function TimeTrackerTable({
       }
 
       // Cache the decrypted entry with its hash
-      decryptedEntriesById.current.set(entry.id, { entry: decryptedEntry, hash });
+      decryptedEntriesById.current.set(entry.id, {
+        entry: decryptedEntry,
+        hash,
+      });
       return decryptedEntry;
     });
 
     // Clean up cache for entries that no longer exist
-    const currentIds = new Set(timeEntries.map(e => e.id));
+    const currentIds = new Set(timeEntries.map((e) => e.id));
     for (const cachedId of decryptedEntriesById.current.keys()) {
       if (!currentIds.has(cachedId)) {
         decryptedEntriesById.current.delete(cachedId);
@@ -989,10 +1024,7 @@ export function TimeTrackerTable({
     }
 
     return newDecryptedEntries;
-  }, [
-    timeEntries,
-    encryption,
-  ]);
+  }, [timeEntries, encryption]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
@@ -1078,16 +1110,26 @@ export function TimeTrackerTable({
       entryRetryFunctions.current.set(entryId, apiCall);
 
       let toastDismissed = false;
-
-      toast(message, {
+      const state = { apiCallStarted: false };
+      const toastId: string | number | undefined = toast(message, {
         action: {
           label: "Undo (U)",
           onClick: () => {
             toastDismissed = true;
+            // Clear retry function since user is undoing
+            entryRetryFunctions.current.delete(entryId);
             undoAction();
           },
         },
-        duration: toastDuration,
+        duration: Infinity, // Keep toast until API completes
+        onDismiss: () => {
+          // If toast is manually dismissed before API call starts, cancel the operation
+          if (!state.apiCallStarted) {
+            toastDismissed = true;
+            entryRetryFunctions.current.delete(entryId);
+          }
+          // If API call already started, do nothing - let it complete and toast will be dismissed programmatically
+        },
       });
 
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
@@ -1095,6 +1137,12 @@ export function TimeTrackerTable({
         if (toastDismissed) {
           return;
         }
+
+        // Mark that API call has started - toast can no longer be cancelled
+        state.apiCallStarted = true;
+
+        // Disable undo button and U key when API call starts
+        clearUndoAction();
 
         // Mark as syncing
         setEntrySyncStatus((prev) => {
@@ -1113,6 +1161,11 @@ export function TimeTrackerTable({
             return next;
           });
           entryRetryFunctions.current.delete(entryId);
+
+          // Dismiss the toast now that API succeeded
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
 
           // Clear synced status after 2 seconds
           setTimeout(() => {
@@ -1136,6 +1189,10 @@ export function TimeTrackerTable({
             return next;
           });
 
+          // Dismiss the update toast and show error toast
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
           toast.error(errorMessage);
           // Don't call undoAction() - keep the optimistic update visible with error indicator
           // Retry function is already stored in entryRetryFunctions
@@ -2627,7 +2684,7 @@ export function TimeTrackerTable({
       tags: string[] = [],
       stopTime?: string
     ) => {
-      console.log('========== START NEW TIME ENTRY ==========');
+      console.log("========== START NEW TIME ENTRY ==========");
       let originalEntries: TimeEntry[] = [];
       let newEntry: TimeEntry | null = null;
       let runningEntry: TimeEntry | null = null;
@@ -2988,7 +3045,7 @@ export function TimeTrackerTable({
             // Reset the flag when resetting data
             hasLoadedMoreEntriesRef.current = false;
             setHasLoadedMoreEntries(false);
-            
+
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
 
@@ -3779,7 +3836,9 @@ export function TimeTrackerTable({
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
-      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(e.key.toLowerCase());
+      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(
+        e.key.toLowerCase()
+      );
       if (
         isEditingCell ||
         isProjectSelectorOpen ||
@@ -3863,7 +3922,12 @@ export function TimeTrackerTable({
 
       // Only handle plain 'r' for refresh, allow Cmd+R/Ctrl+R for browser refresh
       // Block refresh if there's an active toast to prevent accidental data loss
-      if (e.key.toLowerCase() === "r" && !isInInput && !e.ctrlKey && !e.metaKey) {
+      if (
+        e.key.toLowerCase() === "r" &&
+        !isInInput &&
+        !e.ctrlKey &&
+        !e.metaKey
+      ) {
         const toastActive = hasActiveToast();
         if (toastActive) {
           // Don't refresh while toast is showing
@@ -3886,14 +3950,23 @@ export function TimeTrackerTable({
         return;
       }
 
-      if (e.key.toLowerCase() === "f" && !isInInput && !e.metaKey && !e.ctrlKey) {
+      if (
+        e.key.toLowerCase() === "f" &&
+        !isInInput &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
         e.preventDefault();
         handleFullscreenToggle();
         return;
       }
 
       // Cmd+A: Prevent select all when not in input
-      if (e.key.toLowerCase() === "a" && (e.metaKey || e.ctrlKey) && !isInInput) {
+      if (
+        e.key.toLowerCase() === "a" &&
+        (e.metaKey || e.ctrlKey) &&
+        !isInInput
+      ) {
         e.preventDefault();
         return;
       }
@@ -3943,9 +4016,14 @@ export function TimeTrackerTable({
       }
 
       // Option+Number: Jump to specific column (before isInInput check)
-      if (e.altKey && /^Digit[1-6]$/.test(e.code) && selectedCell && !isInInput) {
+      if (
+        e.altKey &&
+        /^Digit[1-6]$/.test(e.code) &&
+        selectedCell &&
+        !isInInput
+      ) {
         e.preventDefault();
-        const targetColumn = Number.parseInt(e.code.replace('Digit', ''));
+        const targetColumn = Number.parseInt(e.code.replace("Digit", ""));
         setSelectedCell({
           ...selectedCell,
           cellIndex: targetColumn,
@@ -4387,7 +4465,9 @@ export function TimeTrackerTable({
 
             if (rowElement) {
               const rect = rowElement.getBoundingClientRect();
-              const isVisible = rect.bottom >= containerRect.top && rect.top <= containerRect.bottom;
+              const isVisible =
+                rect.bottom >= containerRect.top &&
+                rect.top <= containerRect.bottom;
 
               if (isVisible) {
                 if (isAboveViewport) {
@@ -4519,9 +4599,7 @@ export function TimeTrackerTable({
                 </PopoverContent>
               </Popover>
               <SyncStatusBadge
-                status={
-                  hasLoadedMoreEntries ? "sync_paused" : syncStatus
-                }
+                status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
                 lastSyncTime={lastSyncTime}
                 onReauthenticate={handleReauthenticate}
                 onRetry={() => fetchData()}
@@ -4641,9 +4719,7 @@ export function TimeTrackerTable({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <SyncStatusBadge
-                  status={
-                    hasLoadedMoreEntries ? "sync_paused" : syncStatus
-                  }
+                  status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
                   lastSyncTime={lastSyncTime}
                   onReauthenticate={handleReauthenticate}
                   onRetry={() => fetchData()}

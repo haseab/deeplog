@@ -60,6 +60,11 @@ export const triggerUndo = () => {
   }
 };
 
+// Export function to clear undo action without dismissing toast
+export const clearUndoAction = () => {
+  currentUndoAction = null;
+};
+
 // Export function to check if there's an active toast
 export const hasActiveToast = () => {
   return currentUndoAction !== null;
