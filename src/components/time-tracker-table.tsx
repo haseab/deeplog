@@ -67,6 +67,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
+import { AddTagConfirmationDialog } from "./add-tag-confirmation-dialog";
+import { CombineConfirmationDialog } from "./combine-confirmation-dialog";
 import { CombineEntryDialog } from "./combine-entry-dialog";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { DeleteMultipleConfirmationDialog } from "./delete-multiple-confirmation-dialog";
@@ -75,6 +77,7 @@ import { EncryptionStatus } from "./encryption-status";
 import { ExpandableDescription } from "./expandable-description";
 import { PinDialog } from "./pin-dialog";
 import { ProjectSelector } from "./project-selector";
+import { SetProjectConfirmationDialog } from "./set-project-confirmation-dialog";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
@@ -1008,6 +1011,7 @@ const MemoizedTableHeaderRow = React.memo(
     selectedRows,
     decryptedEntriesLength,
     setSelectedRows,
+    lastSelectionDirectionRef,
   }: MemoizedTableHeaderRowProps) {
     const allSelected =
       decryptedEntriesLength > 0 &&
@@ -1033,6 +1037,7 @@ const MemoizedTableHeaderRow = React.memo(
                 setSelectedRows(allRows);
               } else {
                 setSelectedRows(new Set());
+                lastSelectionDirectionRef.current = null; // Reset direction state
               }
             }}
             aria-label="Select all"
@@ -2032,6 +2037,16 @@ export function TimeTrackerTable({
   const [deleteMultipleDialogOpen, setDeleteMultipleDialogOpen] =
     React.useState(false);
   const [entriesToDelete, setEntriesToDelete] = React.useState<TimeEntry[]>([]);
+  const [addTagDialogOpen, setAddTagDialogOpen] = React.useState(false);
+  const [entriesToTag, setEntriesToTag] = React.useState<TimeEntry[]>([]);
+  const [setProjectDialogOpen, setSetProjectDialogOpen] = React.useState(false);
+  const [entriesToSetProject, setEntriesToSetProject] = React.useState<
+    TimeEntry[]
+  >([]);
+  const [combineMultipleDialogOpen, setCombineMultipleDialogOpen] =
+    React.useState(false);
+  const [entriesToCombineMultiple, setEntriesToCombineMultiple] =
+    React.useState<TimeEntry[]>([]);
   const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
   const splitDialogOpenRef = React.useRef(false);
   const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
@@ -3276,6 +3291,7 @@ export function TimeTrackerTable({
 
       // Clear selected rows
       setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
 
       // Show toast with undo functionality
       let toastDismissed = false;
@@ -3422,6 +3438,475 @@ export function TimeTrackerTable({
       setEntriesToDelete([]);
     }
   }, [entriesToDelete, handleDeleteMultiple]);
+
+  const handleAddTagsToMultiple = React.useCallback(
+    (entriesToUpdate: TimeEntry[], tagsToAdd: string[]) => {
+      if (entriesToUpdate.length === 0 || tagsToAdd.length === 0) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
+
+      // Update entries with new tags immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.map((entry) => {
+          if (entryIdsToUpdate.has(entry.id)) {
+            const currentTags = entry.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
+            return { ...entry, tags: newTags };
+          }
+          return entry;
+        });
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const tagText =
+        tagsToAdd.length === 1
+          ? `tag "${tagsToAdd[0]}"`
+          : `${tagsToAdd.length} tags`;
+      const toastId: string | number | undefined = toast(
+        `Added ${tagText} to ${entriesToUpdate.length} ${
+          entriesToUpdate.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToUpdate.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity,
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all tag update API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const updatePromises = entriesToUpdate.map(async (entry) => {
+          try {
+            const currentTags = entry.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
+
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ tags: newTags }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleAddTagsToMultiple] ❌ UPDATE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to update entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleAddTagsToMultiple] Error updating entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(updatePromises);
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to add tags to some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+    },
+    [timeEntries, toastDuration]
+  );
+
+  const handleAddTagClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToTag = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToTag.length > 0) {
+      setEntriesToTag(entriesToTag);
+      setAddTagDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmAddTags = React.useCallback(
+    (tagNames: string[]) => {
+      if (entriesToTag.length > 0 && tagNames.length > 0) {
+        handleAddTagsToMultiple(entriesToTag, tagNames);
+        setEntriesToTag([]);
+      }
+    },
+    [entriesToTag, handleAddTagsToMultiple]
+  );
+
+  const handleSetProjectToMultiple = React.useCallback(
+    (entriesToUpdate: TimeEntry[], projectName: string) => {
+      if (entriesToUpdate.length === 0 || !projectName) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
+      const project = projects.find((p) => p.name === projectName);
+
+      // Update entries with new project immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.map((entry) => {
+          if (entryIdsToUpdate.has(entry.id)) {
+            return {
+              ...entry,
+              project_name: projectName,
+              project_color: project?.color || entry.project_color,
+              project_id: project?.id || entry.project_id,
+            } as TimeEntry;
+          }
+          return entry;
+        });
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const toastId: string | number | undefined = toast(
+        `Set project "${projectName}" for ${entriesToUpdate.length} ${
+          entriesToUpdate.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToUpdate.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity,
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all project update API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const updatePromises = entriesToUpdate.map(async (entry) => {
+          try {
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ project_name: projectName }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleSetProjectToMultiple] ❌ UPDATE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to update entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleSetProjectToMultiple] Error updating entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(updatePromises);
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to set project for some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+    },
+    [timeEntries, projects, toastDuration]
+  );
+
+  const handleSetProjectClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToSetProject = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToSetProject.length > 0) {
+      setEntriesToSetProject(entriesToSetProject);
+      setSetProjectDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmSetProject = React.useCallback(
+    (projectName: string) => {
+      if (entriesToSetProject.length > 0 && projectName) {
+        handleSetProjectToMultiple(entriesToSetProject, projectName);
+        setEntriesToSetProject([]);
+      }
+    },
+    [entriesToSetProject, handleSetProjectToMultiple]
+  );
+
+  const handleCombineClick = React.useCallback(() => {
+    if (selectedRows.size < 2) {
+      toast.error("Please select at least 2 entries to combine");
+      return;
+    }
+
+    const selectedEntries = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter(Boolean);
+
+    setEntriesToCombineMultiple(selectedEntries);
+    setCombineMultipleDialogOpen(true);
+  }, [selectedRows, decryptedEntries]);
+
+  const handleCombineMultiple = React.useCallback(
+    (entries: TimeEntry[]) => {
+      if (entries.length < 2) {
+        toast.error("Need at least 2 entries to combine");
+        return;
+      }
+
+      // Find the earliest entry (chronologically first - oldest start time)
+      const earliestEntry = entries.reduce((earliest, current) => {
+        return new Date(current.start).getTime() <
+          new Date(earliest.start).getTime()
+          ? current
+          : earliest;
+      });
+
+      // Find the latest entry (chronologically last - newest start time)
+      // and get its stop time (or check if any are running)
+      const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
+
+      // Find the latest stop time among all entries
+      let latestStopTime: string | null = null;
+      if (!hasRunningEntry) {
+        const entriesWithStop = entries.filter((e) => e.stop);
+        if (entriesWithStop.length > 0) {
+          latestStopTime = entriesWithStop.reduce((latest, current) => {
+            return new Date(current.stop!).getTime() >
+              new Date(latest.stop!).getTime()
+              ? current
+              : latest;
+          }).stop!;
+        }
+      }
+
+      // Entries to delete (all except the earliest)
+      const entriesToDelete = entries.filter((e) => e.id !== earliestEntry.id);
+      const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
+
+      // Calculate new stop time and duration for the earliest entry
+      let newStop: string;
+      let newDuration: number;
+
+      if (hasRunningEntry) {
+        // If any entry is running, make the earliest entry running
+        newStop = "";
+        newDuration = -1;
+      } else {
+        // Use the latest stop time
+        newStop = latestStopTime!;
+        const start = new Date(earliestEntry.start);
+        const stop = new Date(newStop);
+        newDuration = Math.floor((stop.getTime() - start.getTime()) / 1000);
+      }
+
+      let originalEntries: TimeEntry[] = [];
+
+      // Optimistically update UI
+      setTimeEntries((currentEntries) => {
+        originalEntries = [...currentEntries];
+
+        // Update earliest entry and remove others
+        const updatedEntries = currentEntries
+          .filter((e) => !entryIdsToDelete.has(e.id))
+          .map((e) => {
+            if (e.id === earliestEntry.id) {
+              return {
+                ...e,
+                stop: newStop,
+                duration: newDuration,
+                syncStatus: "pending" as SyncStatus,
+              };
+            }
+            return e;
+          });
+
+        return updatedEntries;
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null;
+
+      // Show toast with undo functionality
+      const toastId = toast(`Combined ${entries.length} entries`, {
+        description: hasRunningEntry
+          ? "Earliest entry is now running"
+          : `Extended to ${format(new Date(newStop), "h:mm a")}`,
+        duration: 5000,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setTimeEntries(originalEntries);
+            toast.dismiss(toastId);
+            toast("Combine undone", { duration: 2000 });
+          },
+        },
+      });
+
+      const sessionToken = localStorage.getItem("toggl_session_token");
+
+      // Make API calls to delete entries and update the earliest
+      const deletePromises = entriesToDelete.map((entry) =>
+        fetch(`/api/time-entries/${entry.id}`, {
+          method: "DELETE",
+          headers: {
+            "x-toggl-session-token": sessionToken || "",
+          },
+        })
+      );
+
+      const updatePromise = fetch(`/api/time-entries/${earliestEntry.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          stop: newStop || null,
+          duration: newDuration,
+        }),
+      });
+
+      Promise.all([...deletePromises, updatePromise])
+        .then(async (responses) => {
+          const allSuccessful = responses.every((r) => r.ok);
+          if (!allSuccessful) {
+            throw new Error("Some operations failed");
+          }
+
+          // Update the earliest entry with server response
+          const updateResponse = responses[responses.length - 1];
+          const updatedData = await updateResponse.json();
+
+          setTimeEntries((currentEntries) =>
+            currentEntries.map((e) =>
+              e.id === earliestEntry.id
+                ? {
+                    ...e,
+                    stop: updatedData.stop,
+                    duration: updatedData.duration,
+                    syncStatus: undefined,
+                  }
+                : e
+            )
+          );
+
+          toast.dismiss(toastId);
+          toast.success(`Combined ${entries.length} entries successfully`);
+        })
+        .catch((error) => {
+          console.error("Failed to combine entries:", error);
+          toast.error("Failed to combine entries. Reverting changes.");
+          setTimeEntries(originalEntries);
+        });
+    },
+    [lastSelectionDirectionRef]
+  );
+
+  const handleConfirmCombineMultiple = React.useCallback(() => {
+    if (entriesToCombineMultiple.length > 0) {
+      handleCombineMultiple(entriesToCombineMultiple);
+      setEntriesToCombineMultiple([]);
+    }
+  }, [entriesToCombineMultiple, handleCombineMultiple]);
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
     setEntryToSplit(entry);
@@ -5443,6 +5928,7 @@ export function TimeTrackerTable({
           // Clear multi-select if active
           if (selectedRows.size > 0) {
             setSelectedRows(new Set());
+            lastSelectionDirectionRef.current = null; // Reset direction state
             return;
           }
 
@@ -5739,26 +6225,17 @@ export function TimeTrackerTable({
           e.preventDefault();
           if (selectedRows.size > 0) {
             // Add common tag to selected entries
-            toast.error("Add common tag is not yet implemented");
-          }
-          break;
-
-        case "x":
-          e.preventDefault();
-          if (selectedCell) {
-            const entry = decryptedEntries[selectedCell.rowIndex];
-            if (entry) {
-              handleSplit(entry);
-            }
+            handleAddTagClick();
           }
           break;
 
         case "c":
           e.preventDefault();
-          if (selectedRows.size > 0) {
+          if (selectedRows.size > 1) {
             // Combine all selected entries
-            toast.error("Combine all is not yet implemented");
+            handleCombineClick();
           } else if (selectedCell) {
+            // Normal combine (combine with previous entry)
             const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
               handleCombine(entry);
@@ -5789,7 +6266,7 @@ export function TimeTrackerTable({
           e.preventDefault();
           if (selectedRows.size > 0) {
             // Set project for all selected entries
-            toast.error("Set project is not yet implemented");
+            handleSetProjectClick();
           } else if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
             if (entry) {
@@ -5837,6 +6314,8 @@ export function TimeTrackerTable({
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
     handleDeleteSelectedClick,
+    handleAddTagClick,
+    handleSetProjectClick,
     handleStartTimerFromPinned,
     handleSplit,
     handleCombine,
@@ -6166,6 +6645,7 @@ export function TimeTrackerTable({
                   selectedRows={selectedRows}
                   decryptedEntriesLength={decryptedEntries.length}
                   setSelectedRows={setSelectedRows}
+                  lastSelectionDirectionRef={lastSelectionDirectionRef}
                 />
               </TableHeader>
               <TableBody>
@@ -6291,6 +6771,44 @@ export function TimeTrackerTable({
           entries={entriesToDelete}
           onConfirm={handleConfirmDeleteMultiple}
         />
+        <AddTagConfirmationDialog
+          open={addTagDialogOpen}
+          onOpenChange={(open) => {
+            setAddTagDialogOpen(open);
+            if (!open) {
+              setEntriesToTag([]);
+            }
+          }}
+          entries={entriesToTag}
+          availableTags={availableTags}
+          onConfirm={handleConfirmAddTags}
+          onTagCreated={handleTagCreated}
+        />
+        <SetProjectConfirmationDialog
+          open={setProjectDialogOpen}
+          onOpenChange={(open) => {
+            setSetProjectDialogOpen(open);
+            if (!open) {
+              setEntriesToSetProject([]);
+            }
+          }}
+          entries={entriesToSetProject}
+          projects={projects}
+          onConfirm={handleConfirmSetProject}
+          onProjectCreated={handleProjectCreated}
+        />
+
+        <CombineConfirmationDialog
+          open={combineMultipleDialogOpen}
+          onOpenChange={(open) => {
+            setCombineMultipleDialogOpen(open);
+            if (!open) {
+              setEntriesToCombineMultiple([]);
+            }
+          }}
+          entries={entriesToCombineMultiple}
+          onConfirm={handleConfirmCombineMultiple}
+        />
 
         <SplitEntryDialog
           open={splitDialogOpen}
@@ -6366,7 +6884,7 @@ export function TimeTrackerTable({
                 variant="outline"
                 className="w-full justify-between"
                 onClick={() => {
-                  // TODO: Implement add common tag
+                  handleAddTagClick();
                   setMultiSelectMenuOpen(false);
                 }}
               >
@@ -6379,7 +6897,7 @@ export function TimeTrackerTable({
                 variant="outline"
                 className="w-full justify-between"
                 onClick={() => {
-                  // TODO: Implement set project
+                  handleSetProjectClick();
                   setMultiSelectMenuOpen(false);
                 }}
               >
@@ -6392,9 +6910,10 @@ export function TimeTrackerTable({
                 variant="outline"
                 className="w-full justify-between"
                 onClick={() => {
-                  // TODO: Implement combine all
+                  handleCombineClick();
                   setMultiSelectMenuOpen(false);
                 }}
+                disabled={selectedRows.size < 2}
               >
                 <span>📚 Combine All</span>
                 <span className="text-xs text-muted-foreground ml-auto pl-4">

@@ -19,6 +19,7 @@ interface ProjectSelectorProps {
   onProjectChange?: (newProject: string) => void;
   projects: Project[];
   onOpenChange?: (isOpen: boolean) => void;
+  isOpen?: boolean; // Optional controlled open state
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
   onNavigateDown?: () => void;
@@ -38,6 +39,7 @@ export function ProjectSelector({
   onProjectChange,
   projects,
   onOpenChange,
+  isOpen: controlledIsOpen,
   onNavigateNext,
   onNavigatePrev,
   onNavigateDown,
@@ -45,7 +47,7 @@ export function ProjectSelector({
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [internalIsOpen, setInternalIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -53,10 +55,22 @@ export function ProjectSelector({
   const [selectedColor, setSelectedColor] = React.useState(PROJECT_COLORS[0]);
   const [isCreatingProject, setIsCreatingProject] = React.useState(false);
 
+  // Use controlled state if provided, otherwise use internal state
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+  const setIsOpen = (value: boolean | ((prev: boolean) => boolean)) => {
+    const newValue = typeof value === 'function' ? value(isOpen) : value;
+    if (controlledIsOpen === undefined) {
+      setInternalIsOpen(newValue);
+    }
+    onOpenChange?.(newValue);
+  };
+
   // Notify parent of open state changes
   React.useEffect(() => {
-    onOpenChange?.(isOpen);
-  }, [isOpen, onOpenChange]);
+    if (controlledIsOpen === undefined) {
+      onOpenChange?.(internalIsOpen);
+    }
+  }, [internalIsOpen, onOpenChange, controlledIsOpen]);
 
   // Create options array (filtered projects + No Project at bottom)
   const allOptions = React.useMemo(() => {
