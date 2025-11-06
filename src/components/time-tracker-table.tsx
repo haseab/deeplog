@@ -35,6 +35,13 @@ import { SyncStatusBadge } from "./sync-status-badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -109,7 +116,10 @@ const MemoizedTableRow = React.memo(
     prevEntryEnd,
     nextEntryStart,
     selectedCell,
+    selectedRange,
     onSelectCell,
+    onCheckboxToggle,
+    selectedRows,
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
@@ -143,13 +153,18 @@ const MemoizedTableRow = React.memo(
     syncStatus,
     onRetrySync,
     isFullscreen,
+    showCheckboxes,
   }: {
     entry: TimeEntry;
     rowIndex: number;
     prevEntryEnd?: string | null;
     nextEntryStart?: string | null;
     selectedCell: SelectedCell;
+    selectedRange: { start: number; end: number } | null;
+    selectedRows: Set<number>;
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
+    showCheckboxes: boolean;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
@@ -206,6 +221,11 @@ const MemoizedTableRow = React.memo(
       );
     }
 
+    // Check if this row is selected (use Set for accurate non-contiguous selection)
+    const isInSelectedRange = selectedRows.has(rowIndex);
+
+    const shouldShowCheckbox = true; // Always show checkboxes
+
     return (
       <>
         {/* Mobile View */}
@@ -214,165 +234,196 @@ const MemoizedTableRow = React.memo(
           data-entry-id={entry.id}
           className={cn(
             "md:hidden hover:bg-accent/20 border-border/40 group",
-            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
+            isInSelectedRange &&
+              "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
-            <div className="space-y-0 max-w-full overflow-hidden">
-              {/* Description */}
-              <div className="max-w-full overflow-hidden">
-                <ExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
+            <div className="flex items-start gap-2">
+              <div
+                className={cn(
+                  "h-4 w-4 mt-1 flex-shrink-0 cursor-pointer",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === -1 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, -1)}
+              >
+                {shouldShowCheckbox ? (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer"
+                    checked={isInSelectedRange}
+                    onChange={() => {
+                      // onChange doesn't have shiftKey, so we'll handle it via onClick
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCheckboxToggle(rowIndex, e.shiftKey);
+                    }}
+                    aria-label={`Select row ${rowIndex + 1}`}
+                  />
+                ) : null}
               </div>
-
-              {/* Project + Time row */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="shrink-0 max-w-[52%]">
-                  <ProjectSelector
-                    currentProject={entry.project_name || ""}
-                    currentProjectColor={entry.project_color}
-                    onProjectChange={(newProject) =>
-                      onProjectChange(entry.id)(newProject)
-                    }
-                    projects={projects}
-                    onOpenChange={setIsProjectSelectorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigatePrev={navigateToPrevCell}
-                    onNavigateDown={navigateToNextRow}
-                    onProjectCreated={onProjectCreated}
-                    data-testid="project-selector"
-                  />
-                </div>
-                <div className="shrink-0 max-w-[48%]">
-                  <TimeEditor
-                    startTime={entry.start}
-                    endTime={entry.stop}
-                    onSave={(startTime, endTime) =>
-                      onTimeChange(entry.id)(startTime, endTime)
-                    }
-                    onEditingChange={setIsTimeEditorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigateDown={navigateToNextRow}
-                    onNavigatePrev={navigateToPrevCell}
-                    prevEntryEnd={prevEntryEnd}
-                    nextEntryStart={nextEntryStart}
-                    data-testid="time-editor"
-                  />
-                </div>
-              </div>
-
-              {/* Tags + Duration + Actions row */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="shrink-0">
-                  <TagSelector
-                    currentTags={entry.tags || []}
-                    onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                    availableTags={availableTags}
-                    onOpenChange={setIsTagSelectorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigatePrev={navigateToPrevCell}
-                    onTagCreated={onTagCreated}
-                    data-testid="tag-selector"
-                  />
-                </div>
-                <div className="flex items-center shrink-0">
-                  <DurationEditor
-                    duration={entry.duration}
-                    startTime={entry.start}
-                    endTime={entry.stop}
-                    onSave={(newDuration) =>
-                      onDurationChange(entry.id)(newDuration)
-                    }
-                    onSaveWithStartTimeAdjustment={(newDuration) =>
-                      onDurationChangeWithStartTimeAdjustment(entry.id)(
-                        newDuration
-                      )
+              <div className="space-y-0 max-w-full overflow-hidden flex-1">
+                {/* Description */}
+                <div className="max-w-full overflow-hidden">
+                  <ExpandableDescription
+                    description={entry.description || ""}
+                    onSave={(newDescription) =>
+                      onDescriptionSave(entry.id)(newDescription)
                     }
                     onEditingChange={setIsEditingCell}
-                    onNavigateDown={navigateToNextRow}
-                    data-testid="duration-editor"
-                  />
-                  <ActionsMenu
-                    onPin={() => onPin(entry)}
-                    onUnpin={() => onUnpin(entry.id.toString())}
-                    isPinned={isPinned}
-                    onSplit={() => onSplit(entry)}
-                    onCombine={() => onCombine(entry)}
-                    onStartEntry={() => onStartEntry(entry)}
-                    onStopTimer={() => onStopTimer(entry)}
-                    onDelete={() => onDelete(entry)}
-                    onOpenChange={setIsActionsMenuOpen}
                     onNavigateNext={navigateToNextCell}
-                    isSelected={false}
-                    isRunning={!entry.stop || entry.duration === -1}
-                    data-testid="actions-menu"
+                    projects={projects}
+                    availableTags={availableTags}
+                    onRecentTimerSelect={(selected) => {
+                      // Increment usage count
+                      incrementTimerUsage(
+                        selected.description,
+                        selected.projectId,
+                        selected.tagIds
+                      );
+
+                      const tagNames = availableTags
+                        .filter((tag) => selected.tagIds.includes(tag.id))
+                        .map((tag) => tag.name);
+
+                      const project = projects.find(
+                        (p) => p.id === selected.projectId
+                      );
+
+                      onBulkEntryUpdateByRowIndex(entry.id)({
+                        description: selected.description,
+                        projectName: project?.name,
+                        tags: tagNames,
+                      });
+                    }}
+                    data-testid="expandable-description"
                   />
                 </div>
-              </div>
 
-              {/* Sync status indicator */}
-              {syncStatus && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {syncStatus === "pending" && (
-                    <>
-                      <Clock className="w-3 h-3 text-yellow-500" />
-                      <span>Queued</span>
-                    </>
-                  )}
-                  {syncStatus === "syncing" && (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                      <span>Syncing...</span>
-                    </>
-                  )}
-                  {syncStatus === "synced" && (
-                    <>
-                      <Check className="w-3 h-3 text-green-500" />
-                      <span>Synced</span>
-                    </>
-                  )}
-                  {syncStatus === "error" && (
-                    <button
-                      onClick={() => onRetrySync(entry.id)}
-                      className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-                    >
-                      <AlertCircle className="w-3 h-3 text-red-500" />
-                      <span className="text-red-500">Failed - retry</span>
-                    </button>
-                  )}
+                {/* Project + Time row */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="shrink-0 max-w-[52%]">
+                    <ProjectSelector
+                      currentProject={entry.project_name || ""}
+                      currentProjectColor={entry.project_color}
+                      onProjectChange={(newProject) =>
+                        onProjectChange(entry.id)(newProject)
+                      }
+                      projects={projects}
+                      onOpenChange={setIsProjectSelectorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigatePrev={navigateToPrevCell}
+                      onNavigateDown={navigateToNextRow}
+                      onProjectCreated={onProjectCreated}
+                      data-testid="project-selector"
+                    />
+                  </div>
+                  <div className="shrink-0 max-w-[48%]">
+                    <TimeEditor
+                      startTime={entry.start}
+                      endTime={entry.stop}
+                      onSave={(startTime, endTime) =>
+                        onTimeChange(entry.id)(startTime, endTime)
+                      }
+                      onEditingChange={setIsTimeEditorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigateDown={navigateToNextRow}
+                      onNavigatePrev={navigateToPrevCell}
+                      prevEntryEnd={prevEntryEnd}
+                      nextEntryStart={nextEntryStart}
+                      data-testid="time-editor"
+                    />
+                  </div>
                 </div>
-              )}
+
+                {/* Tags + Duration + Actions row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="shrink-0">
+                    <TagSelector
+                      currentTags={entry.tags || []}
+                      onTagsChange={(newTags) =>
+                        onTagsChange(entry.id)(newTags)
+                      }
+                      availableTags={availableTags}
+                      onOpenChange={setIsTagSelectorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigatePrev={navigateToPrevCell}
+                      onTagCreated={onTagCreated}
+                      data-testid="tag-selector"
+                    />
+                  </div>
+                  <div className="flex items-center shrink-0">
+                    <DurationEditor
+                      duration={entry.duration}
+                      startTime={entry.start}
+                      endTime={entry.stop}
+                      onSave={(newDuration) =>
+                        onDurationChange(entry.id)(newDuration)
+                      }
+                      onSaveWithStartTimeAdjustment={(newDuration) =>
+                        onDurationChangeWithStartTimeAdjustment(entry.id)(
+                          newDuration
+                        )
+                      }
+                      onEditingChange={setIsEditingCell}
+                      onNavigateDown={navigateToNextRow}
+                      data-testid="duration-editor"
+                    />
+                    <ActionsMenu
+                      onPin={() => onPin(entry)}
+                      onUnpin={() => onUnpin(entry.id.toString())}
+                      isPinned={isPinned}
+                      onSplit={() => onSplit(entry)}
+                      onCombine={() => onCombine(entry)}
+                      onStartEntry={() => onStartEntry(entry)}
+                      onStopTimer={() => onStopTimer(entry)}
+                      onDelete={() => onDelete(entry)}
+                      onOpenChange={setIsActionsMenuOpen}
+                      onNavigateNext={navigateToNextCell}
+                      isSelected={false}
+                      isRunning={!entry.stop || entry.duration === -1}
+                      data-testid="actions-menu"
+                    />
+                  </div>
+                </div>
+
+                {/* Sync status indicator */}
+                {syncStatus && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {syncStatus === "pending" && (
+                      <>
+                        <Clock className="w-3 h-3 text-yellow-500" />
+                        <span>Queued</span>
+                      </>
+                    )}
+                    {syncStatus === "syncing" && (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                        <span>Syncing...</span>
+                      </>
+                    )}
+                    {syncStatus === "synced" && (
+                      <>
+                        <Check className="w-3 h-3 text-green-500" />
+                        <span>Synced</span>
+                      </>
+                    )}
+                    {syncStatus === "error" && (
+                      <button
+                        onClick={() => onRetrySync(entry.id)}
+                        className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                      >
+                        <AlertCircle className="w-3 h-3 text-red-500" />
+                        <span className="text-red-500">Failed - retry</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </TableCell>
         </TableRow>
@@ -383,7 +434,9 @@ const MemoizedTableRow = React.memo(
           data-entry-id={entry.id}
           className={cn(
             "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
-            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
+            isInSelectedRange &&
+              "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
@@ -406,6 +459,33 @@ const MemoizedTableRow = React.memo(
               >
                 <AlertCircle className="w-4 h-4 text-red-500" />
               </button>
+            )}
+          </TableCell>
+          <TableCell
+            className={cn(
+              "px-2 w-10 cursor-pointer",
+              selectedCell?.rowIndex === rowIndex &&
+                selectedCell?.cellIndex === -1 &&
+                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+            )}
+            onClick={() => onSelectCell(rowIndex, -1)}
+          >
+            {shouldShowCheckbox ? (
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer"
+                checked={isInSelectedRange}
+                onChange={() => {
+                  // onChange doesn't have shiftKey, so we'll handle it via onClick
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCheckboxToggle(rowIndex, e.shiftKey);
+                }}
+                aria-label={`Select row ${rowIndex + 1}`}
+              />
+            ) : (
+              <div className="h-4 w-4" />
             )}
           </TableCell>
           <TableCell
@@ -690,8 +770,17 @@ const MemoizedTableRow = React.memo(
     const nextSelectedInThisRow =
       nextProps.selectedCell?.rowIndex === nextProps.rowIndex;
 
+    // Check if this row is selected (using Set for non-contiguous selection)
+    const prevIsSelected = prevProps.selectedRows.has(prevProps.rowIndex);
+    const nextIsSelected = nextProps.selectedRows.has(nextProps.rowIndex);
+
     // If this row's selection state changed (selected/unselected), we need to rerender
     if (prevSelectedInThisRow !== nextSelectedInThisRow) {
+      return false; // Rerender
+    }
+
+    // If this row's checkbox selection state changed, we need to rerender
+    if (prevIsSelected !== nextIsSelected) {
       return false; // Rerender
     }
 
@@ -779,6 +868,8 @@ const MemoizedTableRow = React.memo(
     const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
     const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
     const isFullscreenEqual = prevProps.isFullscreen === nextProps.isFullscreen;
+    const onCheckboxToggleEqual =
+      prevProps.onCheckboxToggle === nextProps.onCheckboxToggle;
 
     const shouldNotRerender =
       entryEqual &&
@@ -811,7 +902,8 @@ const MemoizedTableRow = React.memo(
       navigateToNextRowEqual &&
       syncStatusEqual &&
       onRetrySyncEqual &&
-      isFullscreenEqual;
+      isFullscreenEqual &&
+      onCheckboxToggleEqual;
 
     // Debug logging (only for rows 1-3)
     if (
@@ -1039,6 +1131,35 @@ export function TimeTrackerTable({
   // State version for reactive badge updates
   const [hasLoadedMoreEntries, setHasLoadedMoreEntries] = React.useState(false);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  // Support non-contiguous multi-select using a Set of row indices
+  const [selectedRows, setSelectedRows] = React.useState<Set<number>>(
+    new Set()
+  );
+  const selectedRowsRef = React.useRef(selectedRows);
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    selectedRowsRef.current = selectedRows;
+  }, [selectedRows]);
+
+  // Track last selection direction for toggle behavior
+  const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
+
+  // Derive selectedRange from selectedRows for backwards compatibility with keyboard shortcuts and UI
+  const selectedRange = React.useMemo(() => {
+    if (selectedRows.size === 0) return null;
+    const sortedRows = Array.from(selectedRows).sort((a, b) => a - b);
+    // Check if it's a contiguous range
+    const isContiguous = sortedRows.every(
+      (row, idx) => idx === 0 || row === sortedRows[idx - 1] + 1
+    );
+    if (isContiguous) {
+      return { start: sortedRows[0], end: sortedRows[sortedRows.length - 1] };
+    }
+    // If non-contiguous, still return a range covering min to max (for display purposes)
+    return { start: sortedRows[0], end: sortedRows[sortedRows.length - 1] };
+  }, [selectedRows]);
+  const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
+  const [showCheckboxes, setShowCheckboxes] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
 
   const [isEditingCell, setIsEditingCell] = React.useState(false);
@@ -2313,7 +2434,7 @@ export function TimeTrackerTable({
         // For negative splits: don't modify original entry, create new entry extending forward
         // Split point is at the end time (where new entry starts)
         splitPoint = endTime.getTime();
-        
+
         // Create new entry starting at end time and extending forward
         const extensionMs = Math.abs(offsetMs); // Make it positive
         const secondEntry: TimeEntry = {
@@ -2786,9 +2907,9 @@ export function TimeTrackerTable({
         return [newEntry, ...updatedEntries];
       });
 
-      // Select the new entry for immediate editing (cellIndex 1 to skip date column)
+      // Select the new entry for immediate editing (start at checkbox)
       setTimeout(() => {
-        setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+        setSelectedCell({ rowIndex: 0, cellIndex: -1 });
       }, 50);
 
       // Use the same toast + delayed API pattern as updates for consistency
@@ -3374,7 +3495,8 @@ export function TimeTrackerTable({
       setSelectedCell((currentSelectedCell) => {
         if (!currentSelectedCell) return null;
 
-        const maxCellIndex = 6; // 7 columns: date, project, tags, description, time, duration, actions
+        const maxCellIndex = 6; // 7 columns: checkbox(-1), date(0), project(1), tags(2), description(3), time(4), duration(5), actions(6)
+        const minCellIndex = -1; // Checkbox column
         const currentEntriesLength = timeEntriesRef.current.length;
 
         if (currentSelectedCell.cellIndex < maxCellIndex) {
@@ -3398,14 +3520,13 @@ export function TimeTrackerTable({
             cellIndex: nextCellIndex,
           };
         } else if (wrapToSameRow) {
-          // When Option+Tab is pressed at the end, wrap to cellIndex 1 of same row
-          shouldAutoOpen = true;
+          // When Option+Tab is pressed at the end, wrap to checkbox (-1) of same row
           targetRowIndex = currentSelectedCell.rowIndex;
-          targetCellIndex = 1;
-          return { rowIndex: currentSelectedCell.rowIndex, cellIndex: 1 };
+          targetCellIndex = -1;
+          return { rowIndex: currentSelectedCell.rowIndex, cellIndex: -1 };
         } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
-          // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
-          return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
+          // When wrapping to next row, start at checkbox (-1)
+          return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: -1 };
         }
 
         return currentSelectedCell; // No change if at the end
@@ -3423,16 +3544,15 @@ export function TimeTrackerTable({
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      // cellIndex 0 = date (not editable, skip it)
-      // cellIndex 1 = first editable cell
-      if (currentSelectedCell.cellIndex > 1) {
+      // cellIndex -1 = checkbox, 0 = date, 1+ = editable cells
+      if (currentSelectedCell.cellIndex > -1) {
         const prevCellIndex = currentSelectedCell.cellIndex - 1;
         return {
           ...currentSelectedCell,
           cellIndex: prevCellIndex,
         };
-      } else if (currentSelectedCell.cellIndex === 1) {
-        // At first editable cell, wrap to previous row's last cell
+      } else if (currentSelectedCell.cellIndex === -1) {
+        // At checkbox, wrap to previous row's last cell
         if (currentSelectedCell.rowIndex > 0) {
           return {
             rowIndex: currentSelectedCell.rowIndex - 1,
@@ -3852,6 +3972,75 @@ export function TimeTrackerTable({
     []
   );
 
+  // Handle checkbox toggle for multi-select
+  // Without shift: toggle individual row (add/remove from set)
+  // With shift: extend selection to create contiguous range
+  const handleCheckboxToggle = React.useCallback(
+    (rowIndex: number, shiftKey: boolean = false) => {
+      const currentRows = selectedRowsRef.current;
+      const isSelected = currentRows.has(rowIndex);
+
+      if (shiftKey && currentRows.size > 0) {
+        // Shift+click: create contiguous range from last selected to this row
+        const sortedRows = Array.from(currentRows).sort((a, b) => a - b);
+        const lastSelected = sortedRows[sortedRows.length - 1];
+        const start = Math.min(lastSelected, rowIndex);
+        const end = Math.max(lastSelected, rowIndex);
+
+        const newRows = new Set(currentRows);
+        for (let i = start; i <= end; i++) {
+          newRows.add(i);
+        }
+        setSelectedRows(newRows);
+      } else {
+        // Normal click: toggle individual row
+        const newRows = new Set(currentRows);
+        if (isSelected) {
+          newRows.delete(rowIndex);
+        } else {
+          newRows.add(rowIndex);
+        }
+        setSelectedRows(newRows);
+      }
+    },
+    [] // No dependencies - uses ref to read current value
+  );
+
+  // Select all rows
+  const handleSelectAll = React.useCallback(() => {
+    if (decryptedEntries.length > 0) {
+      const allRows = new Set<number>();
+      for (let i = 0; i < decryptedEntries.length; i++) {
+        allRows.add(i);
+      }
+      setSelectedRows(allRows);
+    }
+  }, [decryptedEntries.length]);
+
+  // Select all the way up from current position
+  const handleSelectAllUp = React.useCallback(() => {
+    const currentRow = selectedCell?.rowIndex ?? 0;
+    if (decryptedEntries.length > 0) {
+      const rows = new Set<number>();
+      for (let i = 0; i <= currentRow; i++) {
+        rows.add(i);
+      }
+      setSelectedRows(rows);
+    }
+  }, [selectedCell, decryptedEntries.length]);
+
+  // Select all the way down from current position
+  const handleSelectAllDown = React.useCallback(() => {
+    const currentRow = selectedCell?.rowIndex ?? 0;
+    if (decryptedEntries.length > 0) {
+      const rows = new Set<number>();
+      for (let i = currentRow; i < decryptedEntries.length; i++) {
+        rows.add(i);
+      }
+      setSelectedRows(rows);
+    }
+  }, [selectedCell, decryptedEntries.length]);
+
   // Keyboard navigation
   const awaitingPinnedNumberRef = React.useRef(false);
   const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -4073,6 +4262,7 @@ export function TimeTrackerTable({
         deleteDialogOpen ||
         splitDialogOpen ||
         combineDialogOpen ||
+        multiSelectMenuOpen ||
         deleteDialogOpenRef.current ||
         splitDialogOpenRef.current ||
         combineDialogOpenRef.current;
@@ -4083,6 +4273,141 @@ export function TimeTrackerTable({
 
       // Normalize key to lowercase for case-insensitive comparison
       const key = e.key.toLowerCase();
+
+      // Helper function for Shift+Down selection (used by arrowdown and j)
+      const handleShiftDownSelection = () => {
+        const currentRow = selectedCell?.rowIndex ?? 0;
+        const maxRow = keyboardNavigationData.currentEntriesLength - 1;
+
+        setSelectedRows((prevRows) => {
+          const newRows = new Set(prevRows);
+          const lastDirection = lastSelectionDirectionRef.current;
+
+          console.log("🔽 SHIFT+DOWN:");
+          console.log("  Current Row:", currentRow);
+          console.log("  Last Direction:", lastDirection);
+          console.log(
+            "  Rows BEFORE:",
+            Array.from(prevRows).sort((a, b) => a - b)
+          );
+
+          // If no selection, start with current row
+          if (newRows.size === 0 && selectedCell) {
+            console.log("  🆕 No selection, adding current row:", currentRow);
+            newRows.add(currentRow);
+          }
+
+          // Move down and add next row
+          if (currentRow < maxRow) {
+            const nextRow = currentRow + 1;
+
+            // If direction changed from up to down, deselect the current row (unwinding)
+            if (lastDirection === "up") {
+              console.log(
+                "  ⚠️ Direction changed! Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            // If continuing down and next row is already selected, deselect current row
+            if (lastDirection === "down" && newRows.has(nextRow)) {
+              console.log(
+                "  ↩️ Continuing down, next row already selected. Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            console.log("  ➕ Adding next row:", nextRow);
+            newRows.add(nextRow);
+            // Update selectedCell to the new row
+            setSelectedCell({
+              rowIndex: nextRow,
+              cellIndex: selectedCell?.cellIndex ?? -1,
+            });
+          }
+
+          // Update direction
+          if (currentRow < maxRow) {
+            lastSelectionDirectionRef.current = "down";
+          }
+
+          console.log(
+            "  Rows AFTER:",
+            Array.from(newRows).sort((a, b) => a - b)
+          );
+          console.log("  New Direction:", lastSelectionDirectionRef.current);
+          return newRows;
+        });
+      };
+
+      // Helper function for Shift+Up selection (used by arrowup and k)
+      const handleShiftUpSelection = () => {
+        const currentRow = selectedCell?.rowIndex ?? 0;
+
+        setSelectedRows((prevRows) => {
+          const newRows = new Set(prevRows);
+          const lastDirection = lastSelectionDirectionRef.current;
+
+          console.log("🔼 SHIFT+UP:");
+          console.log("  Current Row:", currentRow);
+          console.log("  Last Direction:", lastDirection);
+          console.log(
+            "  Rows BEFORE:",
+            Array.from(prevRows).sort((a, b) => a - b)
+          );
+
+          // If no selection, start with current row
+          if (newRows.size === 0 && selectedCell) {
+            console.log("  🆕 No selection, adding current row:", currentRow);
+            newRows.add(currentRow);
+          }
+
+          // Move up and add next row
+          if (currentRow > 0) {
+            const nextRow = currentRow - 1;
+
+            // If direction changed from down to up, deselect the current row (unwinding)
+            if (lastDirection === "down") {
+              console.log(
+                "  ⚠️ Direction changed! Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            // If continuing up and next row is already selected, deselect current row
+            if (lastDirection === "up" && newRows.has(nextRow)) {
+              console.log(
+                "  ↩️ Continuing up, next row already selected. Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            console.log("  ➕ Adding next row:", nextRow);
+            newRows.add(nextRow);
+            // Update selectedCell to the new row
+            setSelectedCell({
+              rowIndex: nextRow,
+              cellIndex: selectedCell?.cellIndex ?? -1,
+            });
+          }
+
+          // Update direction
+          if (currentRow > 0) {
+            lastSelectionDirectionRef.current = "up";
+          }
+
+          console.log(
+            "  Rows AFTER:",
+            Array.from(newRows).sort((a, b) => a - b)
+          );
+          console.log("  New Direction:", lastSelectionDirectionRef.current);
+          return newRows;
+        });
+      };
 
       switch (key) {
         case "escape":
@@ -4095,6 +4420,12 @@ export function TimeTrackerTable({
             setShowPinnedEntriesValue(false);
             if (pinnedTimeoutIdRef.current)
               clearTimeout(pinnedTimeoutIdRef.current);
+            return;
+          }
+
+          // Clear multi-select if active
+          if (selectedRows.size > 0) {
+            setSelectedRows(new Set());
             return;
           }
 
@@ -4111,10 +4442,15 @@ export function TimeTrackerTable({
         case "enter":
           e.preventDefault();
           if (selectedCell) {
-            activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
+            // If checkbox is selected, toggle it
+            if (selectedCell.cellIndex === -1) {
+              handleCheckboxToggle(selectedCell.rowIndex, e.shiftKey);
+            } else {
+              activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
+            }
           } else if (keyboardNavigationData.currentEntriesLength > 0) {
-            // If no cell selected, select first cell of first row
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            // If no cell selected, select checkbox of first row
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           }
           break;
 
@@ -4124,16 +4460,16 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (selectedCell) {
             if (e.shiftKey) {
               // Shift+Tab or Option+Shift+Tab: Move backward
-              if (selectedCell.cellIndex > 1) {
+              if (selectedCell.cellIndex > -1) {
                 setSelectedCell({
                   ...selectedCell,
                   cellIndex: selectedCell.cellIndex - 1,
                 });
-              } else if (selectedCell.cellIndex === 1) {
+              } else if (selectedCell.cellIndex === -1) {
                 // At first editable cell
                 if (e.altKey) {
                   // Option+Shift+Tab: wrap to last cell of same row
@@ -4163,12 +4499,23 @@ export function TimeTrackerTable({
           break;
 
         case "arrowdown":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            // Cmd+Shift+Down: Select all the way down
+            e.preventDefault();
+            handleSelectAllDown();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftDownSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.rowIndex <
@@ -4182,6 +4529,16 @@ export function TimeTrackerTable({
           break;
 
         case "arrowup":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllUp();
+            break;
+          }
+          if (e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            handleShiftUpSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
@@ -4189,7 +4546,7 @@ export function TimeTrackerTable({
           ) {
             setSelectedCell({
               rowIndex: keyboardNavigationData.currentEntriesLength - 1,
-              cellIndex: 0,
+              cellIndex: -1,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
             setSelectedCell({
@@ -4200,6 +4557,21 @@ export function TimeTrackerTable({
           break;
 
         case "k":
+          if ((e.metaKey || e.ctrlKey) && selectedRows.size > 0) {
+            e.preventDefault();
+            setMultiSelectMenuOpen(true);
+            break;
+          }
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllUp();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftUpSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
@@ -4207,7 +4579,7 @@ export function TimeTrackerTable({
           ) {
             setSelectedCell({
               rowIndex: keyboardNavigationData.currentEntriesLength - 1,
-              cellIndex: 0,
+              cellIndex: -1,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
             setSelectedCell({
@@ -4218,12 +4590,22 @@ export function TimeTrackerTable({
           break;
 
         case "j":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllDown();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftDownSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.rowIndex <
@@ -4238,8 +4620,7 @@ export function TimeTrackerTable({
 
         case "arrowleft":
           e.preventDefault();
-          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
-          if (selectedCell && selectedCell.cellIndex > 1) {
+          if (selectedCell && selectedCell.cellIndex > -1) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex - 1,
@@ -4249,8 +4630,7 @@ export function TimeTrackerTable({
 
         case "l":
           e.preventDefault();
-          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
-          if (selectedCell && selectedCell.cellIndex > 1) {
+          if (selectedCell && selectedCell.cellIndex > -1) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex - 1,
@@ -4264,8 +4644,8 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            // Start at cellIndex 1 (skip date column at 0)
-            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+            // Start at checkbox (-1)
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
@@ -4283,8 +4663,8 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            // Start at cellIndex 1 (skip date column at 0)
-            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+            // Start at checkbox (-1)
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
@@ -4299,9 +4679,9 @@ export function TimeTrackerTable({
         case "home":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (selectedCell) {
-            setSelectedCell({ ...selectedCell, cellIndex: 0 });
+            setSelectedCell({ ...selectedCell, cellIndex: -1 });
           }
           break;
 
@@ -4317,6 +4697,14 @@ export function TimeTrackerTable({
               ...selectedCell,
               cellIndex: keyboardNavigationData.maxCellIndex,
             });
+          }
+          break;
+
+        case "a":
+          if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            handleSelectAll();
+            break;
           }
           break;
 
@@ -4419,6 +4807,13 @@ export function TimeTrackerTable({
     handleFullscreenToggle,
     handlePinEntry,
     handleUnpinEntry,
+    handleSelectAll,
+    handleSelectAllUp,
+    handleSelectAllDown,
+    handleCheckboxToggle,
+    multiSelectMenuOpen,
+    selectedRange,
+    setShowPinnedEntriesValue,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -4635,7 +5030,7 @@ export function TimeTrackerTable({
           "space-y-6 overflow-auto overscroll-none",
           isFullscreen
             ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
-            : "h-[calc(100vh-8rem)] border rounded-xl p-6"
+            : "h-[calc(100vh-8rem)] border rounded-xl p-6 pt-0"
         )}
         ref={tableRef}
       >
@@ -4647,9 +5042,31 @@ export function TimeTrackerTable({
           onNewTimer={handlePinnedNewTimer}
           onNewEntry={handlePinnedNewEntry}
         />
+        {selectedRows.size > 0 && (
+          <div
+            className={cn(
+              "sticky top-0 z-10 flex justify-center items-center gap-4 mb-4 py-2 bg-background/95 backdrop-blur-sm border-b",
+              isFullscreen ? "-mx-4 px-4" : "-mx-6 px-6"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedRows.size} selected
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMultiSelectMenuOpen(true)}
+                className="h-8"
+              >
+                Actions (⌘K)
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="mb-4">
           {/* Desktop layout - single row */}
-          <div className="hidden md:flex items-center justify-between">
+          <div className="hidden md:flex items-center justify-between mt-6">
             <div className="flex items-center space-x-3">
               <Popover>
                 <PopoverTrigger asChild>
@@ -4910,6 +5327,34 @@ export function TimeTrackerTable({
               <TableHeader>
                 <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
                   <TableHead className="px-2 w-8"></TableHead>
+                  <TableHead className="px-2 w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer"
+                      checked={
+                        !!(
+                          selectedRange &&
+                          decryptedEntries.length > 0 &&
+                          Math.min(selectedRange.start, selectedRange.end) ===
+                            0 &&
+                          Math.max(selectedRange.start, selectedRange.end) ===
+                            decryptedEntries.length - 1
+                        )
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const allRows = new Set<number>();
+                          for (let i = 0; i < decryptedEntries.length; i++) {
+                            allRows.add(i);
+                          }
+                          setSelectedRows(allRows);
+                        } else {
+                          setSelectedRows(new Set());
+                        }
+                      }}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
                   <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
                     Date
                   </TableHead>
@@ -4968,7 +5413,11 @@ export function TimeTrackerTable({
                       prevEntryEnd={prevEntry?.stop || null}
                       nextEntryStart={nextEntry?.start || null}
                       selectedCell={selectedCell}
+                      selectedRange={selectedRange}
+                      selectedRows={selectedRows}
                       onSelectCell={handleSelectCell}
+                      onCheckboxToggle={handleCheckboxToggle}
+                      showCheckboxes={showCheckboxes}
                       onDescriptionSave={handleDescriptionSave}
                       onProjectChange={handleProjectChange}
                       onTagsChange={handleTagsChange}
@@ -5038,7 +5487,7 @@ export function TimeTrackerTable({
           </div>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex justify-center items-center gap-4">
           <p className="text-sm text-muted-foreground">
             Showing {timeEntries.length} entries
             {hasMore && " (click to load more)"}
@@ -5099,6 +5548,67 @@ export function TimeTrackerTable({
               : undefined
           }
         />
+
+        {/* Multi-select menu dialog */}
+        <Dialog
+          open={multiSelectMenuOpen}
+          onOpenChange={setMultiSelectMenuOpen}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Multi-Select Actions</DialogTitle>
+              <DialogDescription>
+                {selectedRange
+                  ? `${
+                      Math.abs(selectedRange.end - selectedRange.start) + 1
+                    } entries selected`
+                  : "No entries selected"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  // TODO: Implement delete selected
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                🗑️ Delete Selected
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  // TODO: Implement add common tag
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                🏷️ Add Common Tag
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  // TODO: Implement set project
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                📕 Set Project
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  // TODO: Implement combine all
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                📚 Combine All
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );
