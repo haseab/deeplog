@@ -4199,6 +4199,43 @@ export function TimeTrackerTable({
           }
           break;
 
+        case "k":
+          e.preventDefault();
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntriesLength > 0
+          ) {
+            setSelectedCell({
+              rowIndex: keyboardNavigationData.currentEntriesLength - 1,
+              cellIndex: 0,
+            });
+          } else if (selectedCell && selectedCell.rowIndex > 0) {
+            setSelectedCell({
+              ...selectedCell,
+              rowIndex: selectedCell.rowIndex - 1,
+            });
+          }
+          break;
+
+        case "j":
+          e.preventDefault();
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntriesLength > 0
+          ) {
+            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+          } else if (
+            selectedCell &&
+            selectedCell.rowIndex <
+              keyboardNavigationData.currentEntriesLength - 1
+          ) {
+            setSelectedCell({
+              ...selectedCell,
+              rowIndex: selectedCell.rowIndex + 1,
+            });
+          }
+          break;
+
         case "arrowleft":
           e.preventDefault();
           // cellIndex 0 is date column (not editable), so stop at cellIndex 1
