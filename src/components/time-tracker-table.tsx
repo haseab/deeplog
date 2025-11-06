@@ -147,6 +147,962 @@ const MemoizedActionsMenu = React.memo(ActionsMenu, (prevProps, nextProps) => {
   );
 });
 
+// Memoized TableCell wrappers to prevent cell re-renders when only selectedCell changes for other cells
+const MemoizedProjectCell = React.memo(
+  function MemoizedProjectCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onProjectChange,
+    projects,
+    setIsProjectSelectorOpen,
+    navigateToNextCell,
+    navigateToPrevCell,
+    navigateToNextRow,
+    onProjectCreated,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    isFullscreen: boolean;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onProjectChange: (entryId: number) => (newProject: string) => void;
+    projects: Project[];
+    setIsProjectSelectorOpen: (open: boolean) => void;
+    navigateToNextCell: () => void;
+    navigateToPrevCell: () => void;
+    navigateToNextRow: () => void;
+    onProjectCreated: (project: Project) => void;
+  }) {
+    const cellIndex = isFullscreen ? 1 : 2;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedProjectSelector
+          currentProject={entry.project_name || ""}
+          currentProjectColor={entry.project_color}
+          onProjectChange={(newProject) =>
+            onProjectChange(entry.id)(newProject)
+          }
+          projects={projects}
+          onOpenChange={setIsProjectSelectorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigatePrev={navigateToPrevCell}
+          onNavigateDown={navigateToNextRow}
+          onProjectCreated={onProjectCreated}
+          data-testid="project-selector"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const prevCellIndex = prevProps.isFullscreen ? 1 : 2;
+    const nextCellIndex = nextProps.isFullscreen ? 1 : 2;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === prevCellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === nextCellIndex;
+
+    return (
+      prevProps.entry.project_name === nextProps.entry.project_name &&
+      prevProps.entry.project_color === nextProps.entry.project_color &&
+      prevProps.projects === nextProps.projects &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedTagCell = React.memo(
+  function MemoizedTagCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onTagsChange,
+    availableTags,
+    setIsTagSelectorOpen,
+    navigateToNextCell,
+    navigateToPrevCell,
+    onTagCreated,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    isFullscreen: boolean;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onTagsChange: (entryId: number) => (newTags: string[]) => void;
+    availableTags: Tag[];
+    setIsTagSelectorOpen: (open: boolean) => void;
+    navigateToNextCell: () => void;
+    navigateToPrevCell: () => void;
+    onTagCreated: (tag: Tag) => void;
+  }) {
+    const cellIndex = isFullscreen ? 3 : 3;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedTagSelector
+          currentTags={entry.tags || []}
+          onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+          availableTags={availableTags}
+          onOpenChange={setIsTagSelectorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigatePrev={navigateToPrevCell}
+          onTagCreated={onTagCreated}
+          data-testid="tag-selector"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = 3;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    const tagsEqual =
+      prevProps.entry.tags.length === nextProps.entry.tags.length &&
+      prevProps.entry.tags.every(
+        (tag: string, i: number) => tag === nextProps.entry.tags[i]
+      );
+
+    return (
+      tagsEqual &&
+      prevProps.availableTags === nextProps.availableTags &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedDescriptionCell = React.memo(
+  function MemoizedDescriptionCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onDescriptionSave,
+    setIsEditingCell,
+    navigateToNextCell,
+    projects,
+    availableTags,
+    onBulkEntryUpdateByRowIndex,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    isFullscreen: boolean;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onDescriptionSave: (entryId: number) => (newDescription: string) => void;
+    setIsEditingCell: (editing: boolean) => void;
+    navigateToNextCell: () => void;
+    projects: Project[];
+    availableTags: Tag[];
+    onBulkEntryUpdateByRowIndex: (
+      capturedId: number
+    ) => (updates: {
+      description?: string;
+      projectName?: string;
+      tags?: string[];
+    }) => void;
+  }) {
+    const cellIndex = isFullscreen ? 2 : 1;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-2 pl-2 cursor-pointer description-cell",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedExpandableDescription
+          description={entry.description || ""}
+          onSave={(newDescription) =>
+            onDescriptionSave(entry.id)(newDescription)
+          }
+          onEditingChange={setIsEditingCell}
+          onNavigateNext={navigateToNextCell}
+          projects={projects}
+          availableTags={availableTags}
+          onRecentTimerSelect={(selected) => {
+            incrementTimerUsage(
+              selected.description,
+              selected.projectId,
+              selected.tagIds
+            );
+
+            const tagNames = availableTags
+              .filter((tag) => selected.tagIds.includes(tag.id))
+              .map((tag) => tag.name);
+
+            const project = projects.find((p) => p.id === selected.projectId);
+
+            onBulkEntryUpdateByRowIndex(entry.id)({
+              description: selected.description,
+              projectName: project?.name,
+              tags: tagNames,
+            });
+          }}
+          data-testid="expandable-description"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const prevCellIndex = prevProps.isFullscreen ? 2 : 1;
+    const nextCellIndex = nextProps.isFullscreen ? 2 : 1;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === prevCellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === nextCellIndex;
+
+    return (
+      prevProps.entry.description === nextProps.entry.description &&
+      prevProps.projects === nextProps.projects &&
+      prevProps.availableTags === nextProps.availableTags &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedCheckboxCell = React.memo(
+  function MemoizedCheckboxCell({
+    rowIndex,
+    selectedCell,
+    selectedRows,
+    onSelectCell,
+    onCheckboxToggle,
+  }: {
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    selectedRows: Set<number>;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
+  }) {
+    const cellIndex = -1;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+    const isInSelectedRange = selectedRows.has(rowIndex);
+
+    return (
+      <TableCell
+        className={cn(
+          "px-2 w-10 cursor-pointer",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer"
+          checked={isInSelectedRange}
+          onChange={() => {
+            // onChange doesn't have shiftKey, so we'll handle it via onClick
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCheckboxToggle(rowIndex, e.shiftKey);
+          }}
+          aria-label={`Select row ${rowIndex + 1}`}
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = -1;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    const prevIsInSelectedRange = prevProps.selectedRows.has(
+      prevProps.rowIndex
+    );
+    const nextIsInSelectedRange = nextProps.selectedRows.has(
+      nextProps.rowIndex
+    );
+
+    return (
+      prevIsSelected === nextIsSelected &&
+      prevIsInSelectedRange === nextIsInSelectedRange
+    );
+  }
+);
+
+const MemoizedDateCell = React.memo(
+  function MemoizedDateCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+  }) {
+    const cellIndex = 0;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer md:table-cell hidden",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        {format(new Date(entry.start), "yyyy-MM-dd")}
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = 0;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.start === nextProps.entry.start &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedTimeCell = React.memo(
+  function MemoizedTimeCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+    onTimeChange,
+    setIsTimeEditorOpen,
+    navigateToNextCell,
+    navigateToNextRow,
+    navigateToPrevCell,
+    prevEntryEnd,
+    nextEntryStart,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onTimeChange: (
+      entryId: number
+    ) => (startTime: string, endTime: string | null) => void;
+    setIsTimeEditorOpen: (open: boolean) => void;
+    navigateToNextCell: () => void;
+    navigateToNextRow: () => void;
+    navigateToPrevCell: () => void;
+    prevEntryEnd?: string | null;
+    nextEntryStart?: string | null;
+  }) {
+    const cellIndex = 4;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedTimeEditor
+          startTime={entry.start}
+          endTime={entry.stop}
+          onSave={(startTime, endTime) =>
+            onTimeChange(entry.id)(startTime, endTime)
+          }
+          onEditingChange={setIsTimeEditorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigateDown={navigateToNextRow}
+          onNavigatePrev={navigateToPrevCell}
+          prevEntryEnd={prevEntryEnd}
+          nextEntryStart={nextEntryStart}
+          data-testid="time-editor"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = 4;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.start === nextProps.entry.start &&
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+      prevProps.nextEntryStart === nextProps.nextEntryStart &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedDurationCell = React.memo(
+  function MemoizedDurationCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+    onDurationChange,
+    onDurationChangeWithStartTimeAdjustment,
+    setIsEditingCell,
+    navigateToNextRow,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onDurationChange: (entryId: number) => (newDuration: number) => void;
+    onDurationChangeWithStartTimeAdjustment: (
+      entryId: number
+    ) => (newDuration: number) => void;
+    setIsEditingCell: (editing: boolean) => void;
+    navigateToNextRow: () => void;
+  }) {
+    const cellIndex = 5;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedDurationEditor
+          duration={entry.duration}
+          startTime={entry.start}
+          endTime={entry.stop}
+          onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
+          onSaveWithStartTimeAdjustment={(newDuration) =>
+            onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
+          }
+          onEditingChange={setIsEditingCell}
+          onNavigateDown={navigateToNextRow}
+          data-testid="duration-editor"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = 5;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.duration === nextProps.entry.duration &&
+      prevProps.entry.start === nextProps.entry.start &&
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedActionsCell = React.memo(
+  function MemoizedActionsCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isPinned,
+    onPin,
+    onUnpin,
+    onSplit,
+    onCombine,
+    onStartEntry,
+    onStopTimer,
+    onDelete,
+    setIsActionsMenuOpen,
+    navigateToNextCell,
+    onSelectCell,
+  }: {
+    entry: TimeEntry;
+    rowIndex: number;
+    selectedCell: SelectedCell;
+    isPinned: boolean;
+    onPin: (entry: TimeEntry) => void;
+    onUnpin: (id: string) => void;
+    onSplit: (entry: TimeEntry) => void;
+    onCombine: (entry: TimeEntry) => void;
+    onStartEntry: (entry: TimeEntry) => void;
+    onStopTimer: (entry: TimeEntry) => void;
+    onDelete: (entry: TimeEntry) => void;
+    setIsActionsMenuOpen: (open: boolean) => void;
+    navigateToNextCell: () => void;
+    onSelectCell: (rowIndex: number, cellIndex: number) => void;
+  }) {
+    const cellIndex = 6;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 py-2 cursor-pointer sm:w-16 w-12",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedActionsMenu
+          onPin={() => onPin(entry)}
+          onUnpin={() => onUnpin(entry.id.toString())}
+          isPinned={isPinned}
+          onSplit={() => onSplit(entry)}
+          onCombine={() => onCombine(entry)}
+          onStartEntry={() => onStartEntry(entry)}
+          onStopTimer={() => onStopTimer(entry)}
+          onDelete={() => onDelete(entry)}
+          onOpenChange={setIsActionsMenuOpen}
+          onNavigateNext={navigateToNextCell}
+          isSelected={isSelected}
+          isRunning={!entry.stop || entry.duration === -1}
+          data-testid="actions-menu"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    const cellIndex = 6;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.entry.duration === nextProps.entry.duration &&
+      prevProps.isPinned === nextProps.isPinned &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+// Memoized date picker row components to prevent re-renders when table data changes
+const MemoizedDatePickerRow = React.memo(
+  function MemoizedDatePickerRow({
+    date,
+    setDate,
+    syncStatus,
+    hasLoadedMoreEntries,
+    lastSyncTime,
+    handleReauthenticate,
+    fetchData,
+    encryption,
+    handleLockEncryption,
+    handleUnlockEncryption,
+    isFullscreen,
+    isTransitioning,
+    handleFullscreenToggle,
+    handleNewEntryClick,
+  }: {
+    date: DateRange | undefined;
+    setDate: (date: DateRange | undefined) => void;
+    syncStatus?:
+      | "synced"
+      | "syncing"
+      | "error"
+      | "session_expired"
+      | "offline"
+      | "sync_paused";
+    hasLoadedMoreEntries: boolean;
+    lastSyncTime: Date | undefined;
+    handleReauthenticate: () => void;
+    fetchData: () => void;
+    encryption: ReturnType<typeof useEncryptionContext>;
+    handleLockEncryption: () => void;
+    handleUnlockEncryption: () => void;
+    isFullscreen: boolean;
+    isTransitioning: boolean;
+    handleFullscreenToggle: () => void;
+    handleNewEntryClick: () => void;
+  }) {
+    return (
+      <div className="hidden md:flex items-center justify-between mt-6">
+        <div className="flex items-center space-x-3">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                  !date && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                {date?.from ? (
+                  date.to ? (
+                    <>
+                      {format(date.from, "LLL dd, y")} -{" "}
+                      {format(date.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(date.from, "LLL dd, y")
+                  )
+                ) : (
+                  <span>Pick a date range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-auto p-0 border-border/60"
+              align="start"
+            >
+              <Calendar
+                mode="range"
+                defaultMonth={date?.from}
+                selected={date}
+                onSelect={(selectedRange) => {
+                  if (selectedRange?.from && selectedRange?.to) {
+                    // Set end date to end of day
+                    const endOfDayTo = endOfDay(selectedRange.to);
+                    setDate({ from: selectedRange.from, to: endOfDayTo });
+                  }
+                }}
+                numberOfMonths={2}
+                className="rounded-md border-0"
+              />
+            </PopoverContent>
+          </Popover>
+          <SyncStatusBadge
+            status={
+              (hasLoadedMoreEntries
+                ? "sync_paused"
+                : syncStatus || "synced") as any
+            }
+            lastSyncTime={lastSyncTime}
+            onReauthenticate={handleReauthenticate}
+            onRetry={() => fetchData()}
+          />
+          <EncryptionStatus
+            isE2EEEnabled={encryption.isE2EEEnabled}
+            isUnlocked={encryption.isUnlocked}
+            onLock={handleLockEncryption}
+            onUnlock={handleUnlockEncryption}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() =>
+                  window.open("https://track.toggl.com/reports/", "_blank")
+                }
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View Analytics</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreenToggle}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+                disabled={isTransitioning}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleNewEntryClick}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New (N)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    return (
+      prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
+      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
+      prevProps.syncStatus === nextProps.syncStatus &&
+      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
+      prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
+      prevProps.encryption.isE2EEEnabled ===
+        nextProps.encryption.isE2EEEnabled &&
+      prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
+      prevProps.isFullscreen === nextProps.isFullscreen &&
+      prevProps.isTransitioning === nextProps.isTransitioning
+    );
+  }
+);
+
+const MemoizedMobileDatePickerRow = React.memo(
+  function MemoizedMobileDatePickerRow({
+    date,
+    setDate,
+  }: {
+    date: DateRange | undefined;
+    setDate: (date: DateRange | undefined) => void;
+  }) {
+    return (
+      <div className="flex items-center">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              id="date-mobile"
+              variant={"outline"}
+              className={cn(
+                "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
+                !date && "text-muted-foreground"
+              )}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+              {date?.from ? (
+                date.to ? (
+                  <>
+                    {format(date.from, "MMM dd")} -{" "}
+                    {format(date.to, "MMM dd, y")}
+                  </>
+                ) : (
+                  format(date.from, "LLL dd, y")
+                )
+              ) : (
+                <span>Pick a date range</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0 border-border/60" align="start">
+            <Calendar
+              mode="range"
+              defaultMonth={date?.from}
+              selected={date}
+              onSelect={(selectedRange) => {
+                if (selectedRange?.from && selectedRange?.to) {
+                  // Set end date to end of day
+                  const endOfDayTo = endOfDay(selectedRange.to);
+                  setDate({ from: selectedRange.from, to: endOfDayTo });
+                }
+              }}
+              numberOfMonths={1}
+              className="rounded-md border-0"
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    return (
+      prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
+      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime()
+    );
+  }
+);
+
+const MemoizedMobileButtonsRow = React.memo(
+  function MemoizedMobileButtonsRow({
+    syncStatus,
+    hasLoadedMoreEntries,
+    lastSyncTime,
+    handleReauthenticate,
+    fetchData,
+    encryption,
+    handleLockEncryption,
+    handleUnlockEncryption,
+    isFullscreen,
+    isTransitioning,
+    handleFullscreenToggle,
+    handleNewEntryClick,
+  }: {
+    syncStatus?:
+      | "synced"
+      | "syncing"
+      | "error"
+      | "session_expired"
+      | "offline"
+      | "sync_paused";
+    hasLoadedMoreEntries: boolean;
+    lastSyncTime: Date | undefined;
+    handleReauthenticate: () => void;
+    fetchData: () => void;
+    encryption: ReturnType<typeof useEncryptionContext>;
+    handleLockEncryption: () => void;
+    handleUnlockEncryption: () => void;
+    isFullscreen: boolean;
+    isTransitioning: boolean;
+    handleFullscreenToggle: () => void;
+    handleNewEntryClick: () => void;
+  }) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <SyncStatusBadge
+            status={
+              (hasLoadedMoreEntries
+                ? "sync_paused"
+                : syncStatus || "synced") as any
+            }
+            lastSyncTime={lastSyncTime}
+            onReauthenticate={handleReauthenticate}
+            onRetry={() => fetchData()}
+          />
+          <EncryptionStatus
+            isE2EEEnabled={encryption.isE2EEEnabled}
+            isUnlocked={encryption.isUnlocked}
+            onLock={handleLockEncryption}
+            onUnlock={handleUnlockEncryption}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() =>
+                  window.open("https://track.toggl.com/reports/", "_blank")
+                }
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View Analytics</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreenToggle}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                disabled={isTransitioning}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleNewEntryClick}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New (N)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  },
+  (prevProps: any, nextProps: any) => {
+    return (
+      prevProps.syncStatus === nextProps.syncStatus &&
+      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
+      prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
+      prevProps.encryption.isE2EEEnabled ===
+        nextProps.encryption.isE2EEEnabled &&
+      prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
+      prevProps.isFullscreen === nextProps.isFullscreen &&
+      prevProps.isTransitioning === nextProps.isTransitioning
+    );
+  }
+);
+
 // Memoized pinned entries to isolate re-renders when visibility toggles
 const MemoizedPinnedEntries = React.memo(function MemoizedPinnedEntries({
   show,
@@ -530,303 +1486,147 @@ const MemoizedTableRow = React.memo(
               </button>
             )}
           </TableCell>
-          <TableCell
-            className={cn(
-              "px-2 w-10 cursor-pointer",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === -1 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, -1)}
-          >
-            {shouldShowCheckbox ? (
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer"
-                checked={isInSelectedRange}
-                onChange={() => {
-                  // onChange doesn't have shiftKey, so we'll handle it via onClick
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCheckboxToggle(rowIndex, e.shiftKey);
-                }}
-                aria-label={`Select row ${rowIndex + 1}`}
-              />
-            ) : (
-              <div className="h-4 w-4" />
-            )}
-          </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer md:table-cell hidden",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 0 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 0)}
-          >
-            {format(new Date(entry.start), "yyyy-MM-dd")}
-          </TableCell>
+          <MemoizedCheckboxCell
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            selectedRows={selectedRows}
+            onSelectCell={onSelectCell}
+            onCheckboxToggle={onCheckboxToggle}
+          />
+          <MemoizedDateCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+          />
           {isFullscreen ? (
             <>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 1 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 1)}
-              >
-                <MemoizedProjectSelector
-                  currentProject={entry.project_name || ""}
-                  currentProjectColor={entry.project_color}
-                  onProjectChange={(newProject) =>
-                    onProjectChange(entry.id)(newProject)
-                  }
-                  projects={projects}
-                  onOpenChange={setIsProjectSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onNavigateDown={navigateToNextRow}
-                  onProjectCreated={onProjectCreated}
-                  data-testid="project-selector"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 2 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 2)}
-              >
-                <MemoizedExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    // Pass the captured entry.id - helper will resolve to current ID
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 3 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 3)}
-              >
-                <MemoizedTagSelector
-                  currentTags={entry.tags || []}
-                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                  availableTags={availableTags}
-                  onOpenChange={setIsTagSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onTagCreated={onTagCreated}
-                  data-testid="tag-selector"
-                />
-              </TableCell>
+              <MemoizedProjectCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onProjectChange={onProjectChange}
+                projects={projects}
+                setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                navigateToNextRow={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
+              />
+              <MemoizedDescriptionCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onDescriptionSave={onDescriptionSave}
+                setIsEditingCell={setIsEditingCell}
+                navigateToNextCell={navigateToNextCell}
+                projects={projects}
+                availableTags={availableTags}
+                onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
+              />
+              <MemoizedTagCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onTagsChange={onTagsChange}
+                availableTags={availableTags}
+                setIsTagSelectorOpen={setIsTagSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                onTagCreated={onTagCreated}
+              />
             </>
           ) : (
             <>
-              <TableCell
-                className={cn(
-                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 1 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 1)}
-              >
-                <MemoizedExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    // Pass the captured entry.id - helper will resolve to current ID
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 2 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 2)}
-              >
-                <MemoizedProjectSelector
-                  currentProject={entry.project_name || ""}
-                  currentProjectColor={entry.project_color}
-                  onProjectChange={(newProject) =>
-                    onProjectChange(entry.id)(newProject)
-                  }
-                  projects={projects}
-                  onOpenChange={setIsProjectSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onNavigateDown={navigateToNextRow}
-                  onProjectCreated={onProjectCreated}
-                  data-testid="project-selector"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 3 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 3)}
-              >
-                <MemoizedTagSelector
-                  currentTags={entry.tags || []}
-                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                  availableTags={availableTags}
-                  onOpenChange={setIsTagSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onTagCreated={onTagCreated}
-                  data-testid="tag-selector"
-                />
-              </TableCell>
+              <MemoizedDescriptionCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onDescriptionSave={onDescriptionSave}
+                setIsEditingCell={setIsEditingCell}
+                navigateToNextCell={navigateToNextCell}
+                projects={projects}
+                availableTags={availableTags}
+                onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
+              />
+              <MemoizedProjectCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onProjectChange={onProjectChange}
+                projects={projects}
+                setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                navigateToNextRow={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
+              />
+              <MemoizedTagCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onTagsChange={onTagsChange}
+                availableTags={availableTags}
+                setIsTagSelectorOpen={setIsTagSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                onTagCreated={onTagCreated}
+              />
             </>
           )}
-          <TableCell
-            className={cn(
-              "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 4 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 4)}
-          >
-            <MemoizedTimeEditor
-              startTime={entry.start}
-              endTime={entry.stop}
-              onSave={(startTime, endTime) =>
-                onTimeChange(entry.id)(startTime, endTime)
-              }
-              onEditingChange={setIsTimeEditorOpen}
-              onNavigateNext={navigateToNextCell}
-              onNavigateDown={navigateToNextRow}
-              onNavigatePrev={navigateToPrevCell}
-              prevEntryEnd={prevEntryEnd}
-              nextEntryStart={nextEntryStart}
-              data-testid="time-editor"
-            />
-          </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 5 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 5)}
-          >
-            <MemoizedDurationEditor
-              duration={entry.duration}
-              startTime={entry.start}
-              endTime={entry.stop}
-              onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
-              onSaveWithStartTimeAdjustment={(newDuration) =>
-                onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
-              }
-              onEditingChange={setIsEditingCell}
-              onNavigateDown={navigateToNextRow}
-              data-testid="duration-editor"
-            />
-          </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 py-2 cursor-pointer sm:w-16 w-12",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 6 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 6)}
-          >
-            <MemoizedActionsMenu
-              onPin={() => onPin(entry)}
-              onUnpin={() => onUnpin(entry.id.toString())}
-              isPinned={isPinned}
-              onSplit={() => onSplit(entry)}
-              onCombine={() => onCombine(entry)}
-              onStartEntry={() => onStartEntry(entry)}
-              onStopTimer={() => onStopTimer(entry)}
-              onDelete={() => onDelete(entry)}
-              onOpenChange={setIsActionsMenuOpen}
-              onNavigateNext={navigateToNextCell}
-              isSelected={
-                selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 6
-              }
-              isRunning={!entry.stop || entry.duration === -1}
-              data-testid="actions-menu"
-            />
-          </TableCell>
+          <MemoizedTimeCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+            onTimeChange={onTimeChange}
+            setIsTimeEditorOpen={setIsTimeEditorOpen}
+            navigateToNextCell={navigateToNextCell}
+            navigateToNextRow={navigateToNextRow}
+            navigateToPrevCell={navigateToPrevCell}
+            prevEntryEnd={prevEntryEnd}
+            nextEntryStart={nextEntryStart}
+          />
+          <MemoizedDurationCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+            onDurationChange={onDurationChange}
+            onDurationChangeWithStartTimeAdjustment={
+              onDurationChangeWithStartTimeAdjustment
+            }
+            setIsEditingCell={setIsEditingCell}
+            navigateToNextRow={navigateToNextRow}
+          />
+          <MemoizedActionsCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            isPinned={isPinned}
+            onPin={onPin}
+            onUnpin={onUnpin}
+            onSplit={onSplit}
+            onCombine={onCombine}
+            onStartEntry={onStartEntry}
+            onStopTimer={onStopTimer}
+            onDelete={onDelete}
+            setIsActionsMenuOpen={setIsActionsMenuOpen}
+            navigateToNextCell={navigateToNextCell}
+            onSelectCell={onSelectCell}
+          />
         </TableRow>
       </>
     );
@@ -5135,241 +5935,40 @@ export function TimeTrackerTable({
         )}
         <div className="mb-4">
           {/* Desktop layout - single row */}
-          <div className="hidden md:flex items-center justify-between mt-6">
-            <div className="flex items-center space-x-3">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="date"
-                    variant={"outline"}
-                    className={cn(
-                      "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                    {date?.from ? (
-                      date.to ? (
-                        <>
-                          {format(date.from, "LLL dd, y")} -{" "}
-                          {format(date.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        format(date.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto p-0 border-border/60"
-                  align="start"
-                >
-                  <Calendar
-                    mode="range"
-                    defaultMonth={date?.from}
-                    selected={date}
-                    onSelect={(selectedRange) => {
-                      if (selectedRange?.from && selectedRange?.to) {
-                        // Set end date to end of day
-                        const endOfDayTo = endOfDay(selectedRange.to);
-                        setDate({ from: selectedRange.from, to: endOfDayTo });
-                      } else {
-                      }
-                    }}
-                    numberOfMonths={2}
-                    className="rounded-md border-0"
-                  />
-                </PopoverContent>
-              </Popover>
-              <SyncStatusBadge
-                status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
-                lastSyncTime={lastSyncTime}
-                onReauthenticate={handleReauthenticate}
-                onRetry={() => fetchData()}
-              />
-              <EncryptionStatus
-                isE2EEEnabled={encryption.isE2EEEnabled}
-                isUnlocked={encryption.isUnlocked}
-                onLock={handleLockEncryption}
-                onUnlock={handleUnlockEncryption}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={() =>
-                      window.open("https://track.toggl.com/reports/", "_blank")
-                    }
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>View Analytics</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleFullscreenToggle}
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-                    disabled={isTransitioning}
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="w-4 h-4" />
-                    ) : (
-                      <Maximize2 className="w-4 h-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleNewEntryClick}
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>New (N)</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
+          <MemoizedDatePickerRow
+            date={date}
+            setDate={setDate}
+            syncStatus={syncStatus}
+            hasLoadedMoreEntries={hasLoadedMoreEntries}
+            lastSyncTime={lastSyncTime}
+            handleReauthenticate={handleReauthenticate}
+            fetchData={fetchData}
+            encryption={encryption}
+            handleLockEncryption={handleLockEncryption}
+            handleUnlockEncryption={handleUnlockEncryption}
+            isFullscreen={isFullscreen}
+            isTransitioning={isTransitioning}
+            handleFullscreenToggle={handleFullscreenToggle}
+            handleNewEntryClick={handleNewEntryClick}
+          />
 
           {/* Mobile layout - two rows */}
           <div className="md:hidden space-y-3">
-            {/* First row - Date picker */}
-            <div className="flex items-center">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="date-mobile"
-                    variant={"outline"}
-                    className={cn(
-                      "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                    {date?.from ? (
-                      date.to ? (
-                        <>
-                          {format(date.from, "MMM dd")} -{" "}
-                          {format(date.to, "MMM dd, y")}
-                        </>
-                      ) : (
-                        format(date.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto p-0 border-border/60"
-                  align="start"
-                >
-                  <Calendar
-                    mode="range"
-                    defaultMonth={date?.from}
-                    selected={date}
-                    onSelect={(selectedRange) => {
-                      if (selectedRange?.from && selectedRange?.to) {
-                        // Set end date to end of day
-                        const endOfDayTo = endOfDay(selectedRange.to);
-                        setDate({ from: selectedRange.from, to: endOfDayTo });
-                      } else {
-                      }
-                    }}
-                    numberOfMonths={1}
-                    className="rounded-md border-0"
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* Second row - Buttons and status */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <SyncStatusBadge
-                  status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
-                  lastSyncTime={lastSyncTime}
-                  onReauthenticate={handleReauthenticate}
-                  onRetry={() => fetchData()}
-                />
-                <EncryptionStatus
-                  isE2EEEnabled={encryption.isE2EEEnabled}
-                  isUnlocked={encryption.isUnlocked}
-                  onLock={handleLockEncryption}
-                  onUnlock={handleUnlockEncryption}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() =>
-                        window.open(
-                          "https://track.toggl.com/reports/",
-                          "_blank"
-                        )
-                      }
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                    >
-                      <BarChart3 className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>View Analytics</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleFullscreenToggle}
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                      disabled={isTransitioning}
-                    >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-4 h-4" />
-                      ) : (
-                        <Maximize2 className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleNewEntryClick}
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>New (N)</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
+            <MemoizedMobileDatePickerRow date={date} setDate={setDate} />
+            <MemoizedMobileButtonsRow
+              syncStatus={syncStatus}
+              hasLoadedMoreEntries={hasLoadedMoreEntries}
+              lastSyncTime={lastSyncTime}
+              handleReauthenticate={handleReauthenticate}
+              fetchData={fetchData}
+              encryption={encryption}
+              handleLockEncryption={handleLockEncryption}
+              handleUnlockEncryption={handleUnlockEncryption}
+              isFullscreen={isFullscreen}
+              isTransitioning={isTransitioning}
+              handleFullscreenToggle={handleFullscreenToggle}
+              handleNewEntryClick={handleNewEntryClick}
+            />
           </div>
         </div>
 
