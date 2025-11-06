@@ -4247,7 +4247,37 @@ export function TimeTrackerTable({
           }
           break;
 
+        case "l":
+          e.preventDefault();
+          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
+          if (selectedCell && selectedCell.cellIndex > 1) {
+            setSelectedCell({
+              ...selectedCell,
+              cellIndex: selectedCell.cellIndex - 1,
+            });
+          }
+          break;
+
         case "arrowright":
+          e.preventDefault();
+          if (
+            !selectedCell &&
+            keyboardNavigationData.currentEntriesLength > 0
+          ) {
+            // Start at cellIndex 1 (skip date column at 0)
+            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+          } else if (
+            selectedCell &&
+            selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
+          ) {
+            setSelectedCell({
+              ...selectedCell,
+              cellIndex: selectedCell.cellIndex + 1,
+            });
+          }
+          break;
+
+        case ";":
           e.preventDefault();
           if (
             !selectedCell &&
