@@ -66,6 +66,20 @@ import {
 } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
+import type {
+  MemoizedActionsCellProps,
+  MemoizedCheckboxCellProps,
+  MemoizedDateCellProps,
+  MemoizedDatePickerRowProps,
+  MemoizedDescriptionCellProps,
+  MemoizedDurationCellProps,
+  MemoizedMobileButtonsRowProps,
+  MemoizedMobileDatePickerRowProps,
+  MemoizedProjectCellProps,
+  MemoizedTableHeaderRowProps,
+  MemoizedTagCellProps,
+  MemoizedTimeCellProps,
+} from "./time-tracker-table.types";
 import { ActionsMenu } from "./actions-menu";
 import { CombineEntryDialog } from "./combine-entry-dialog";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
@@ -162,20 +176,7 @@ const MemoizedProjectCell = React.memo(
     navigateToPrevCell,
     navigateToNextRow,
     onProjectCreated,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    isFullscreen: boolean;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onProjectChange: (entryId: number) => (newProject: string) => void;
-    projects: Project[];
-    setIsProjectSelectorOpen: (open: boolean) => void;
-    navigateToNextCell: () => void;
-    navigateToPrevCell: () => void;
-    navigateToNextRow: () => void;
-    onProjectCreated: (project: Project) => void;
-  }) {
+  }: MemoizedProjectCellProps) {
     const cellIndex = isFullscreen ? 1 : 2;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -207,7 +208,7 @@ const MemoizedProjectCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedProjectCellProps, nextProps: MemoizedProjectCellProps) => {
     const prevCellIndex = prevProps.isFullscreen ? 1 : 2;
     const nextCellIndex = nextProps.isFullscreen ? 1 : 2;
     const prevIsSelected =
@@ -240,19 +241,7 @@ const MemoizedTagCell = React.memo(
     navigateToNextCell,
     navigateToPrevCell,
     onTagCreated,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    isFullscreen: boolean;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onTagsChange: (entryId: number) => (newTags: string[]) => void;
-    availableTags: Tag[];
-    setIsTagSelectorOpen: (open: boolean) => void;
-    navigateToNextCell: () => void;
-    navigateToPrevCell: () => void;
-    onTagCreated: (tag: Tag) => void;
-  }) {
+  }: MemoizedTagCellProps) {
     const cellIndex = isFullscreen ? 3 : 3;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -280,7 +269,7 @@ const MemoizedTagCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedTagCellProps, nextProps: MemoizedTagCellProps) => {
     const cellIndex = 3;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -317,25 +306,7 @@ const MemoizedDescriptionCell = React.memo(
     projects,
     availableTags,
     onBulkEntryUpdateByRowIndex,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    isFullscreen: boolean;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onDescriptionSave: (entryId: number) => (newDescription: string) => void;
-    setIsEditingCell: (editing: boolean) => void;
-    navigateToNextCell: () => void;
-    projects: Project[];
-    availableTags: Tag[];
-    onBulkEntryUpdateByRowIndex: (
-      capturedId: number
-    ) => (updates: {
-      description?: string;
-      projectName?: string;
-      tags?: string[];
-    }) => void;
-  }) {
+  }: MemoizedDescriptionCellProps) {
     const cellIndex = isFullscreen ? 2 : 1;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -383,7 +354,7 @@ const MemoizedDescriptionCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedDescriptionCellProps, nextProps: MemoizedDescriptionCellProps) => {
     const prevCellIndex = prevProps.isFullscreen ? 2 : 1;
     const nextCellIndex = nextProps.isFullscreen ? 2 : 1;
     const prevIsSelected =
@@ -410,13 +381,7 @@ const MemoizedCheckboxCell = React.memo(
     selectedRows,
     onSelectCell,
     onCheckboxToggle,
-  }: {
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    selectedRows: Set<number>;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
-  }) {
+  }: MemoizedCheckboxCellProps) {
     const cellIndex = -1;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -448,7 +413,7 @@ const MemoizedCheckboxCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedCheckboxCellProps, nextProps: MemoizedCheckboxCellProps) => {
     const cellIndex = -1;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -477,12 +442,7 @@ const MemoizedDateCell = React.memo(
     rowIndex,
     selectedCell,
     onSelectCell,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-  }) {
+  }: MemoizedDateCellProps) {
     const cellIndex = 0;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -501,7 +461,7 @@ const MemoizedDateCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedDateCellProps, nextProps: MemoizedDateCellProps) => {
     const cellIndex = 0;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -530,21 +490,7 @@ const MemoizedTimeCell = React.memo(
     navigateToPrevCell,
     prevEntryEnd,
     nextEntryStart,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onTimeChange: (
-      entryId: number
-    ) => (startTime: string, endTime: string | null) => void;
-    setIsTimeEditorOpen: (open: boolean) => void;
-    navigateToNextCell: () => void;
-    navigateToNextRow: () => void;
-    navigateToPrevCell: () => void;
-    prevEntryEnd?: string | null;
-    nextEntryStart?: string | null;
-  }) {
+  }: MemoizedTimeCellProps) {
     const cellIndex = 4;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -576,7 +522,7 @@ const MemoizedTimeCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedTimeCellProps, nextProps: MemoizedTimeCellProps) => {
     const cellIndex = 4;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -605,18 +551,7 @@ const MemoizedDurationCell = React.memo(
     onDurationChangeWithStartTimeAdjustment,
     setIsEditingCell,
     navigateToNextRow,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-    onDurationChange: (entryId: number) => (newDuration: number) => void;
-    onDurationChangeWithStartTimeAdjustment: (
-      entryId: number
-    ) => (newDuration: number) => void;
-    setIsEditingCell: (editing: boolean) => void;
-    navigateToNextRow: () => void;
-  }) {
+  }: MemoizedDurationCellProps) {
     const cellIndex = 5;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -646,7 +581,7 @@ const MemoizedDurationCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedDurationCellProps, nextProps: MemoizedDurationCellProps) => {
     const cellIndex = 5;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -680,22 +615,7 @@ const MemoizedActionsCell = React.memo(
     setIsActionsMenuOpen,
     navigateToNextCell,
     onSelectCell,
-  }: {
-    entry: TimeEntry;
-    rowIndex: number;
-    selectedCell: SelectedCell;
-    isPinned: boolean;
-    onPin: (entry: TimeEntry) => void;
-    onUnpin: (id: string) => void;
-    onSplit: (entry: TimeEntry) => void;
-    onCombine: (entry: TimeEntry) => void;
-    onStartEntry: (entry: TimeEntry) => void;
-    onStopTimer: (entry: TimeEntry) => void;
-    onDelete: (entry: TimeEntry) => void;
-    setIsActionsMenuOpen: (open: boolean) => void;
-    navigateToNextCell: () => void;
-    onSelectCell: (rowIndex: number, cellIndex: number) => void;
-  }) {
+  }: MemoizedActionsCellProps) {
     const cellIndex = 6;
     const isSelected =
       selectedCell?.rowIndex === rowIndex &&
@@ -728,7 +648,7 @@ const MemoizedActionsCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedActionsCellProps, nextProps: MemoizedActionsCellProps) => {
     const cellIndex = 6;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -763,28 +683,7 @@ const MemoizedDatePickerRow = React.memo(
     isTransitioning,
     handleFullscreenToggle,
     handleNewEntryClick,
-  }: {
-    date: DateRange | undefined;
-    setDate: (date: DateRange | undefined) => void;
-    syncStatus?:
-      | "synced"
-      | "syncing"
-      | "error"
-      | "session_expired"
-      | "offline"
-      | "sync_paused";
-    hasLoadedMoreEntries: boolean;
-    lastSyncTime: Date | undefined;
-    handleReauthenticate: () => void;
-    fetchData: () => void;
-    encryption: ReturnType<typeof useEncryptionContext>;
-    handleLockEncryption: () => void;
-    handleUnlockEncryption: () => void;
-    isFullscreen: boolean;
-    isTransitioning: boolean;
-    handleFullscreenToggle: () => void;
-    handleNewEntryClick: () => void;
-  }) {
+  }: MemoizedDatePickerRowProps) {
     return (
       <div className="hidden md:flex items-center justify-between mt-6">
         <div className="flex items-center space-x-3">
@@ -835,9 +734,9 @@ const MemoizedDatePickerRow = React.memo(
           </Popover>
           <SyncStatusBadge
             status={
-              (hasLoadedMoreEntries
+              hasLoadedMoreEntries
                 ? "sync_paused"
-                : syncStatus || "synced") as any
+                : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
@@ -903,7 +802,7 @@ const MemoizedDatePickerRow = React.memo(
       </div>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedDatePickerRowProps, nextProps: MemoizedDatePickerRowProps) => {
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
@@ -923,10 +822,7 @@ const MemoizedMobileDatePickerRow = React.memo(
   function MemoizedMobileDatePickerRow({
     date,
     setDate,
-  }: {
-    date: DateRange | undefined;
-    setDate: (date: DateRange | undefined) => void;
-  }) {
+  }: MemoizedMobileDatePickerRowProps) {
     return (
       <div className="flex items-center">
         <Popover>
@@ -974,7 +870,7 @@ const MemoizedMobileDatePickerRow = React.memo(
       </div>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedMobileDatePickerRowProps, nextProps: MemoizedMobileDatePickerRowProps) => {
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime()
@@ -996,34 +892,15 @@ const MemoizedMobileButtonsRow = React.memo(
     isTransitioning,
     handleFullscreenToggle,
     handleNewEntryClick,
-  }: {
-    syncStatus?:
-      | "synced"
-      | "syncing"
-      | "error"
-      | "session_expired"
-      | "offline"
-      | "sync_paused";
-    hasLoadedMoreEntries: boolean;
-    lastSyncTime: Date | undefined;
-    handleReauthenticate: () => void;
-    fetchData: () => void;
-    encryption: ReturnType<typeof useEncryptionContext>;
-    handleLockEncryption: () => void;
-    handleUnlockEncryption: () => void;
-    isFullscreen: boolean;
-    isTransitioning: boolean;
-    handleFullscreenToggle: () => void;
-    handleNewEntryClick: () => void;
-  }) {
+  }: MemoizedMobileButtonsRowProps) {
     return (
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <SyncStatusBadge
             status={
-              (hasLoadedMoreEntries
+              hasLoadedMoreEntries
                 ? "sync_paused"
-                : syncStatus || "synced") as any
+                : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
@@ -1089,7 +966,7 @@ const MemoizedMobileButtonsRow = React.memo(
       </div>
     );
   },
-  (prevProps: any, nextProps: any) => {
+  (prevProps: MemoizedMobileButtonsRowProps, nextProps: MemoizedMobileButtonsRowProps) => {
     return (
       prevProps.syncStatus === nextProps.syncStatus &&
       prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
@@ -1100,6 +977,106 @@ const MemoizedMobileButtonsRow = React.memo(
       prevProps.isFullscreen === nextProps.isFullscreen &&
       prevProps.isTransitioning === nextProps.isTransitioning
     );
+  }
+);
+
+// Memoized table header row to prevent re-renders when table data changes
+const MemoizedTableHeaderRow = React.memo(
+  function MemoizedTableHeaderRow({
+    isFullscreen,
+    selectedRows,
+    decryptedEntriesLength,
+    setSelectedRows,
+  }: MemoizedTableHeaderRowProps) {
+    const allSelected =
+      decryptedEntriesLength > 0 &&
+      selectedRows.size === decryptedEntriesLength &&
+      Array.from({ length: decryptedEntriesLength }, (_, i) => i).every((i) =>
+        selectedRows.has(i)
+      );
+
+    return (
+      <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
+        <TableHead className="px-2 w-8"></TableHead>
+        <TableHead className="px-2 w-10">
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer"
+            checked={allSelected}
+            onChange={(e) => {
+              if (e.target.checked) {
+                const allRows = new Set<number>();
+                for (let i = 0; i < decryptedEntriesLength; i++) {
+                  allRows.add(i);
+                }
+                setSelectedRows(allRows);
+              } else {
+                setSelectedRows(new Set());
+              }
+            }}
+            aria-label="Select all"
+          />
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
+          Date
+        </TableHead>
+        {isFullscreen ? (
+          <>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Project
+            </TableHead>
+            <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+              Description
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Tags
+            </TableHead>
+          </>
+        ) : (
+          <>
+            <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+              Description
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Project
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Tags
+            </TableHead>
+          </>
+        )}
+        <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
+          Time
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
+          Duration
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
+      </TableRow>
+    );
+  },
+  (prevProps: MemoizedTableHeaderRowProps, nextProps: MemoizedTableHeaderRowProps) => {
+    // Compare basic props
+    if (
+      prevProps.isFullscreen !== nextProps.isFullscreen ||
+      prevProps.decryptedEntriesLength !== nextProps.decryptedEntriesLength
+    ) {
+      return false;
+    }
+
+    // Compare selectedRows Set by size and contents
+    if (prevProps.selectedRows.size !== nextProps.selectedRows.size) {
+      return false;
+    }
+
+    // Check if all values in prevProps are in nextProps
+    for (const row of prevProps.selectedRows) {
+      if (!nextProps.selectedRows.has(row)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 );
 
@@ -1141,7 +1118,6 @@ const MemoizedTableRow = React.memo(
     prevEntryEnd,
     nextEntryStart,
     selectedCell,
-    selectedRange,
     onSelectCell,
     onCheckboxToggle,
     selectedRows,
@@ -1178,18 +1154,15 @@ const MemoizedTableRow = React.memo(
     syncStatus,
     onRetrySync,
     isFullscreen,
-    showCheckboxes,
   }: {
     entry: TimeEntry;
     rowIndex: number;
     prevEntryEnd?: string | null;
     nextEntryStart?: string | null;
     selectedCell: SelectedCell;
-    selectedRange: { start: number; end: number } | null;
     selectedRows: Set<number>;
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
     onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
-    showCheckboxes: boolean;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
@@ -2013,22 +1986,7 @@ export function TimeTrackerTable({
   // Track last selection direction for toggle behavior
   const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
 
-  // Derive selectedRange from selectedRows for backwards compatibility with keyboard shortcuts and UI
-  const selectedRange = React.useMemo(() => {
-    if (selectedRows.size === 0) return null;
-    const sortedRows = Array.from(selectedRows).sort((a, b) => a - b);
-    // Check if it's a contiguous range
-    const isContiguous = sortedRows.every(
-      (row, idx) => idx === 0 || row === sortedRows[idx - 1] + 1
-    );
-    if (isContiguous) {
-      return { start: sortedRows[0], end: sortedRows[sortedRows.length - 1] };
-    }
-    // If non-contiguous, still return a range covering min to max (for display purposes)
-    return { start: sortedRows[0], end: sortedRows[sortedRows.length - 1] };
-  }, [selectedRows]);
   const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
-  const [showCheckboxes, setShowCheckboxes] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
 
   const [isEditingCell, setIsEditingCell] = React.useState(false);
@@ -3472,7 +3430,7 @@ export function TimeTrackerTable({
           setTimeEntries(originalEntries);
         });
     },
-    [entryToSplit, toastDuration]
+    [entryToSplit, toastDuration, encryption]
   );
 
   const handleCombine = React.useCallback(
@@ -3696,7 +3654,7 @@ export function TimeTrackerTable({
         toast.error("Failed to combine entries. Reverting changes.");
         setTimeEntries(originalEntries);
       });
-  }, [entryToCombine, timeEntries, toastDuration, encryption]);
+  }, [entryToCombine, timeEntries, toastDuration]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -4365,7 +4323,6 @@ export function TimeTrackerTable({
         if (!currentSelectedCell) return null;
 
         const maxCellIndex = 6; // 7 columns: checkbox(-1), date(0), project(1), tags(2), description(3), time(4), duration(5), actions(6)
-        const minCellIndex = -1; // Checkbox column
         const currentEntriesLength = timeEntriesRef.current.length;
 
         if (currentSelectedCell.cellIndex < maxCellIndex) {
@@ -5646,6 +5603,7 @@ export function TimeTrackerTable({
   }, [
     // Essential dependencies only - remove functions that don't need to be in deps
     selectedCell,
+    selectedRows,
     keyboardNavigationData.currentEntriesLength,
     keyboardNavigationData.maxCellIndex,
     isEditingCell,
@@ -5681,7 +5639,6 @@ export function TimeTrackerTable({
     handleSelectAllDown,
     handleCheckboxToggle,
     multiSelectMenuOpen,
-    selectedRange,
     setShowPinnedEntriesValue,
   ]);
 
@@ -5993,72 +5950,12 @@ export function TimeTrackerTable({
           >
             <Table className="md:table-auto table-fixed w-full">
               <TableHeader>
-                <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
-                  <TableHead className="px-2 w-8"></TableHead>
-                  <TableHead className="px-2 w-10">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer"
-                      checked={
-                        !!(
-                          selectedRange &&
-                          decryptedEntries.length > 0 &&
-                          Math.min(selectedRange.start, selectedRange.end) ===
-                            0 &&
-                          Math.max(selectedRange.start, selectedRange.end) ===
-                            decryptedEntries.length - 1
-                        )
-                      }
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          const allRows = new Set<number>();
-                          for (let i = 0; i < decryptedEntries.length; i++) {
-                            allRows.add(i);
-                          }
-                          setSelectedRows(allRows);
-                        } else {
-                          setSelectedRows(new Set());
-                        }
-                      }}
-                      aria-label="Select all"
-                    />
-                  </TableHead>
-                  <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
-                    Date
-                  </TableHead>
-                  {isFullscreen ? (
-                    <>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Project
-                      </TableHead>
-                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Tags
-                      </TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Project
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Tags
-                      </TableHead>
-                    </>
-                  )}
-                  <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
-                    Time
-                  </TableHead>
-                  <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
-                    Duration
-                  </TableHead>
-                  <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
-                </TableRow>
+                <MemoizedTableHeaderRow
+                  isFullscreen={isFullscreen}
+                  selectedRows={selectedRows}
+                  decryptedEntriesLength={decryptedEntries.length}
+                  setSelectedRows={setSelectedRows}
+                />
               </TableHeader>
               <TableBody>
                 {decryptedEntries.map((entry, rowIndex) => {
@@ -6081,11 +5978,9 @@ export function TimeTrackerTable({
                       prevEntryEnd={prevEntry?.stop || null}
                       nextEntryStart={nextEntry?.start || null}
                       selectedCell={selectedCell}
-                      selectedRange={selectedRange}
                       selectedRows={selectedRows}
                       onSelectCell={handleSelectCell}
                       onCheckboxToggle={handleCheckboxToggle}
-                      showCheckboxes={showCheckboxes}
                       onDescriptionSave={handleDescriptionSave}
                       onProjectChange={handleProjectChange}
                       onTagsChange={handleTagsChange}
@@ -6226,10 +6121,8 @@ export function TimeTrackerTable({
             <DialogHeader>
               <DialogTitle>Multi-Select Actions</DialogTitle>
               <DialogDescription>
-                {selectedRange
-                  ? `${
-                      Math.abs(selectedRange.end - selectedRange.start) + 1
-                    } entries selected`
+                {selectedRows.size > 0
+                  ? `${selectedRows.size} entries selected`
                   : "No entries selected"}
               </DialogDescription>
             </DialogHeader>
