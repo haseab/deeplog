@@ -78,6 +78,75 @@ import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
 
+// Memoized components to prevent unnecessary re-renders when selectedCell changes
+// These only compare data props, not callbacks (callbacks should be stable via useCallback)
+const MemoizedProjectSelector = React.memo(
+  ProjectSelector,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.currentProject === nextProps.currentProject &&
+      prevProps.currentProjectColor === nextProps.currentProjectColor &&
+      prevProps.projects === nextProps.projects
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedTimeEditor = React.memo(TimeEditor, (prevProps, nextProps) => {
+  return (
+    prevProps.startTime === nextProps.startTime &&
+    prevProps.endTime === nextProps.endTime &&
+    prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+    prevProps.nextEntryStart === nextProps.nextEntryStart
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
+const MemoizedTagSelector = React.memo(TagSelector, (prevProps, nextProps) => {
+  // Compare tags arrays deeply
+  const tagsEqual =
+    prevProps.currentTags.length === nextProps.currentTags.length &&
+    prevProps.currentTags.every((tag, i) => tag === nextProps.currentTags[i]);
+
+  return (
+    tagsEqual && prevProps.availableTags === nextProps.availableTags
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
+const MemoizedExpandableDescription = React.memo(
+  ExpandableDescription,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.description === nextProps.description &&
+      prevProps.projects === nextProps.projects &&
+      prevProps.availableTags === nextProps.availableTags
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedDurationEditor = React.memo(
+  DurationEditor,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.duration === nextProps.duration &&
+      prevProps.startTime === nextProps.startTime &&
+      prevProps.endTime === nextProps.endTime
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedActionsMenu = React.memo(ActionsMenu, (prevProps, nextProps) => {
+  return (
+    prevProps.isPinned === nextProps.isPinned &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isRunning === nextProps.isRunning
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
 // Memoized pinned entries to isolate re-renders when visibility toggles
 const MemoizedPinnedEntries = React.memo(function MemoizedPinnedEntries({
   show,
@@ -269,7 +338,7 @@ const MemoizedTableRow = React.memo(
               <div className="space-y-0 max-w-full overflow-hidden flex-1">
                 {/* Description */}
                 <div className="max-w-full overflow-hidden">
-                  <ExpandableDescription
+                  <MemoizedExpandableDescription
                     description={entry.description || ""}
                     onSave={(newDescription) =>
                       onDescriptionSave(entry.id)(newDescription)
@@ -307,7 +376,7 @@ const MemoizedTableRow = React.memo(
                 {/* Project + Time row */}
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="shrink-0 max-w-[52%]">
-                    <ProjectSelector
+                    <MemoizedProjectSelector
                       currentProject={entry.project_name || ""}
                       currentProjectColor={entry.project_color}
                       onProjectChange={(newProject) =>
@@ -323,7 +392,7 @@ const MemoizedTableRow = React.memo(
                     />
                   </div>
                   <div className="shrink-0 max-w-[48%]">
-                    <TimeEditor
+                    <MemoizedTimeEditor
                       startTime={entry.start}
                       endTime={entry.stop}
                       onSave={(startTime, endTime) =>
@@ -343,7 +412,7 @@ const MemoizedTableRow = React.memo(
                 {/* Tags + Duration + Actions row */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="shrink-0">
-                    <TagSelector
+                    <MemoizedTagSelector
                       currentTags={entry.tags || []}
                       onTagsChange={(newTags) =>
                         onTagsChange(entry.id)(newTags)
@@ -357,7 +426,7 @@ const MemoizedTableRow = React.memo(
                     />
                   </div>
                   <div className="flex items-center shrink-0">
-                    <DurationEditor
+                    <MemoizedDurationEditor
                       duration={entry.duration}
                       startTime={entry.start}
                       endTime={entry.stop}
@@ -373,7 +442,7 @@ const MemoizedTableRow = React.memo(
                       onNavigateDown={navigateToNextRow}
                       data-testid="duration-editor"
                     />
-                    <ActionsMenu
+                    <MemoizedActionsMenu
                       onPin={() => onPin(entry)}
                       onUnpin={() => onUnpin(entry.id.toString())}
                       isPinned={isPinned}
@@ -510,7 +579,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 1)}
               >
-                <ProjectSelector
+                <MemoizedProjectSelector
                   currentProject={entry.project_name || ""}
                   currentProjectColor={entry.project_color}
                   onProjectChange={(newProject) =>
@@ -534,7 +603,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 2)}
               >
-                <ExpandableDescription
+                <MemoizedExpandableDescription
                   description={entry.description || ""}
                   onSave={(newDescription) =>
                     onDescriptionSave(entry.id)(newDescription)
@@ -579,7 +648,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 3)}
               >
-                <TagSelector
+                <MemoizedTagSelector
                   currentTags={entry.tags || []}
                   onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
                   availableTags={availableTags}
@@ -602,7 +671,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 1)}
               >
-                <ExpandableDescription
+                <MemoizedExpandableDescription
                   description={entry.description || ""}
                   onSave={(newDescription) =>
                     onDescriptionSave(entry.id)(newDescription)
@@ -647,7 +716,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 2)}
               >
-                <ProjectSelector
+                <MemoizedProjectSelector
                   currentProject={entry.project_name || ""}
                   currentProjectColor={entry.project_color}
                   onProjectChange={(newProject) =>
@@ -671,7 +740,7 @@ const MemoizedTableRow = React.memo(
                 )}
                 onClick={() => onSelectCell(rowIndex, 3)}
               >
-                <TagSelector
+                <MemoizedTagSelector
                   currentTags={entry.tags || []}
                   onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
                   availableTags={availableTags}
@@ -693,7 +762,7 @@ const MemoizedTableRow = React.memo(
             )}
             onClick={() => onSelectCell(rowIndex, 4)}
           >
-            <TimeEditor
+            <MemoizedTimeEditor
               startTime={entry.start}
               endTime={entry.stop}
               onSave={(startTime, endTime) =>
@@ -717,7 +786,7 @@ const MemoizedTableRow = React.memo(
             )}
             onClick={() => onSelectCell(rowIndex, 5)}
           >
-            <DurationEditor
+            <MemoizedDurationEditor
               duration={entry.duration}
               startTime={entry.start}
               endTime={entry.stop}
@@ -739,7 +808,7 @@ const MemoizedTableRow = React.memo(
             )}
             onClick={() => onSelectCell(rowIndex, 6)}
           >
-            <ActionsMenu
+            <MemoizedActionsMenu
               onPin={() => onPin(entry)}
               onUnpin={() => onUnpin(entry.id.toString())}
               isPinned={isPinned}
