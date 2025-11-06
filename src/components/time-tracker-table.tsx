@@ -66,6 +66,18 @@ import {
 } from "@/lib/recent-timers-cache";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
+import { ActionsMenu } from "./actions-menu";
+import { CombineEntryDialog } from "./combine-entry-dialog";
+import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
+import { DeleteMultipleConfirmationDialog } from "./delete-multiple-confirmation-dialog";
+import { DurationEditor } from "./duration-editor";
+import { EncryptionStatus } from "./encryption-status";
+import { ExpandableDescription } from "./expandable-description";
+import { PinDialog } from "./pin-dialog";
+import { ProjectSelector } from "./project-selector";
+import { SplitEntryDialog } from "./split-entry-dialog";
+import { TagSelector } from "./tag-selector";
+import { TimeEditor } from "./time-editor";
 import type {
   MemoizedActionsCellProps,
   MemoizedCheckboxCellProps,
@@ -80,17 +92,6 @@ import type {
   MemoizedTagCellProps,
   MemoizedTimeCellProps,
 } from "./time-tracker-table.types";
-import { ActionsMenu } from "./actions-menu";
-import { CombineEntryDialog } from "./combine-entry-dialog";
-import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
-import { DurationEditor } from "./duration-editor";
-import { EncryptionStatus } from "./encryption-status";
-import { ExpandableDescription } from "./expandable-description";
-import { PinDialog } from "./pin-dialog";
-import { ProjectSelector } from "./project-selector";
-import { SplitEntryDialog } from "./split-entry-dialog";
-import { TagSelector } from "./tag-selector";
-import { TimeEditor } from "./time-editor";
 
 // Memoized components to prevent unnecessary re-renders when selectedCell changes
 // These only compare data props, not callbacks (callbacks should be stable via useCallback)
@@ -208,7 +209,10 @@ const MemoizedProjectCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: MemoizedProjectCellProps, nextProps: MemoizedProjectCellProps) => {
+  (
+    prevProps: MemoizedProjectCellProps,
+    nextProps: MemoizedProjectCellProps
+  ) => {
     const prevCellIndex = prevProps.isFullscreen ? 1 : 2;
     const nextCellIndex = nextProps.isFullscreen ? 1 : 2;
     const prevIsSelected =
@@ -354,7 +358,10 @@ const MemoizedDescriptionCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: MemoizedDescriptionCellProps, nextProps: MemoizedDescriptionCellProps) => {
+  (
+    prevProps: MemoizedDescriptionCellProps,
+    nextProps: MemoizedDescriptionCellProps
+  ) => {
     const prevCellIndex = prevProps.isFullscreen ? 2 : 1;
     const nextCellIndex = nextProps.isFullscreen ? 2 : 1;
     const prevIsSelected =
@@ -413,7 +420,10 @@ const MemoizedCheckboxCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: MemoizedCheckboxCellProps, nextProps: MemoizedCheckboxCellProps) => {
+  (
+    prevProps: MemoizedCheckboxCellProps,
+    nextProps: MemoizedCheckboxCellProps
+  ) => {
     const cellIndex = -1;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -581,7 +591,10 @@ const MemoizedDurationCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: MemoizedDurationCellProps, nextProps: MemoizedDurationCellProps) => {
+  (
+    prevProps: MemoizedDurationCellProps,
+    nextProps: MemoizedDurationCellProps
+  ) => {
     const cellIndex = 5;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -648,7 +661,10 @@ const MemoizedActionsCell = React.memo(
       </TableCell>
     );
   },
-  (prevProps: MemoizedActionsCellProps, nextProps: MemoizedActionsCellProps) => {
+  (
+    prevProps: MemoizedActionsCellProps,
+    nextProps: MemoizedActionsCellProps
+  ) => {
     const cellIndex = 6;
     const prevIsSelected =
       prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
@@ -734,9 +750,7 @@ const MemoizedDatePickerRow = React.memo(
           </Popover>
           <SyncStatusBadge
             status={
-              hasLoadedMoreEntries
-                ? "sync_paused"
-                : syncStatus || "synced"
+              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
@@ -802,7 +816,10 @@ const MemoizedDatePickerRow = React.memo(
       </div>
     );
   },
-  (prevProps: MemoizedDatePickerRowProps, nextProps: MemoizedDatePickerRowProps) => {
+  (
+    prevProps: MemoizedDatePickerRowProps,
+    nextProps: MemoizedDatePickerRowProps
+  ) => {
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
@@ -870,7 +887,10 @@ const MemoizedMobileDatePickerRow = React.memo(
       </div>
     );
   },
-  (prevProps: MemoizedMobileDatePickerRowProps, nextProps: MemoizedMobileDatePickerRowProps) => {
+  (
+    prevProps: MemoizedMobileDatePickerRowProps,
+    nextProps: MemoizedMobileDatePickerRowProps
+  ) => {
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime()
@@ -898,9 +918,7 @@ const MemoizedMobileButtonsRow = React.memo(
         <div className="flex items-center gap-2">
           <SyncStatusBadge
             status={
-              hasLoadedMoreEntries
-                ? "sync_paused"
-                : syncStatus || "synced"
+              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
@@ -966,7 +984,10 @@ const MemoizedMobileButtonsRow = React.memo(
       </div>
     );
   },
-  (prevProps: MemoizedMobileButtonsRowProps, nextProps: MemoizedMobileButtonsRowProps) => {
+  (
+    prevProps: MemoizedMobileButtonsRowProps,
+    nextProps: MemoizedMobileButtonsRowProps
+  ) => {
     return (
       prevProps.syncStatus === nextProps.syncStatus &&
       prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
@@ -1055,7 +1076,10 @@ const MemoizedTableHeaderRow = React.memo(
       </TableRow>
     );
   },
-  (prevProps: MemoizedTableHeaderRowProps, nextProps: MemoizedTableHeaderRowProps) => {
+  (
+    prevProps: MemoizedTableHeaderRowProps,
+    nextProps: MemoizedTableHeaderRowProps
+  ) => {
     // Compare basic props
     if (
       prevProps.isFullscreen !== nextProps.isFullscreen ||
@@ -2005,6 +2029,9 @@ export function TimeTrackerTable({
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
     null
   );
+  const [deleteMultipleDialogOpen, setDeleteMultipleDialogOpen] =
+    React.useState(false);
+  const [entriesToDelete, setEntriesToDelete] = React.useState<TimeEntry[]>([]);
   const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
   const splitDialogOpenRef = React.useRef(false);
   const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
@@ -3231,6 +3258,170 @@ export function TimeTrackerTable({
     },
     [showUpdateToast, selectedCell, timeEntries]
   );
+
+  const handleDeleteMultiple = React.useCallback(
+    (entriesToDelete: TimeEntry[]) => {
+      if (entriesToDelete.length === 0) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
+
+      // Remove entries from state immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.filter(
+          (entry) => !entryIdsToDelete.has(entry.id)
+        );
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const toastId: string | number | undefined = toast(
+        `Deleted ${entriesToDelete.length} time ${
+          entriesToDelete.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToDelete.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity, // Keep toast until API completes
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all delete API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const deletePromises = entriesToDelete.map(async (entry) => {
+          try {
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "DELETE",
+              headers: {
+                "x-toggl-session-token": sessionToken || "",
+              },
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleDeleteMultiple] ❌ DELETE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to delete entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleDeleteMultiple] Error deleting entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(deletePromises);
+          // Dismiss the toast now that API succeeded
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          // Dismiss the update toast and show error toast
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to delete some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+
+      // Adjust selector position if needed
+      if (selectedCell) {
+        const deletedIndices = entriesToDelete
+          .map((entry) => timeEntries.findIndex((e) => e.id === entry.id))
+          .filter((idx) => idx !== -1)
+          .sort((a, b) => a - b);
+
+        if (deletedIndices.length > 0) {
+          const minDeletedIndex = Math.min(...deletedIndices);
+          const maxDeletedIndex = Math.max(...deletedIndices);
+
+          if (
+            selectedCell.rowIndex >= minDeletedIndex &&
+            selectedCell.rowIndex <= maxDeletedIndex
+          ) {
+            // Selected row was deleted, move to previous row or first row
+            const newRowIndex = Math.max(0, minDeletedIndex - 1);
+            setTimeout(() => {
+              setSelectedCell({
+                rowIndex: newRowIndex,
+                cellIndex: selectedCell.cellIndex,
+              });
+            }, 50);
+          } else if (selectedCell.rowIndex > maxDeletedIndex) {
+            // Selected row is below deleted rows, shift up by number of deleted rows
+            setSelectedCell({
+              rowIndex: selectedCell.rowIndex - deletedIndices.length,
+              cellIndex: selectedCell.cellIndex,
+            });
+          }
+        }
+      }
+    },
+    [selectedCell, timeEntries, toastDuration]
+  );
+
+  const handleDeleteSelectedClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToDelete = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToDelete.length > 0) {
+      setEntriesToDelete(entriesToDelete);
+      setDeleteMultipleDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmDeleteMultiple = React.useCallback(() => {
+    if (entriesToDelete.length > 0) {
+      handleDeleteMultiple(entriesToDelete);
+      setEntriesToDelete([]);
+    }
+  }, [entriesToDelete, handleDeleteMultiple]);
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
     setEntryToSplit(entry);
@@ -5536,7 +5727,20 @@ export function TimeTrackerTable({
 
         case "d":
           e.preventDefault();
-          handleDeleteSelectedWithConfirmation();
+          if (selectedRows.size > 0) {
+            // Multi-select delete
+            handleDeleteSelectedClick();
+          } else {
+            handleDeleteSelectedWithConfirmation();
+          }
+          break;
+
+        case "t":
+          e.preventDefault();
+          if (selectedRows.size > 0) {
+            // Add common tag to selected entries
+            toast.error("Add common tag is not yet implemented");
+          }
           break;
 
         case "x":
@@ -5551,7 +5755,10 @@ export function TimeTrackerTable({
 
         case "c":
           e.preventDefault();
-          if (selectedCell) {
+          if (selectedRows.size > 0) {
+            // Combine all selected entries
+            toast.error("Combine all is not yet implemented");
+          } else if (selectedCell) {
             const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
               handleCombine(entry);
@@ -5580,7 +5787,10 @@ export function TimeTrackerTable({
 
         case "p":
           e.preventDefault();
-          if (selectedCell) {
+          if (selectedRows.size > 0) {
+            // Set project for all selected entries
+            toast.error("Set project is not yet implemented");
+          } else if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
             if (entry) {
               const entryId = entry.id.toString();
@@ -5626,6 +5836,7 @@ export function TimeTrackerTable({
     handleRefreshData,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
+    handleDeleteSelectedClick,
     handleStartTimerFromPinned,
     handleSplit,
     handleCombine,
@@ -6069,6 +6280,17 @@ export function TimeTrackerTable({
           entry={entryToDelete}
           onConfirm={handleConfirmDelete}
         />
+        <DeleteMultipleConfirmationDialog
+          open={deleteMultipleDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteMultipleDialogOpen(open);
+            if (!open) {
+              setEntriesToDelete([]);
+            }
+          }}
+          entries={entriesToDelete}
+          onConfirm={handleConfirmDeleteMultiple}
+        />
 
         <SplitEntryDialog
           open={splitDialogOpen}
@@ -6129,43 +6351,55 @@ export function TimeTrackerTable({
             <div className="space-y-2 py-4">
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => {
-                  // TODO: Implement delete selected
+                  handleDeleteSelectedClick();
                   setMultiSelectMenuOpen(false);
                 }}
               >
-                🗑️ Delete Selected
+                <span>🗑️ Delete Selected</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  D
+                </span>
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => {
                   // TODO: Implement add common tag
                   setMultiSelectMenuOpen(false);
                 }}
               >
-                🏷️ Add Common Tag
+                <span>🏷️ Add Common Tag</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  T
+                </span>
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => {
                   // TODO: Implement set project
                   setMultiSelectMenuOpen(false);
                 }}
               >
-                📕 Set Project
+                <span>📕 Set Project</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  P
+                </span>
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => {
                   // TODO: Implement combine all
                   setMultiSelectMenuOpen(false);
                 }}
               >
-                📚 Combine All
+                <span>📚 Combine All</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  C
+                </span>
               </Button>
             </div>
           </DialogContent>
