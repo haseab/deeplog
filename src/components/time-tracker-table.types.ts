@@ -59,6 +59,7 @@ export interface MemoizedCheckboxCellProps {
   rowIndex: number;
   selectedCell: SelectedCell;
   selectedRows: Set<number>;
+  shouldShowCheckbox: boolean;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
 }

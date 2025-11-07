@@ -389,6 +389,7 @@ const MemoizedCheckboxCell = React.memo(
     rowIndex,
     selectedCell,
     selectedRows,
+    shouldShowCheckbox,
     onSelectCell,
     onCheckboxToggle,
   }: MemoizedCheckboxCellProps) {
@@ -407,19 +408,21 @@ const MemoizedCheckboxCell = React.memo(
         )}
         onClick={() => onSelectCell(rowIndex, cellIndex)}
       >
-        <input
-          type="checkbox"
-          className="h-4 w-4 cursor-pointer"
-          checked={isInSelectedRange}
-          onChange={() => {
-            // onChange doesn't have shiftKey, so we'll handle it via onClick
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onCheckboxToggle(rowIndex, e.shiftKey);
-          }}
-          aria-label={`Select row ${rowIndex + 1}`}
-        />
+        {shouldShowCheckbox && (
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer"
+            checked={isInSelectedRange}
+            onChange={() => {
+              // onChange doesn't have shiftKey, so we'll handle it via onClick
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCheckboxToggle(rowIndex, e.shiftKey);
+            }}
+            aria-label={`Select row ${rowIndex + 1}`}
+          />
+        )}
       </TableCell>
     );
   },
@@ -442,10 +445,18 @@ const MemoizedCheckboxCell = React.memo(
       nextProps.rowIndex
     );
 
-    return (
-      prevIsSelected === nextIsSelected &&
-      prevIsInSelectedRange === nextIsInSelectedRange
-    );
+    const shouldRerender =
+      prevIsSelected !== nextIsSelected ||
+      prevIsInSelectedRange !== nextIsInSelectedRange ||
+      prevProps.shouldShowCheckbox !== nextProps.shouldShowCheckbox;
+
+    if (prevProps.shouldShowCheckbox !== nextProps.shouldShowCheckbox) {
+      console.log(
+        `[Memo CheckboxCell] Row ${prevProps.rowIndex} shouldShowCheckbox changed: ${prevProps.shouldShowCheckbox} -> ${nextProps.shouldShowCheckbox}, will rerender: ${shouldRerender}`
+      );
+    }
+
+    return !shouldRerender;
   }
 );
 
@@ -704,7 +715,10 @@ const MemoizedDatePickerRow = React.memo(
     handleNewEntryClick,
   }: MemoizedDatePickerRowProps) {
     return (
-      <div className="hidden md:flex items-center justify-between mt-6">
+      <div
+        className="hidden md:flex items-center justify-between mt-6"
+        style={{ minHeight: "36px" }}
+      >
         <div className="flex items-center space-x-3">
           <Popover>
             <PopoverTrigger asChild>
@@ -1020,28 +1034,38 @@ const MemoizedTableHeaderRow = React.memo(
         selectedRows.has(i)
       );
 
+    // Only show header checkbox when at least one row is selected
+    const shouldShowHeaderCheckbox = selectedRows.size > 0;
+
+    // Debug: Log header checkbox visibility
+    console.log(
+      `[Header Checkbox] shouldShowHeaderCheckbox: ${shouldShowHeaderCheckbox}, selectedRows.size: ${selectedRows.size}, totalRows: ${decryptedEntriesLength}`
+    );
+
     return (
       <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
         <TableHead className="px-2 w-8"></TableHead>
         <TableHead className="px-2 w-10">
-          <input
-            type="checkbox"
-            className="h-4 w-4 cursor-pointer"
-            checked={allSelected}
-            onChange={(e) => {
-              if (e.target.checked) {
-                const allRows = new Set<number>();
-                for (let i = 0; i < decryptedEntriesLength; i++) {
-                  allRows.add(i);
+          {shouldShowHeaderCheckbox && (
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer"
+              checked={allSelected}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  const allRows = new Set<number>();
+                  for (let i = 0; i < decryptedEntriesLength; i++) {
+                    allRows.add(i);
+                  }
+                  setSelectedRows(allRows);
+                } else {
+                  setSelectedRows(new Set());
+                  lastSelectionDirectionRef.current = null; // Reset direction state
                 }
-                setSelectedRows(allRows);
-              } else {
-                setSelectedRows(new Set());
-                lastSelectionDirectionRef.current = null; // Reset direction state
-              }
-            }}
-            aria-label="Select all"
-          />
+              }}
+              aria-label="Select all"
+            />
+          )}
         </TableHead>
         <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
           Date
@@ -1150,6 +1174,9 @@ const MemoizedTableRow = React.memo(
     onSelectCell,
     onCheckboxToggle,
     selectedRows,
+    hoveredRowIndex,
+    onRowMouseEnter,
+    onRowMouseLeave,
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
@@ -1190,8 +1217,11 @@ const MemoizedTableRow = React.memo(
     nextEntryStart?: string | null;
     selectedCell: SelectedCell;
     selectedRows: Set<number>;
+    hoveredRowIndex: number | null;
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
     onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
+    onRowMouseEnter: (rowIndex: number) => void;
+    onRowMouseLeave: () => void;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
@@ -1251,7 +1281,16 @@ const MemoizedTableRow = React.memo(
     // Check if this row is selected (use Set for accurate non-contiguous selection)
     const isInSelectedRange = selectedRows.has(rowIndex);
 
-    const shouldShowCheckbox = true; // Always show checkboxes
+    // Show checkbox if: any rows are selected OR this row is being hovered
+    const shouldShowCheckbox =
+      selectedRows.size > 0 || hoveredRowIndex === rowIndex;
+
+    // Debug: Log checkbox visibility for first few rows
+    if (rowIndex < 3) {
+      console.log(
+        `[Row ${rowIndex}] shouldShowCheckbox: ${shouldShowCheckbox}, selectedRows.size: ${selectedRows.size}, hoveredRowIndex: ${hoveredRowIndex}, isSelected: ${isInSelectedRange}`
+      );
+    }
 
     return (
       <>
@@ -1265,6 +1304,8 @@ const MemoizedTableRow = React.memo(
             isInSelectedRange &&
               "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
+          onMouseEnter={() => onRowMouseEnter(rowIndex)}
+          onMouseLeave={onRowMouseLeave}
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
             <div className="flex items-start gap-2">
@@ -1465,6 +1506,8 @@ const MemoizedTableRow = React.memo(
             isInSelectedRange &&
               "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
+          onMouseEnter={() => onRowMouseEnter(rowIndex)}
+          onMouseLeave={onRowMouseLeave}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
             {syncStatus === "pending" && (
@@ -1492,6 +1535,7 @@ const MemoizedTableRow = React.memo(
             rowIndex={rowIndex}
             selectedCell={selectedCell}
             selectedRows={selectedRows}
+            shouldShowCheckbox={shouldShowCheckbox}
             onSelectCell={onSelectCell}
             onCheckboxToggle={onCheckboxToggle}
           />
@@ -1645,6 +1689,10 @@ const MemoizedTableRow = React.memo(
     const prevIsSelected = prevProps.selectedRows.has(prevProps.rowIndex);
     const nextIsSelected = nextProps.selectedRows.has(nextProps.rowIndex);
 
+    // Check if this row's hover state changed (for checkbox visibility)
+    const prevIsHovered = prevProps.hoveredRowIndex === prevProps.rowIndex;
+    const nextIsHovered = nextProps.hoveredRowIndex === nextProps.rowIndex;
+
     // If this row's selection state changed (selected/unselected), we need to rerender
     if (prevSelectedInThisRow !== nextSelectedInThisRow) {
       return false; // Rerender
@@ -1653,6 +1701,34 @@ const MemoizedTableRow = React.memo(
     // If this row's checkbox selection state changed, we need to rerender
     if (prevIsSelected !== nextIsSelected) {
       return false; // Rerender
+    }
+
+    // Check if selectedRows.size crossed the 0 threshold (affects checkbox visibility)
+    // Only rerender if this would change shouldShowCheckbox for this row
+    const prevHasSelection = prevProps.selectedRows.size > 0;
+    const nextHasSelection = nextProps.selectedRows.size > 0;
+
+    // Calculate shouldShowCheckbox for both states (using prevIsHovered/nextIsHovered defined above)
+    const prevShouldShow = prevHasSelection || prevIsHovered;
+    const nextShouldShow = nextHasSelection || nextIsHovered;
+
+    if (prevShouldShow !== nextShouldShow) {
+      // Checkbox visibility changed for this row
+      console.log(
+        `[Memo] Row ${prevProps.rowIndex} rerendering: shouldShowCheckbox changed (${prevShouldShow} -> ${nextShouldShow}), selectedRows.size: ${prevProps.selectedRows.size} -> ${nextProps.selectedRows.size}, hovered: ${prevIsHovered} -> ${nextIsHovered}`
+      );
+      return false; // Rerender
+    }
+
+    // If this row's hover state changed (and no rows are selected), we need to rerender for checkbox visibility
+    // Only check hover if no rows are selected (when rows are selected, all checkboxes are visible)
+    if (
+      prevProps.selectedRows.size === 0 ||
+      nextProps.selectedRows.size === 0
+    ) {
+      if (prevIsHovered !== nextIsHovered) {
+        return false; // Rerender
+      }
     }
 
     // If this row is currently selected, check if the selected cell within the row changed
@@ -2010,7 +2086,39 @@ export function TimeTrackerTable({
   // Keep ref in sync with state
   React.useEffect(() => {
     selectedRowsRef.current = selectedRows;
+    console.log(
+      `[selectedRows State] Size: ${selectedRows.size}, Values: [${Array.from(
+        selectedRows
+      ).join(", ")}]`
+    );
   }, [selectedRows]);
+
+  // Hover state for showing checkboxes
+  const [hoveredRowIndex, setHoveredRowIndex] = React.useState<number | null>(
+    null
+  );
+
+  // Clear hover state when rows are selected (checkboxes are now always visible)
+  React.useEffect(() => {
+    if (selectedRows.size > 0) {
+      setHoveredRowIndex(null);
+    }
+  }, [selectedRows.size]);
+
+  // Debug: Log checkbox visibility state
+  React.useEffect(() => {
+    const totalRows = decryptedEntries.length;
+    // If any rows are selected, all checkboxes are visible
+    // Otherwise, only the hovered row's checkbox is visible (if any)
+    const boxesShown =
+      selectedRows.size > 0 ? totalRows : hoveredRowIndex !== null ? 1 : 0;
+
+    console.log(
+      `[Checkbox Visibility] Boxes shown: ${boxesShown}, Total boxes: ${totalRows}, Selected rows: ${
+        selectedRows.size
+      }, Hovered row: ${hoveredRowIndex ?? "none"}`
+    );
+  }, [decryptedEntries.length, selectedRows.size, hoveredRowIndex]);
 
   // Track last selection direction for toggle behavior
   const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
@@ -2103,7 +2211,7 @@ export function TimeTrackerTable({
       const state = { apiCallStarted: false };
       const toastId: string | number | undefined = toast(message, {
         action: {
-          label: "Undo (U)",
+          label: "Undo (Z)",
           onClick: () => {
             toastDismissed = true;
             // Clear retry function since user is undoing
@@ -3302,7 +3410,7 @@ export function TimeTrackerTable({
         }`,
         {
           action: {
-            label: "Undo (U)",
+            label: "Undo (Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -3329,7 +3437,7 @@ export function TimeTrackerTable({
         }
       );
 
-      // Queue all delete API calls
+      // Queue all delete API calls with rate limiting
       setTimeout(async () => {
         if (toastDismissed) {
           return;
@@ -3337,7 +3445,12 @@ export function TimeTrackerTable({
 
         state.apiCallStarted = true;
         const sessionToken = localStorage.getItem("toggl_session_token");
-        const deletePromises = entriesToDelete.map(async (entry) => {
+        const errors: string[] = [];
+
+        // Execute API calls sequentially with delay to avoid rate limiting
+        for (let i = 0; i < entriesToDelete.length; i++) {
+          const entry = entriesToDelete[i];
+
           try {
             const response = await fetch(`/api/time-entries/${entry.id}`, {
               method: "DELETE",
@@ -3353,33 +3466,32 @@ export function TimeTrackerTable({
                 errorText,
                 entryId: entry.id,
               });
-              throw new Error(`Failed to delete entry ${entry.id}`);
+              errors.push(`Failed to delete entry ${entry.id}`);
             }
           } catch (error) {
             console.error(
               `[handleDeleteMultiple] Error deleting entry ${entry.id}:`,
               error
             );
-            throw error;
+            errors.push(`Error deleting entry ${entry.id}`);
           }
-        });
 
-        try {
-          await Promise.all(deletePromises);
-          // Dismiss the toast now that API succeeded
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
+          // Add delay between requests to avoid rate limiting (except after last request)
+          if (i < entriesToDelete.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
-        } catch (error) {
-          // Dismiss the update toast and show error toast
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
-          }
-          const errorMessage =
-            error instanceof Error
-              ? error.message
-              : "Failed to delete some entries";
-          toast.error(errorMessage);
+        }
+
+        // Dismiss the toast now that API calls are complete
+        if (toastId !== undefined) {
+          toast.dismiss(toastId);
+        }
+
+        // Show error if any failed
+        if (errors.length > 0) {
+          toast.error(
+            `Failed to delete ${errors.length} of ${entriesToDelete.length} entries`
+          );
         }
       }, toastDuration);
 
@@ -3476,7 +3588,7 @@ export function TimeTrackerTable({
         }`,
         {
           action: {
-            label: "Undo (U)",
+            label: "Undo (Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -3503,7 +3615,7 @@ export function TimeTrackerTable({
         }
       );
 
-      // Queue all tag update API calls
+      // Queue all tag update API calls with rate limiting
       setTimeout(async () => {
         if (toastDismissed) {
           return;
@@ -3511,7 +3623,12 @@ export function TimeTrackerTable({
 
         state.apiCallStarted = true;
         const sessionToken = localStorage.getItem("toggl_session_token");
-        const updatePromises = entriesToUpdate.map(async (entry) => {
+        const errors: string[] = [];
+
+        // Execute API calls sequentially with delay to avoid rate limiting
+        for (let i = 0; i < entriesToUpdate.length; i++) {
+          const entry = entriesToUpdate[i];
+
           try {
             const currentTags = entry.tags || [];
             const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
@@ -3532,31 +3649,32 @@ export function TimeTrackerTable({
                 errorText,
                 entryId: entry.id,
               });
-              throw new Error(`Failed to update entry ${entry.id}`);
+              errors.push(`Failed to update entry ${entry.id}`);
             }
           } catch (error) {
             console.error(
               `[handleAddTagsToMultiple] Error updating entry ${entry.id}:`,
               error
             );
-            throw error;
+            errors.push(`Error updating entry ${entry.id}`);
           }
-        });
 
-        try {
-          await Promise.all(updatePromises);
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
+          // Add delay between requests to avoid rate limiting (except after last request)
+          if (i < entriesToUpdate.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
-        } catch (error) {
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
-          }
-          const errorMessage =
-            error instanceof Error
-              ? error.message
-              : "Failed to add tags to some entries";
-          toast.error(errorMessage);
+        }
+
+        // Dismiss the toast now that API calls are complete
+        if (toastId !== undefined) {
+          toast.dismiss(toastId);
+        }
+
+        // Show error if any failed
+        if (errors.length > 0) {
+          toast.error(
+            `Failed to add tags to ${errors.length} of ${entriesToUpdate.length} entries`
+          );
         }
       }, toastDuration);
     },
@@ -3623,7 +3741,7 @@ export function TimeTrackerTable({
         }`,
         {
           action: {
-            label: "Undo (U)",
+            label: "Undo (Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -3650,7 +3768,7 @@ export function TimeTrackerTable({
         }
       );
 
-      // Queue all project update API calls
+      // Queue all project update API calls with rate limiting
       setTimeout(async () => {
         if (toastDismissed) {
           return;
@@ -3658,7 +3776,12 @@ export function TimeTrackerTable({
 
         state.apiCallStarted = true;
         const sessionToken = localStorage.getItem("toggl_session_token");
-        const updatePromises = entriesToUpdate.map(async (entry) => {
+        const errors: string[] = [];
+
+        // Execute API calls sequentially with delay to avoid rate limiting
+        for (let i = 0; i < entriesToUpdate.length; i++) {
+          const entry = entriesToUpdate[i];
+
           try {
             const response = await fetch(`/api/time-entries/${entry.id}`, {
               method: "PATCH",
@@ -3676,31 +3799,32 @@ export function TimeTrackerTable({
                 errorText,
                 entryId: entry.id,
               });
-              throw new Error(`Failed to update entry ${entry.id}`);
+              errors.push(`Failed to update entry ${entry.id}`);
             }
           } catch (error) {
             console.error(
               `[handleSetProjectToMultiple] Error updating entry ${entry.id}:`,
               error
             );
-            throw error;
+            errors.push(`Error updating entry ${entry.id}`);
           }
-        });
 
-        try {
-          await Promise.all(updatePromises);
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
+          // Add delay between requests to avoid rate limiting (except after last request)
+          if (i < entriesToUpdate.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
-        } catch (error) {
-          if (toastId !== undefined) {
-            toast.dismiss(toastId);
-          }
-          const errorMessage =
-            error instanceof Error
-              ? error.message
-              : "Failed to set project for some entries";
-          toast.error(errorMessage);
+        }
+
+        // Dismiss the toast now that API calls are complete
+        if (toastId !== undefined) {
+          toast.dismiss(toastId);
+        }
+
+        // Show error if any failed
+        if (errors.length > 0) {
+          toast.error(
+            `Failed to set project for ${errors.length} of ${entriesToUpdate.length} entries`
+          );
         }
       }, toastDuration);
     },
@@ -3832,7 +3956,7 @@ export function TimeTrackerTable({
           : `Extended to ${format(new Date(newStop), "h:mm a")}`,
         duration: 5000,
         action: {
-          label: "Undo",
+          label: "Undo (Z)",
           onClick: () => {
             setTimeEntries(originalEntries);
             toast.dismiss(toastId);
@@ -3841,64 +3965,119 @@ export function TimeTrackerTable({
         },
       });
 
-      const sessionToken = localStorage.getItem("toggl_session_token");
+      // Execute API calls with rate limiting
+      setTimeout(async () => {
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const errors: string[] = [];
 
-      // Make API calls to delete entries and update the earliest
-      const deletePromises = entriesToDelete.map((entry) =>
-        fetch(`/api/time-entries/${entry.id}`, {
-          method: "DELETE",
-          headers: {
-            "x-toggl-session-token": sessionToken || "",
-          },
-        })
-      );
+        try {
+          // Step 1: Delete all entries except the earliest, with rate limiting
+          for (let i = 0; i < entriesToDelete.length; i++) {
+            const entry = entriesToDelete[i];
 
-      const updatePromise = fetch(`/api/time-entries/${earliestEntry.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-toggl-session-token": sessionToken || "",
-        },
-        body: JSON.stringify({
-          stop: newStop || null,
-          duration: newDuration,
-        }),
-      });
+            try {
+              const response = await fetch(`/api/time-entries/${entry.id}`, {
+                method: "DELETE",
+                headers: {
+                  "x-toggl-session-token": sessionToken || "",
+                },
+              });
 
-      Promise.all([...deletePromises, updatePromise])
-        .then(async (responses) => {
-          const allSuccessful = responses.every((r) => r.ok);
-          if (!allSuccessful) {
-            throw new Error("Some operations failed");
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[handleCombineMultiple] ❌ DELETE FAILED:`, {
+                  status: response.status,
+                  errorText,
+                  entryId: entry.id,
+                });
+                errors.push(`Failed to delete entry ${entry.id}`);
+              }
+            } catch (error) {
+              console.error(
+                `[handleCombineMultiple] Error deleting entry ${entry.id}:`,
+                error
+              );
+              errors.push(`Error deleting entry ${entry.id}`);
+            }
+
+            // Add delay between requests (except after last one)
+            if (i < entriesToDelete.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 300));
+            }
           }
 
-          // Update the earliest entry with server response
-          const updateResponse = responses[responses.length - 1];
-          const updatedData = await updateResponse.json();
+          // Add delay before the update request if we deleted any entries
+          if (entriesToDelete.length > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          }
 
-          setTimeEntries((currentEntries) =>
-            currentEntries.map((e) =>
-              e.id === earliestEntry.id
-                ? {
-                    ...e,
-                    stop: updatedData.stop,
-                    duration: updatedData.duration,
-                    syncStatus: undefined,
-                  }
-                : e
-            )
-          );
+          // Step 2: Update the earliest entry
+          try {
+            const updateResponse = await fetch(
+              `/api/time-entries/${earliestEntry.id}`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  stop: newStop || null,
+                  duration: newDuration,
+                }),
+              }
+            );
 
-          toast.dismiss(toastId);
-          toast.success(`Combined ${entries.length} entries successfully`);
-        })
-        .catch((error) => {
+            if (!updateResponse.ok) {
+              const errorText = await updateResponse.text();
+              console.error(`[handleCombineMultiple] ❌ UPDATE FAILED:`, {
+                status: updateResponse.status,
+                errorText,
+                entryId: earliestEntry.id,
+              });
+              throw new Error("Failed to update earliest entry");
+            }
+
+            const updatedData = await updateResponse.json();
+
+            // Update the earliest entry with server response
+            setTimeEntries((currentEntries) =>
+              currentEntries.map((e) =>
+                e.id === earliestEntry.id
+                  ? {
+                      ...e,
+                      stop: updatedData.stop,
+                      duration: updatedData.duration,
+                      syncStatus: undefined,
+                    }
+                  : e
+              )
+            );
+
+            toast.dismiss(toastId);
+
+            if (errors.length > 0) {
+              toast.error(
+                `Failed to delete ${errors.length} of ${entriesToDelete.length} entries`
+              );
+            } else {
+              toast.success(`Combined ${entries.length} entries successfully`);
+            }
+          } catch (error) {
+            console.error("Failed to update earliest entry:", error);
+            toast.dismiss(toastId);
+            toast.error("Failed to combine entries. Reverting changes.");
+            setTimeEntries(originalEntries);
+          }
+        } catch (error) {
           console.error("Failed to combine entries:", error);
+          toast.dismiss(toastId);
           toast.error("Failed to combine entries. Reverting changes.");
           setTimeEntries(originalEntries);
-        });
+        }
+      }, toastDuration);
     },
-    [lastSelectionDirectionRef]
+    [toastDuration]
   );
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
@@ -5508,6 +5687,21 @@ export function TimeTrackerTable({
     [] // No dependencies - uses ref to read current value
   );
 
+  // Hover handlers for checkbox visibility
+  const handleRowMouseEnter = React.useCallback((rowIndex: number) => {
+    // Only set hover if no rows are selected (checkboxes aren't already visible)
+    if (selectedRowsRef.current.size === 0) {
+      setHoveredRowIndex(rowIndex);
+    }
+  }, []);
+
+  const handleRowMouseLeave = React.useCallback(() => {
+    // Only clear hover if no rows are selected
+    if (selectedRowsRef.current.size === 0) {
+      setHoveredRowIndex(null);
+    }
+  }, []);
+
   // Select all rows
   const handleSelectAll = React.useCallback(() => {
     if (decryptedEntries.length > 0) {
@@ -5667,7 +5861,7 @@ export function TimeTrackerTable({
         return;
       }
 
-      if (e.key.toLowerCase() === "u" && !isInInput) {
+      if (e.key.toLowerCase() === "z" && !isInInput) {
         e.preventDefault();
         triggerUndo();
         return;
@@ -6328,6 +6522,7 @@ export function TimeTrackerTable({
     handleSelectAllUp,
     handleSelectAllDown,
     handleCheckboxToggle,
+    handleCombineClick,
     multiSelectMenuOpen,
     setShowPinnedEntriesValue,
   ]);
@@ -6558,65 +6753,88 @@ export function TimeTrackerTable({
           onNewTimer={handlePinnedNewTimer}
           onNewEntry={handlePinnedNewEntry}
         />
-        {selectedRows.size > 0 && (
-          <div
-            className={cn(
-              "sticky top-0 z-10 flex justify-center items-center gap-4 mb-4 py-2 bg-background/95 backdrop-blur-sm border-b",
-              isFullscreen ? "-mx-4 px-4" : "-mx-6 px-6"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
-                {selectedRows.size} selected
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setMultiSelectMenuOpen(true)}
-                className="h-8"
-              >
-                Actions (⌘K)
-              </Button>
-            </div>
-          </div>
-        )}
         <div className="mb-4">
-          {/* Desktop layout - single row */}
-          <MemoizedDatePickerRow
-            date={date}
-            setDate={setDate}
-            syncStatus={syncStatus}
-            hasLoadedMoreEntries={hasLoadedMoreEntries}
-            lastSyncTime={lastSyncTime}
-            handleReauthenticate={handleReauthenticate}
-            fetchData={fetchData}
-            encryption={encryption}
-            handleLockEncryption={handleLockEncryption}
-            handleUnlockEncryption={handleUnlockEncryption}
-            isFullscreen={isFullscreen}
-            isTransitioning={isTransitioning}
-            handleFullscreenToggle={handleFullscreenToggle}
-            handleNewEntryClick={handleNewEntryClick}
-          />
+          {selectedRows.size > 0 ? (
+            <>
+              {/* Desktop selected bar */}
+              <div
+                className={cn(
+                  "hidden md:flex sticky top-0 z-10 justify-center items-center gap-4 mt-6 bg-background/95 backdrop-blur-sm border-b",
+                  isFullscreen ? "-mx-4 px-4" : "-mx-6 px-6"
+                )}
+                style={{ minHeight: "36px" }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {selectedRows.size} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMultiSelectMenuOpen(true)}
+                    className="h-9"
+                  >
+                    Actions (⌘K)
+                  </Button>
+                </div>
+              </div>
+              {/* Mobile selected bar */}
+              <div className="md:hidden flex justify-center items-center gap-4 mt-6 py-3 bg-background/95 backdrop-blur-sm border-b">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {selectedRows.size} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMultiSelectMenuOpen(true)}
+                    className="h-9"
+                  >
+                    Actions (⌘K)
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Desktop layout - single row */}
+              <MemoizedDatePickerRow
+                date={date}
+                setDate={setDate}
+                syncStatus={syncStatus}
+                hasLoadedMoreEntries={hasLoadedMoreEntries}
+                lastSyncTime={lastSyncTime}
+                handleReauthenticate={handleReauthenticate}
+                fetchData={fetchData}
+                encryption={encryption}
+                handleLockEncryption={handleLockEncryption}
+                handleUnlockEncryption={handleUnlockEncryption}
+                isFullscreen={isFullscreen}
+                isTransitioning={isTransitioning}
+                handleFullscreenToggle={handleFullscreenToggle}
+                handleNewEntryClick={handleNewEntryClick}
+              />
 
-          {/* Mobile layout - two rows */}
-          <div className="md:hidden space-y-3">
-            <MemoizedMobileDatePickerRow date={date} setDate={setDate} />
-            <MemoizedMobileButtonsRow
-              syncStatus={syncStatus}
-              hasLoadedMoreEntries={hasLoadedMoreEntries}
-              lastSyncTime={lastSyncTime}
-              handleReauthenticate={handleReauthenticate}
-              fetchData={fetchData}
-              encryption={encryption}
-              handleLockEncryption={handleLockEncryption}
-              handleUnlockEncryption={handleUnlockEncryption}
-              isFullscreen={isFullscreen}
-              isTransitioning={isTransitioning}
-              handleFullscreenToggle={handleFullscreenToggle}
-              handleNewEntryClick={handleNewEntryClick}
-            />
-          </div>
+              {/* Mobile layout - two rows */}
+              <div className="md:hidden space-y-3">
+                <MemoizedMobileDatePickerRow date={date} setDate={setDate} />
+                <MemoizedMobileButtonsRow
+                  syncStatus={syncStatus}
+                  hasLoadedMoreEntries={hasLoadedMoreEntries}
+                  lastSyncTime={lastSyncTime}
+                  handleReauthenticate={handleReauthenticate}
+                  fetchData={fetchData}
+                  encryption={encryption}
+                  handleLockEncryption={handleLockEncryption}
+                  handleUnlockEncryption={handleUnlockEncryption}
+                  isFullscreen={isFullscreen}
+                  isTransitioning={isTransitioning}
+                  handleFullscreenToggle={handleFullscreenToggle}
+                  handleNewEntryClick={handleNewEntryClick}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {loading ? (
@@ -6670,8 +6888,11 @@ export function TimeTrackerTable({
                       nextEntryStart={nextEntry?.start || null}
                       selectedCell={selectedCell}
                       selectedRows={selectedRows}
+                      hoveredRowIndex={hoveredRowIndex}
                       onSelectCell={handleSelectCell}
                       onCheckboxToggle={handleCheckboxToggle}
+                      onRowMouseEnter={handleRowMouseEnter}
+                      onRowMouseLeave={handleRowMouseLeave}
                       onDescriptionSave={handleDescriptionSave}
                       onProjectChange={handleProjectChange}
                       onTagsChange={handleTagsChange}
