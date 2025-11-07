@@ -450,12 +450,6 @@ const MemoizedCheckboxCell = React.memo(
       prevIsInSelectedRange !== nextIsInSelectedRange ||
       prevProps.shouldShowCheckbox !== nextProps.shouldShowCheckbox;
 
-    if (prevProps.shouldShowCheckbox !== nextProps.shouldShowCheckbox) {
-      console.log(
-        `[Memo CheckboxCell] Row ${prevProps.rowIndex} shouldShowCheckbox changed: ${prevProps.shouldShowCheckbox} -> ${nextProps.shouldShowCheckbox}, will rerender: ${shouldRerender}`
-      );
-    }
-
     return !shouldRerender;
   }
 );
@@ -1037,11 +1031,6 @@ const MemoizedTableHeaderRow = React.memo(
     // Only show header checkbox when at least one row is selected
     const shouldShowHeaderCheckbox = selectedRows.size > 0;
 
-    // Debug: Log header checkbox visibility
-    console.log(
-      `[Header Checkbox] shouldShowHeaderCheckbox: ${shouldShowHeaderCheckbox}, selectedRows.size: ${selectedRows.size}, totalRows: ${decryptedEntriesLength}`
-    );
-
     return (
       <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
         <TableHead className="px-2 w-8"></TableHead>
@@ -1271,26 +1260,12 @@ const MemoizedTableRow = React.memo(
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
   }) {
-    // Debug: Log when component renders (only rows 1-3)
-    if (rowIndex >= 1 && rowIndex <= 3) {
-      console.log(
-        `[TableRow] Rendering row ${rowIndex}, entry ID: ${entry.id}`
-      );
-    }
-
     // Check if this row is selected (use Set for accurate non-contiguous selection)
     const isInSelectedRange = selectedRows.has(rowIndex);
 
     // Show checkbox if: any rows are selected OR this row is being hovered
     const shouldShowCheckbox =
       selectedRows.size > 0 || hoveredRowIndex === rowIndex;
-
-    // Debug: Log checkbox visibility for first few rows
-    if (rowIndex < 3) {
-      console.log(
-        `[Row ${rowIndex}] shouldShowCheckbox: ${shouldShowCheckbox}, selectedRows.size: ${selectedRows.size}, hoveredRowIndex: ${hoveredRowIndex}, isSelected: ${isInSelectedRange}`
-      );
-    }
 
     return (
       <>
@@ -1714,9 +1689,6 @@ const MemoizedTableRow = React.memo(
 
     if (prevShouldShow !== nextShouldShow) {
       // Checkbox visibility changed for this row
-      console.log(
-        `[Memo] Row ${prevProps.rowIndex} rerendering: shouldShowCheckbox changed (${prevShouldShow} -> ${nextShouldShow}), selectedRows.size: ${prevProps.selectedRows.size} -> ${nextProps.selectedRows.size}, hovered: ${prevIsHovered} -> ${nextIsHovered}`
-      );
       return false; // Rerender
     }
 
@@ -2086,11 +2058,6 @@ export function TimeTrackerTable({
   // Keep ref in sync with state
   React.useEffect(() => {
     selectedRowsRef.current = selectedRows;
-    console.log(
-      `[selectedRows State] Size: ${selectedRows.size}, Values: [${Array.from(
-        selectedRows
-      ).join(", ")}]`
-    );
   }, [selectedRows]);
 
   // Hover state for showing checkboxes
@@ -2104,21 +2071,6 @@ export function TimeTrackerTable({
       setHoveredRowIndex(null);
     }
   }, [selectedRows.size]);
-
-  // Debug: Log checkbox visibility state
-  React.useEffect(() => {
-    const totalRows = decryptedEntries.length;
-    // If any rows are selected, all checkboxes are visible
-    // Otherwise, only the hovered row's checkbox is visible (if any)
-    const boxesShown =
-      selectedRows.size > 0 ? totalRows : hoveredRowIndex !== null ? 1 : 0;
-
-    console.log(
-      `[Checkbox Visibility] Boxes shown: ${boxesShown}, Total boxes: ${totalRows}, Selected rows: ${
-        selectedRows.size
-      }, Hovered row: ${hoveredRowIndex ?? "none"}`
-    );
-  }, [decryptedEntries.length, selectedRows.size, hoveredRowIndex]);
 
   // Track last selection direction for toggle behavior
   const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
@@ -5954,6 +5906,7 @@ export function TimeTrackerTable({
       }
 
       // Don't handle navigation keys if any dialog is open
+      // Exception: allow action shortcuts (d, x, c, s, p) to work even when dialogs are open
       const anyDialogOpen =
         deleteDialogOpen ||
         splitDialogOpen ||
@@ -5963,7 +5916,7 @@ export function TimeTrackerTable({
         splitDialogOpenRef.current ||
         combineDialogOpenRef.current;
 
-      if (anyDialogOpen) {
+      if (anyDialogOpen && !isActionShortcut) {
         return;
       }
 
@@ -5982,10 +5935,12 @@ export function TimeTrackerTable({
           console.log("🔽 SHIFT+DOWN:");
           console.log("  Current Row:", currentRow);
           console.log("  Last Direction:", lastDirection);
+          console.log("  Selected Cell:", selectedCell);
           console.log(
             "  Rows BEFORE:",
             Array.from(prevRows).sort((a, b) => a - b)
           );
+          console.log("  newRows.size BEFORE logic:", newRows.size);
 
           // If no selection, start with current row
           if (newRows.size === 0 && selectedCell) {
@@ -5993,17 +5948,42 @@ export function TimeTrackerTable({
             newRows.add(currentRow);
           }
 
+          console.log("  newRows.size AFTER initial check:", newRows.size);
+          console.log("  Current row in newRows?", newRows.has(currentRow));
+
+          // Ensure current row is in selection (important when changing direction)
+          if (!newRows.has(currentRow) && selectedCell) {
+            console.log(
+              "  🔧 Current row not in selection, adding it:",
+              currentRow
+            );
+            newRows.add(currentRow);
+          }
+
           // Move down and add next row
           if (currentRow < maxRow) {
             const nextRow = currentRow + 1;
 
-            // If direction changed from up to down, deselect the current row (unwinding)
+            // If direction changed from up to down, we need to handle unwinding
             if (lastDirection === "up") {
+              // Only deselect current row if there are multiple rows selected (unwinding)
+              // If only one row is selected, keep it as the anchor point
               console.log(
-                "  ⚠️ Direction changed! Deleting current row:",
-                currentRow
+                "  🔍 Checking direction change - newRows.size:",
+                newRows.size
               );
-              newRows.delete(currentRow);
+              if (newRows.size > 1) {
+                console.log(
+                  "  ⚠️ Direction changed! Multiple rows selected, deleting current row:",
+                  currentRow
+                );
+                newRows.delete(currentRow);
+              } else {
+                console.log(
+                  "  ⚠️ Direction changed! Single row selected, keeping as anchor:",
+                  currentRow
+                );
+              }
             }
 
             // If continuing down and next row is already selected, deselect current row
@@ -6060,17 +6040,39 @@ export function TimeTrackerTable({
             newRows.add(currentRow);
           }
 
+          // Ensure current row is in selection (important when changing direction)
+          if (!newRows.has(currentRow) && selectedCell) {
+            console.log(
+              "  🔧 Current row not in selection, adding it:",
+              currentRow
+            );
+            newRows.add(currentRow);
+          }
+
           // Move up and add next row
           if (currentRow > 0) {
             const nextRow = currentRow - 1;
 
-            // If direction changed from down to up, deselect the current row (unwinding)
+            // If direction changed from down to up, we need to handle unwinding
             if (lastDirection === "down") {
+              // Only deselect current row if there are multiple rows selected (unwinding)
+              // If only one row is selected, keep it as the anchor point
               console.log(
-                "  ⚠️ Direction changed! Deleting current row:",
-                currentRow
+                "  🔍 Checking direction change - newRows.size:",
+                newRows.size
               );
-              newRows.delete(currentRow);
+              if (newRows.size > 1) {
+                console.log(
+                  "  ⚠️ Direction changed! Multiple rows selected, deleting current row:",
+                  currentRow
+                );
+                newRows.delete(currentRow);
+              } else {
+                console.log(
+                  "  ⚠️ Direction changed! Single row selected, keeping as anchor:",
+                  currentRow
+                );
+              }
             }
 
             // If continuing up and next row is already selected, deselect current row
@@ -6473,6 +6475,20 @@ export function TimeTrackerTable({
             }
           }
           break;
+
+        case "x":
+          e.preventDefault();
+          // Don't allow split if split dialog is already open
+          if (splitDialogOpen || splitDialogOpenRef.current) {
+            break;
+          }
+          if (selectedCell) {
+            const entry = decryptedEntries[selectedCell.rowIndex];
+            if (entry) {
+              handleSplit(entry);
+            }
+          }
+          break;
       }
     };
 
@@ -6759,12 +6775,12 @@ export function TimeTrackerTable({
               {/* Desktop selected bar */}
               <div
                 className={cn(
-                  "hidden md:flex sticky top-0 z-10 justify-center items-center gap-4 mt-6 bg-background/95 backdrop-blur-sm border-b",
+                  "hidden md:flex sticky top-0 z-10 justify-center items-center gap-4 mt-3 bg-background/95 backdrop-blur-sm border-b",
                   isFullscreen ? "-mx-4 px-4" : "-mx-6 px-6"
                 )}
                 style={{ minHeight: "36px" }}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-3">
                   <span className="text-sm text-muted-foreground">
                     {selectedRows.size} selected
                   </span>
