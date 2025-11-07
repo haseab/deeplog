@@ -35,6 +35,13 @@ import { SyncStatusBadge } from "./sync-status-badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -60,16 +67,1047 @@ import {
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
+import { AddTagConfirmationDialog } from "./add-tag-confirmation-dialog";
+import { CombineConfirmationDialog } from "./combine-confirmation-dialog";
 import { CombineEntryDialog } from "./combine-entry-dialog";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
+import { DeleteMultipleConfirmationDialog } from "./delete-multiple-confirmation-dialog";
 import { DurationEditor } from "./duration-editor";
 import { EncryptionStatus } from "./encryption-status";
 import { ExpandableDescription } from "./expandable-description";
 import { PinDialog } from "./pin-dialog";
 import { ProjectSelector } from "./project-selector";
+import { SetProjectConfirmationDialog } from "./set-project-confirmation-dialog";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
 import { TimeEditor } from "./time-editor";
+import type {
+  MemoizedActionsCellProps,
+  MemoizedCheckboxCellProps,
+  MemoizedDateCellProps,
+  MemoizedDatePickerRowProps,
+  MemoizedDescriptionCellProps,
+  MemoizedDurationCellProps,
+  MemoizedMobileButtonsRowProps,
+  MemoizedMobileDatePickerRowProps,
+  MemoizedProjectCellProps,
+  MemoizedTableHeaderRowProps,
+  MemoizedTagCellProps,
+  MemoizedTimeCellProps,
+} from "./time-tracker-table.types";
+
+// Memoized components to prevent unnecessary re-renders when selectedCell changes
+// These only compare data props, not callbacks (callbacks should be stable via useCallback)
+const MemoizedProjectSelector = React.memo(
+  ProjectSelector,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.currentProject === nextProps.currentProject &&
+      prevProps.currentProjectColor === nextProps.currentProjectColor &&
+      prevProps.projects === nextProps.projects
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedTimeEditor = React.memo(TimeEditor, (prevProps, nextProps) => {
+  return (
+    prevProps.startTime === nextProps.startTime &&
+    prevProps.endTime === nextProps.endTime &&
+    prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+    prevProps.nextEntryStart === nextProps.nextEntryStart
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
+const MemoizedTagSelector = React.memo(TagSelector, (prevProps, nextProps) => {
+  // Compare tags arrays deeply
+  const tagsEqual =
+    prevProps.currentTags.length === nextProps.currentTags.length &&
+    prevProps.currentTags.every((tag, i) => tag === nextProps.currentTags[i]);
+
+  return (
+    tagsEqual && prevProps.availableTags === nextProps.availableTags
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
+const MemoizedExpandableDescription = React.memo(
+  ExpandableDescription,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.description === nextProps.description &&
+      prevProps.projects === nextProps.projects &&
+      prevProps.availableTags === nextProps.availableTags
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedDurationEditor = React.memo(
+  DurationEditor,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.duration === nextProps.duration &&
+      prevProps.startTime === nextProps.startTime &&
+      prevProps.endTime === nextProps.endTime
+      // Callbacks are intentionally not compared - they should be stable via useCallback
+    );
+  }
+);
+
+const MemoizedActionsMenu = React.memo(ActionsMenu, (prevProps, nextProps) => {
+  return (
+    prevProps.isPinned === nextProps.isPinned &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isRunning === nextProps.isRunning
+    // Callbacks are intentionally not compared - they should be stable via useCallback
+  );
+});
+
+// Memoized TableCell wrappers to prevent cell re-renders when only selectedCell changes for other cells
+const MemoizedProjectCell = React.memo(
+  function MemoizedProjectCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onProjectChange,
+    projects,
+    setIsProjectSelectorOpen,
+    navigateToNextCell,
+    navigateToPrevCell,
+    navigateToNextRow,
+    onProjectCreated,
+  }: MemoizedProjectCellProps) {
+    const cellIndex = isFullscreen ? 1 : 2;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedProjectSelector
+          currentProject={entry.project_name || ""}
+          currentProjectColor={entry.project_color}
+          onProjectChange={(newProject) =>
+            onProjectChange(entry.id)(newProject)
+          }
+          projects={projects}
+          onOpenChange={setIsProjectSelectorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigatePrev={navigateToPrevCell}
+          onNavigateDown={navigateToNextRow}
+          onProjectCreated={onProjectCreated}
+          data-testid="project-selector"
+        />
+      </TableCell>
+    );
+  },
+  (
+    prevProps: MemoizedProjectCellProps,
+    nextProps: MemoizedProjectCellProps
+  ) => {
+    const prevCellIndex = prevProps.isFullscreen ? 1 : 2;
+    const nextCellIndex = nextProps.isFullscreen ? 1 : 2;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === prevCellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === nextCellIndex;
+
+    return (
+      prevProps.entry.project_name === nextProps.entry.project_name &&
+      prevProps.entry.project_color === nextProps.entry.project_color &&
+      prevProps.projects === nextProps.projects &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedTagCell = React.memo(
+  function MemoizedTagCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onTagsChange,
+    availableTags,
+    setIsTagSelectorOpen,
+    navigateToNextCell,
+    navigateToPrevCell,
+    onTagCreated,
+  }: MemoizedTagCellProps) {
+    const cellIndex = isFullscreen ? 3 : 3;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedTagSelector
+          currentTags={entry.tags || []}
+          onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
+          availableTags={availableTags}
+          onOpenChange={setIsTagSelectorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigatePrev={navigateToPrevCell}
+          onTagCreated={onTagCreated}
+          data-testid="tag-selector"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: MemoizedTagCellProps, nextProps: MemoizedTagCellProps) => {
+    const cellIndex = 3;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    const tagsEqual =
+      prevProps.entry.tags.length === nextProps.entry.tags.length &&
+      prevProps.entry.tags.every(
+        (tag: string, i: number) => tag === nextProps.entry.tags[i]
+      );
+
+    return (
+      tagsEqual &&
+      prevProps.availableTags === nextProps.availableTags &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedDescriptionCell = React.memo(
+  function MemoizedDescriptionCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isFullscreen,
+    onSelectCell,
+    onDescriptionSave,
+    setIsEditingCell,
+    navigateToNextCell,
+    projects,
+    availableTags,
+    onBulkEntryUpdateByRowIndex,
+  }: MemoizedDescriptionCellProps) {
+    const cellIndex = isFullscreen ? 2 : 1;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-2 pl-2 cursor-pointer description-cell",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedExpandableDescription
+          description={entry.description || ""}
+          onSave={(newDescription) =>
+            onDescriptionSave(entry.id)(newDescription)
+          }
+          onEditingChange={setIsEditingCell}
+          onNavigateNext={navigateToNextCell}
+          projects={projects}
+          availableTags={availableTags}
+          onRecentTimerSelect={(selected) => {
+            incrementTimerUsage(
+              selected.description,
+              selected.projectId,
+              selected.tagIds
+            );
+
+            const tagNames = availableTags
+              .filter((tag) => selected.tagIds.includes(tag.id))
+              .map((tag) => tag.name);
+
+            const project = projects.find((p) => p.id === selected.projectId);
+
+            onBulkEntryUpdateByRowIndex(entry.id)({
+              description: selected.description,
+              projectName: project?.name,
+              tags: tagNames,
+            });
+          }}
+          data-testid="expandable-description"
+        />
+      </TableCell>
+    );
+  },
+  (
+    prevProps: MemoizedDescriptionCellProps,
+    nextProps: MemoizedDescriptionCellProps
+  ) => {
+    const prevCellIndex = prevProps.isFullscreen ? 2 : 1;
+    const nextCellIndex = nextProps.isFullscreen ? 2 : 1;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === prevCellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === nextCellIndex;
+
+    return (
+      prevProps.entry.description === nextProps.entry.description &&
+      prevProps.projects === nextProps.projects &&
+      prevProps.availableTags === nextProps.availableTags &&
+      prevIsSelected === nextIsSelected &&
+      prevProps.isFullscreen === nextProps.isFullscreen
+    );
+  }
+);
+
+const MemoizedCheckboxCell = React.memo(
+  function MemoizedCheckboxCell({
+    rowIndex,
+    selectedCell,
+    selectedRows,
+    onSelectCell,
+    onCheckboxToggle,
+  }: MemoizedCheckboxCellProps) {
+    const cellIndex = -1;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+    const isInSelectedRange = selectedRows.has(rowIndex);
+
+    return (
+      <TableCell
+        className={cn(
+          "px-2 w-10 cursor-pointer",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer"
+          checked={isInSelectedRange}
+          onChange={() => {
+            // onChange doesn't have shiftKey, so we'll handle it via onClick
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCheckboxToggle(rowIndex, e.shiftKey);
+          }}
+          aria-label={`Select row ${rowIndex + 1}`}
+        />
+      </TableCell>
+    );
+  },
+  (
+    prevProps: MemoizedCheckboxCellProps,
+    nextProps: MemoizedCheckboxCellProps
+  ) => {
+    const cellIndex = -1;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    const prevIsInSelectedRange = prevProps.selectedRows.has(
+      prevProps.rowIndex
+    );
+    const nextIsInSelectedRange = nextProps.selectedRows.has(
+      nextProps.rowIndex
+    );
+
+    return (
+      prevIsSelected === nextIsSelected &&
+      prevIsInSelectedRange === nextIsInSelectedRange
+    );
+  }
+);
+
+const MemoizedDateCell = React.memo(
+  function MemoizedDateCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+  }: MemoizedDateCellProps) {
+    const cellIndex = 0;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer md:table-cell hidden",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        {format(new Date(entry.start), "yyyy-MM-dd")}
+      </TableCell>
+    );
+  },
+  (prevProps: MemoizedDateCellProps, nextProps: MemoizedDateCellProps) => {
+    const cellIndex = 0;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.start === nextProps.entry.start &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedTimeCell = React.memo(
+  function MemoizedTimeCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+    onTimeChange,
+    setIsTimeEditorOpen,
+    navigateToNextCell,
+    navigateToNextRow,
+    navigateToPrevCell,
+    prevEntryEnd,
+    nextEntryStart,
+  }: MemoizedTimeCellProps) {
+    const cellIndex = 4;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedTimeEditor
+          startTime={entry.start}
+          endTime={entry.stop}
+          onSave={(startTime, endTime) =>
+            onTimeChange(entry.id)(startTime, endTime)
+          }
+          onEditingChange={setIsTimeEditorOpen}
+          onNavigateNext={navigateToNextCell}
+          onNavigateDown={navigateToNextRow}
+          onNavigatePrev={navigateToPrevCell}
+          prevEntryEnd={prevEntryEnd}
+          nextEntryStart={nextEntryStart}
+          data-testid="time-editor"
+        />
+      </TableCell>
+    );
+  },
+  (prevProps: MemoizedTimeCellProps, nextProps: MemoizedTimeCellProps) => {
+    const cellIndex = 4;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.start === nextProps.entry.start &&
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+      prevProps.nextEntryStart === nextProps.nextEntryStart &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedDurationCell = React.memo(
+  function MemoizedDurationCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    onSelectCell,
+    onDurationChange,
+    onDurationChangeWithStartTimeAdjustment,
+    setIsEditingCell,
+    navigateToNextRow,
+  }: MemoizedDurationCellProps) {
+    const cellIndex = 5;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedDurationEditor
+          duration={entry.duration}
+          startTime={entry.start}
+          endTime={entry.stop}
+          onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
+          onSaveWithStartTimeAdjustment={(newDuration) =>
+            onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
+          }
+          onEditingChange={setIsEditingCell}
+          onNavigateDown={navigateToNextRow}
+          data-testid="duration-editor"
+        />
+      </TableCell>
+    );
+  },
+  (
+    prevProps: MemoizedDurationCellProps,
+    nextProps: MemoizedDurationCellProps
+  ) => {
+    const cellIndex = 5;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.duration === nextProps.entry.duration &&
+      prevProps.entry.start === nextProps.entry.start &&
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+const MemoizedActionsCell = React.memo(
+  function MemoizedActionsCell({
+    entry,
+    rowIndex,
+    selectedCell,
+    isPinned,
+    onPin,
+    onUnpin,
+    onSplit,
+    onCombine,
+    onStartEntry,
+    onStopTimer,
+    onDelete,
+    setIsActionsMenuOpen,
+    navigateToNextCell,
+    onSelectCell,
+  }: MemoizedActionsCellProps) {
+    const cellIndex = 6;
+    const isSelected =
+      selectedCell?.rowIndex === rowIndex &&
+      selectedCell?.cellIndex === cellIndex;
+
+    return (
+      <TableCell
+        className={cn(
+          "px-4 py-2 cursor-pointer sm:w-16 w-12",
+          isSelected &&
+            "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+        )}
+        onClick={() => onSelectCell(rowIndex, cellIndex)}
+      >
+        <MemoizedActionsMenu
+          onPin={() => onPin(entry)}
+          onUnpin={() => onUnpin(entry.id.toString())}
+          isPinned={isPinned}
+          onSplit={() => onSplit(entry)}
+          onCombine={() => onCombine(entry)}
+          onStartEntry={() => onStartEntry(entry)}
+          onStopTimer={() => onStopTimer(entry)}
+          onDelete={() => onDelete(entry)}
+          onOpenChange={setIsActionsMenuOpen}
+          onNavigateNext={navigateToNextCell}
+          isSelected={isSelected}
+          isRunning={!entry.stop || entry.duration === -1}
+          data-testid="actions-menu"
+        />
+      </TableCell>
+    );
+  },
+  (
+    prevProps: MemoizedActionsCellProps,
+    nextProps: MemoizedActionsCellProps
+  ) => {
+    const cellIndex = 6;
+    const prevIsSelected =
+      prevProps.selectedCell?.rowIndex === prevProps.rowIndex &&
+      prevProps.selectedCell?.cellIndex === cellIndex;
+    const nextIsSelected =
+      nextProps.selectedCell?.rowIndex === nextProps.rowIndex &&
+      nextProps.selectedCell?.cellIndex === cellIndex;
+
+    return (
+      prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.entry.duration === nextProps.entry.duration &&
+      prevProps.isPinned === nextProps.isPinned &&
+      prevIsSelected === nextIsSelected
+    );
+  }
+);
+
+// Memoized date picker row components to prevent re-renders when table data changes
+const MemoizedDatePickerRow = React.memo(
+  function MemoizedDatePickerRow({
+    date,
+    setDate,
+    syncStatus,
+    hasLoadedMoreEntries,
+    lastSyncTime,
+    handleReauthenticate,
+    fetchData,
+    encryption,
+    handleLockEncryption,
+    handleUnlockEncryption,
+    isFullscreen,
+    isTransitioning,
+    handleFullscreenToggle,
+    handleNewEntryClick,
+  }: MemoizedDatePickerRowProps) {
+    return (
+      <div className="hidden md:flex items-center justify-between mt-6">
+        <div className="flex items-center space-x-3">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                  !date && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                {date?.from ? (
+                  date.to ? (
+                    <>
+                      {format(date.from, "LLL dd, y")} -{" "}
+                      {format(date.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(date.from, "LLL dd, y")
+                  )
+                ) : (
+                  <span>Pick a date range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-auto p-0 border-border/60"
+              align="start"
+            >
+              <Calendar
+                mode="range"
+                defaultMonth={date?.from}
+                selected={date}
+                onSelect={(selectedRange) => {
+                  if (selectedRange?.from && selectedRange?.to) {
+                    // Set end date to end of day
+                    const endOfDayTo = endOfDay(selectedRange.to);
+                    setDate({ from: selectedRange.from, to: endOfDayTo });
+                  }
+                }}
+                numberOfMonths={2}
+                className="rounded-md border-0"
+              />
+            </PopoverContent>
+          </Popover>
+          <SyncStatusBadge
+            status={
+              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
+            }
+            lastSyncTime={lastSyncTime}
+            onReauthenticate={handleReauthenticate}
+            onRetry={() => fetchData()}
+          />
+          <EncryptionStatus
+            isE2EEEnabled={encryption.isE2EEEnabled}
+            isUnlocked={encryption.isUnlocked}
+            onLock={handleLockEncryption}
+            onUnlock={handleUnlockEncryption}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() =>
+                  window.open("https://track.toggl.com/reports/", "_blank")
+                }
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View Analytics</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreenToggle}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
+                disabled={isTransitioning}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleNewEntryClick}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New (N)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  },
+  (
+    prevProps: MemoizedDatePickerRowProps,
+    nextProps: MemoizedDatePickerRowProps
+  ) => {
+    return (
+      prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
+      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
+      prevProps.syncStatus === nextProps.syncStatus &&
+      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
+      prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
+      prevProps.encryption.isE2EEEnabled ===
+        nextProps.encryption.isE2EEEnabled &&
+      prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
+      prevProps.isFullscreen === nextProps.isFullscreen &&
+      prevProps.isTransitioning === nextProps.isTransitioning
+    );
+  }
+);
+
+const MemoizedMobileDatePickerRow = React.memo(
+  function MemoizedMobileDatePickerRow({
+    date,
+    setDate,
+  }: MemoizedMobileDatePickerRowProps) {
+    return (
+      <div className="flex items-center">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              id="date-mobile"
+              variant={"outline"}
+              className={cn(
+                "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
+                !date && "text-muted-foreground"
+              )}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+              {date?.from ? (
+                date.to ? (
+                  <>
+                    {format(date.from, "MMM dd")} -{" "}
+                    {format(date.to, "MMM dd, y")}
+                  </>
+                ) : (
+                  format(date.from, "LLL dd, y")
+                )
+              ) : (
+                <span>Pick a date range</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0 border-border/60" align="start">
+            <Calendar
+              mode="range"
+              defaultMonth={date?.from}
+              selected={date}
+              onSelect={(selectedRange) => {
+                if (selectedRange?.from && selectedRange?.to) {
+                  // Set end date to end of day
+                  const endOfDayTo = endOfDay(selectedRange.to);
+                  setDate({ from: selectedRange.from, to: endOfDayTo });
+                }
+              }}
+              numberOfMonths={1}
+              className="rounded-md border-0"
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  },
+  (
+    prevProps: MemoizedMobileDatePickerRowProps,
+    nextProps: MemoizedMobileDatePickerRowProps
+  ) => {
+    return (
+      prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
+      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime()
+    );
+  }
+);
+
+const MemoizedMobileButtonsRow = React.memo(
+  function MemoizedMobileButtonsRow({
+    syncStatus,
+    hasLoadedMoreEntries,
+    lastSyncTime,
+    handleReauthenticate,
+    fetchData,
+    encryption,
+    handleLockEncryption,
+    handleUnlockEncryption,
+    isFullscreen,
+    isTransitioning,
+    handleFullscreenToggle,
+    handleNewEntryClick,
+  }: MemoizedMobileButtonsRowProps) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <SyncStatusBadge
+            status={
+              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
+            }
+            lastSyncTime={lastSyncTime}
+            onReauthenticate={handleReauthenticate}
+            onRetry={() => fetchData()}
+          />
+          <EncryptionStatus
+            isE2EEEnabled={encryption.isE2EEEnabled}
+            isUnlocked={encryption.isUnlocked}
+            onLock={handleLockEncryption}
+            onUnlock={handleUnlockEncryption}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() =>
+                  window.open("https://track.toggl.com/reports/", "_blank")
+                }
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View Analytics</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreenToggle}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+                disabled={isTransitioning}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleNewEntryClick}
+                size="icon"
+                variant="outline"
+                className="rounded-full h-9 w-9 border-border/40 shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New (N)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  },
+  (
+    prevProps: MemoizedMobileButtonsRowProps,
+    nextProps: MemoizedMobileButtonsRowProps
+  ) => {
+    return (
+      prevProps.syncStatus === nextProps.syncStatus &&
+      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
+      prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
+      prevProps.encryption.isE2EEEnabled ===
+        nextProps.encryption.isE2EEEnabled &&
+      prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
+      prevProps.isFullscreen === nextProps.isFullscreen &&
+      prevProps.isTransitioning === nextProps.isTransitioning
+    );
+  }
+);
+
+// Memoized table header row to prevent re-renders when table data changes
+const MemoizedTableHeaderRow = React.memo(
+  function MemoizedTableHeaderRow({
+    isFullscreen,
+    selectedRows,
+    decryptedEntriesLength,
+    setSelectedRows,
+    lastSelectionDirectionRef,
+  }: MemoizedTableHeaderRowProps) {
+    const allSelected =
+      decryptedEntriesLength > 0 &&
+      selectedRows.size === decryptedEntriesLength &&
+      Array.from({ length: decryptedEntriesLength }, (_, i) => i).every((i) =>
+        selectedRows.has(i)
+      );
+
+    return (
+      <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
+        <TableHead className="px-2 w-8"></TableHead>
+        <TableHead className="px-2 w-10">
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer"
+            checked={allSelected}
+            onChange={(e) => {
+              if (e.target.checked) {
+                const allRows = new Set<number>();
+                for (let i = 0; i < decryptedEntriesLength; i++) {
+                  allRows.add(i);
+                }
+                setSelectedRows(allRows);
+              } else {
+                setSelectedRows(new Set());
+                lastSelectionDirectionRef.current = null; // Reset direction state
+              }
+            }}
+            aria-label="Select all"
+          />
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
+          Date
+        </TableHead>
+        {isFullscreen ? (
+          <>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Project
+            </TableHead>
+            <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+              Description
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Tags
+            </TableHead>
+          </>
+        ) : (
+          <>
+            <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
+              Description
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Project
+            </TableHead>
+            <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
+              Tags
+            </TableHead>
+          </>
+        )}
+        <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
+          Time
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
+          Duration
+        </TableHead>
+        <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
+      </TableRow>
+    );
+  },
+  (
+    prevProps: MemoizedTableHeaderRowProps,
+    nextProps: MemoizedTableHeaderRowProps
+  ) => {
+    // Compare basic props
+    if (
+      prevProps.isFullscreen !== nextProps.isFullscreen ||
+      prevProps.decryptedEntriesLength !== nextProps.decryptedEntriesLength
+    ) {
+      return false;
+    }
+
+    // Compare selectedRows Set by size and contents
+    if (prevProps.selectedRows.size !== nextProps.selectedRows.size) {
+      return false;
+    }
+
+    // Check if all values in prevProps are in nextProps
+    for (const row of prevProps.selectedRows) {
+      if (!nextProps.selectedRows.has(row)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+);
 
 // Memoized pinned entries to isolate re-renders when visibility toggles
 const MemoizedPinnedEntries = React.memo(function MemoizedPinnedEntries({
@@ -110,6 +1148,8 @@ const MemoizedTableRow = React.memo(
     nextEntryStart,
     selectedCell,
     onSelectCell,
+    onCheckboxToggle,
+    selectedRows,
     onDescriptionSave,
     onProjectChange,
     onTagsChange,
@@ -149,7 +1189,9 @@ const MemoizedTableRow = React.memo(
     prevEntryEnd?: string | null;
     nextEntryStart?: string | null;
     selectedCell: SelectedCell;
+    selectedRows: Set<number>;
     onSelectCell: (rowIndex: number, cellIndex: number) => void;
+    onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
     onDescriptionSave: (entryId: number) => (newDescription: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
@@ -206,6 +1248,11 @@ const MemoizedTableRow = React.memo(
       );
     }
 
+    // Check if this row is selected (use Set for accurate non-contiguous selection)
+    const isInSelectedRange = selectedRows.has(rowIndex);
+
+    const shouldShowCheckbox = true; // Always show checkboxes
+
     return (
       <>
         {/* Mobile View */}
@@ -214,165 +1261,196 @@ const MemoizedTableRow = React.memo(
           data-entry-id={entry.id}
           className={cn(
             "md:hidden hover:bg-accent/20 border-border/40 group",
-            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
+            isInSelectedRange &&
+              "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
-            <div className="space-y-0 max-w-full overflow-hidden">
-              {/* Description */}
-              <div className="max-w-full overflow-hidden">
-                <ExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
+            <div className="flex items-start gap-2">
+              <div
+                className={cn(
+                  "h-4 w-4 mt-1 flex-shrink-0 cursor-pointer",
+                  selectedCell?.rowIndex === rowIndex &&
+                    selectedCell?.cellIndex === -1 &&
+                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
+                )}
+                onClick={() => onSelectCell(rowIndex, -1)}
+              >
+                {shouldShowCheckbox ? (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer"
+                    checked={isInSelectedRange}
+                    onChange={() => {
+                      // onChange doesn't have shiftKey, so we'll handle it via onClick
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCheckboxToggle(rowIndex, e.shiftKey);
+                    }}
+                    aria-label={`Select row ${rowIndex + 1}`}
+                  />
+                ) : null}
               </div>
-
-              {/* Project + Time row */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="shrink-0 max-w-[52%]">
-                  <ProjectSelector
-                    currentProject={entry.project_name || ""}
-                    currentProjectColor={entry.project_color}
-                    onProjectChange={(newProject) =>
-                      onProjectChange(entry.id)(newProject)
-                    }
-                    projects={projects}
-                    onOpenChange={setIsProjectSelectorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigatePrev={navigateToPrevCell}
-                    onNavigateDown={navigateToNextRow}
-                    onProjectCreated={onProjectCreated}
-                    data-testid="project-selector"
-                  />
-                </div>
-                <div className="shrink-0 max-w-[48%]">
-                  <TimeEditor
-                    startTime={entry.start}
-                    endTime={entry.stop}
-                    onSave={(startTime, endTime) =>
-                      onTimeChange(entry.id)(startTime, endTime)
-                    }
-                    onEditingChange={setIsTimeEditorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigateDown={navigateToNextRow}
-                    onNavigatePrev={navigateToPrevCell}
-                    prevEntryEnd={prevEntryEnd}
-                    nextEntryStart={nextEntryStart}
-                    data-testid="time-editor"
-                  />
-                </div>
-              </div>
-
-              {/* Tags + Duration + Actions row */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="shrink-0">
-                  <TagSelector
-                    currentTags={entry.tags || []}
-                    onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                    availableTags={availableTags}
-                    onOpenChange={setIsTagSelectorOpen}
-                    onNavigateNext={navigateToNextCell}
-                    onNavigatePrev={navigateToPrevCell}
-                    onTagCreated={onTagCreated}
-                    data-testid="tag-selector"
-                  />
-                </div>
-                <div className="flex items-center shrink-0">
-                  <DurationEditor
-                    duration={entry.duration}
-                    startTime={entry.start}
-                    endTime={entry.stop}
-                    onSave={(newDuration) =>
-                      onDurationChange(entry.id)(newDuration)
-                    }
-                    onSaveWithStartTimeAdjustment={(newDuration) =>
-                      onDurationChangeWithStartTimeAdjustment(entry.id)(
-                        newDuration
-                      )
+              <div className="space-y-0 max-w-full overflow-hidden flex-1">
+                {/* Description */}
+                <div className="max-w-full overflow-hidden">
+                  <MemoizedExpandableDescription
+                    description={entry.description || ""}
+                    onSave={(newDescription) =>
+                      onDescriptionSave(entry.id)(newDescription)
                     }
                     onEditingChange={setIsEditingCell}
-                    onNavigateDown={navigateToNextRow}
-                    data-testid="duration-editor"
-                  />
-                  <ActionsMenu
-                    onPin={() => onPin(entry)}
-                    onUnpin={() => onUnpin(entry.id.toString())}
-                    isPinned={isPinned}
-                    onSplit={() => onSplit(entry)}
-                    onCombine={() => onCombine(entry)}
-                    onStartEntry={() => onStartEntry(entry)}
-                    onStopTimer={() => onStopTimer(entry)}
-                    onDelete={() => onDelete(entry)}
-                    onOpenChange={setIsActionsMenuOpen}
                     onNavigateNext={navigateToNextCell}
-                    isSelected={false}
-                    isRunning={!entry.stop || entry.duration === -1}
-                    data-testid="actions-menu"
+                    projects={projects}
+                    availableTags={availableTags}
+                    onRecentTimerSelect={(selected) => {
+                      // Increment usage count
+                      incrementTimerUsage(
+                        selected.description,
+                        selected.projectId,
+                        selected.tagIds
+                      );
+
+                      const tagNames = availableTags
+                        .filter((tag) => selected.tagIds.includes(tag.id))
+                        .map((tag) => tag.name);
+
+                      const project = projects.find(
+                        (p) => p.id === selected.projectId
+                      );
+
+                      onBulkEntryUpdateByRowIndex(entry.id)({
+                        description: selected.description,
+                        projectName: project?.name,
+                        tags: tagNames,
+                      });
+                    }}
+                    data-testid="expandable-description"
                   />
                 </div>
-              </div>
 
-              {/* Sync status indicator */}
-              {syncStatus && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {syncStatus === "pending" && (
-                    <>
-                      <Clock className="w-3 h-3 text-yellow-500" />
-                      <span>Queued</span>
-                    </>
-                  )}
-                  {syncStatus === "syncing" && (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                      <span>Syncing...</span>
-                    </>
-                  )}
-                  {syncStatus === "synced" && (
-                    <>
-                      <Check className="w-3 h-3 text-green-500" />
-                      <span>Synced</span>
-                    </>
-                  )}
-                  {syncStatus === "error" && (
-                    <button
-                      onClick={() => onRetrySync(entry.id)}
-                      className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-                    >
-                      <AlertCircle className="w-3 h-3 text-red-500" />
-                      <span className="text-red-500">Failed - retry</span>
-                    </button>
-                  )}
+                {/* Project + Time row */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="shrink-0 max-w-[52%]">
+                    <MemoizedProjectSelector
+                      currentProject={entry.project_name || ""}
+                      currentProjectColor={entry.project_color}
+                      onProjectChange={(newProject) =>
+                        onProjectChange(entry.id)(newProject)
+                      }
+                      projects={projects}
+                      onOpenChange={setIsProjectSelectorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigatePrev={navigateToPrevCell}
+                      onNavigateDown={navigateToNextRow}
+                      onProjectCreated={onProjectCreated}
+                      data-testid="project-selector"
+                    />
+                  </div>
+                  <div className="shrink-0 max-w-[48%]">
+                    <MemoizedTimeEditor
+                      startTime={entry.start}
+                      endTime={entry.stop}
+                      onSave={(startTime, endTime) =>
+                        onTimeChange(entry.id)(startTime, endTime)
+                      }
+                      onEditingChange={setIsTimeEditorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigateDown={navigateToNextRow}
+                      onNavigatePrev={navigateToPrevCell}
+                      prevEntryEnd={prevEntryEnd}
+                      nextEntryStart={nextEntryStart}
+                      data-testid="time-editor"
+                    />
+                  </div>
                 </div>
-              )}
+
+                {/* Tags + Duration + Actions row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="shrink-0">
+                    <MemoizedTagSelector
+                      currentTags={entry.tags || []}
+                      onTagsChange={(newTags) =>
+                        onTagsChange(entry.id)(newTags)
+                      }
+                      availableTags={availableTags}
+                      onOpenChange={setIsTagSelectorOpen}
+                      onNavigateNext={navigateToNextCell}
+                      onNavigatePrev={navigateToPrevCell}
+                      onTagCreated={onTagCreated}
+                      data-testid="tag-selector"
+                    />
+                  </div>
+                  <div className="flex items-center shrink-0">
+                    <MemoizedDurationEditor
+                      duration={entry.duration}
+                      startTime={entry.start}
+                      endTime={entry.stop}
+                      onSave={(newDuration) =>
+                        onDurationChange(entry.id)(newDuration)
+                      }
+                      onSaveWithStartTimeAdjustment={(newDuration) =>
+                        onDurationChangeWithStartTimeAdjustment(entry.id)(
+                          newDuration
+                        )
+                      }
+                      onEditingChange={setIsEditingCell}
+                      onNavigateDown={navigateToNextRow}
+                      data-testid="duration-editor"
+                    />
+                    <MemoizedActionsMenu
+                      onPin={() => onPin(entry)}
+                      onUnpin={() => onUnpin(entry.id.toString())}
+                      isPinned={isPinned}
+                      onSplit={() => onSplit(entry)}
+                      onCombine={() => onCombine(entry)}
+                      onStartEntry={() => onStartEntry(entry)}
+                      onStopTimer={() => onStopTimer(entry)}
+                      onDelete={() => onDelete(entry)}
+                      onOpenChange={setIsActionsMenuOpen}
+                      onNavigateNext={navigateToNextCell}
+                      isSelected={false}
+                      isRunning={!entry.stop || entry.duration === -1}
+                      data-testid="actions-menu"
+                    />
+                  </div>
+                </div>
+
+                {/* Sync status indicator */}
+                {syncStatus && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {syncStatus === "pending" && (
+                      <>
+                        <Clock className="w-3 h-3 text-yellow-500" />
+                        <span>Queued</span>
+                      </>
+                    )}
+                    {syncStatus === "syncing" && (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                        <span>Syncing...</span>
+                      </>
+                    )}
+                    {syncStatus === "synced" && (
+                      <>
+                        <Check className="w-3 h-3 text-green-500" />
+                        <span>Synced</span>
+                      </>
+                    )}
+                    {syncStatus === "error" && (
+                      <button
+                        onClick={() => onRetrySync(entry.id)}
+                        className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                      >
+                        <AlertCircle className="w-3 h-3 text-red-500" />
+                        <span className="text-red-500">Failed - retry</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </TableCell>
         </TableRow>
@@ -383,7 +1461,9 @@ const MemoizedTableRow = React.memo(
           data-entry-id={entry.id}
           className={cn(
             "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
-            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50"
+            isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
+            isInSelectedRange &&
+              "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
           )}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
@@ -408,276 +1488,147 @@ const MemoizedTableRow = React.memo(
               </button>
             )}
           </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 font-mono text-sm text-muted-foreground sm:w-28 w-24 cursor-pointer md:table-cell hidden",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 0 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 0)}
-          >
-            {format(new Date(entry.start), "yyyy-MM-dd")}
-          </TableCell>
+          <MemoizedCheckboxCell
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            selectedRows={selectedRows}
+            onSelectCell={onSelectCell}
+            onCheckboxToggle={onCheckboxToggle}
+          />
+          <MemoizedDateCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+          />
           {isFullscreen ? (
             <>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 1 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 1)}
-              >
-                <ProjectSelector
-                  currentProject={entry.project_name || ""}
-                  currentProjectColor={entry.project_color}
-                  onProjectChange={(newProject) =>
-                    onProjectChange(entry.id)(newProject)
-                  }
-                  projects={projects}
-                  onOpenChange={setIsProjectSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onNavigateDown={navigateToNextRow}
-                  onProjectCreated={onProjectCreated}
-                  data-testid="project-selector"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 2 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 2)}
-              >
-                <ExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    // Pass the captured entry.id - helper will resolve to current ID
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 3 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 3)}
-              >
-                <TagSelector
-                  currentTags={entry.tags || []}
-                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                  availableTags={availableTags}
-                  onOpenChange={setIsTagSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onTagCreated={onTagCreated}
-                  data-testid="tag-selector"
-                />
-              </TableCell>
+              <MemoizedProjectCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onProjectChange={onProjectChange}
+                projects={projects}
+                setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                navigateToNextRow={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
+              />
+              <MemoizedDescriptionCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onDescriptionSave={onDescriptionSave}
+                setIsEditingCell={setIsEditingCell}
+                navigateToNextCell={navigateToNextCell}
+                projects={projects}
+                availableTags={availableTags}
+                onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
+              />
+              <MemoizedTagCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onTagsChange={onTagsChange}
+                availableTags={availableTags}
+                setIsTagSelectorOpen={setIsTagSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                onTagCreated={onTagCreated}
+              />
             </>
           ) : (
             <>
-              <TableCell
-                className={cn(
-                  "px-4 pr-2 pl-2 cursor-pointer description-cell",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 1 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 1)}
-              >
-                <ExpandableDescription
-                  description={entry.description || ""}
-                  onSave={(newDescription) =>
-                    onDescriptionSave(entry.id)(newDescription)
-                  }
-                  onEditingChange={setIsEditingCell}
-                  onNavigateNext={navigateToNextCell}
-                  projects={projects}
-                  availableTags={availableTags}
-                  onRecentTimerSelect={(selected) => {
-                    // Increment usage count
-                    incrementTimerUsage(
-                      selected.description,
-                      selected.projectId,
-                      selected.tagIds
-                    );
-
-                    // Pass the captured entry.id - helper will resolve to current ID
-
-                    const tagNames = availableTags
-                      .filter((tag) => selected.tagIds.includes(tag.id))
-                      .map((tag) => tag.name);
-
-                    const project = projects.find(
-                      (p) => p.id === selected.projectId
-                    );
-
-                    onBulkEntryUpdateByRowIndex(entry.id)({
-                      description: selected.description,
-                      projectName: project?.name,
-                      tags: tagNames,
-                    });
-                  }}
-                  data-testid="expandable-description"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 2 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 2)}
-              >
-                <ProjectSelector
-                  currentProject={entry.project_name || ""}
-                  currentProjectColor={entry.project_color}
-                  onProjectChange={(newProject) =>
-                    onProjectChange(entry.id)(newProject)
-                  }
-                  projects={projects}
-                  onOpenChange={setIsProjectSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onNavigateDown={navigateToNextRow}
-                  onProjectCreated={onProjectCreated}
-                  data-testid="project-selector"
-                />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "px-4 pr-0 pl-0 cursor-pointer sm:w-48 w-32",
-                  selectedCell?.rowIndex === rowIndex &&
-                    selectedCell?.cellIndex === 3 &&
-                    "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-                )}
-                onClick={() => onSelectCell(rowIndex, 3)}
-              >
-                <TagSelector
-                  currentTags={entry.tags || []}
-                  onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
-                  availableTags={availableTags}
-                  onOpenChange={setIsTagSelectorOpen}
-                  onNavigateNext={navigateToNextCell}
-                  onNavigatePrev={navigateToPrevCell}
-                  onTagCreated={onTagCreated}
-                  data-testid="tag-selector"
-                />
-              </TableCell>
+              <MemoizedDescriptionCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onDescriptionSave={onDescriptionSave}
+                setIsEditingCell={setIsEditingCell}
+                navigateToNextCell={navigateToNextCell}
+                projects={projects}
+                availableTags={availableTags}
+                onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
+              />
+              <MemoizedProjectCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onProjectChange={onProjectChange}
+                projects={projects}
+                setIsProjectSelectorOpen={setIsProjectSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                navigateToNextRow={navigateToNextRow}
+                onProjectCreated={onProjectCreated}
+              />
+              <MemoizedTagCell
+                entry={entry}
+                rowIndex={rowIndex}
+                selectedCell={selectedCell}
+                isFullscreen={isFullscreen}
+                onSelectCell={onSelectCell}
+                onTagsChange={onTagsChange}
+                availableTags={availableTags}
+                setIsTagSelectorOpen={setIsTagSelectorOpen}
+                navigateToNextCell={navigateToNextCell}
+                navigateToPrevCell={navigateToPrevCell}
+                onTagCreated={onTagCreated}
+              />
             </>
           )}
-          <TableCell
-            className={cn(
-              "px-4 pr-0 pl-0 cursor-pointer sm:w-32 w-24",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 4 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 4)}
-          >
-            <TimeEditor
-              startTime={entry.start}
-              endTime={entry.stop}
-              onSave={(startTime, endTime) =>
-                onTimeChange(entry.id)(startTime, endTime)
-              }
-              onEditingChange={setIsTimeEditorOpen}
-              onNavigateNext={navigateToNextCell}
-              onNavigateDown={navigateToNextRow}
-              onNavigatePrev={navigateToPrevCell}
-              prevEntryEnd={prevEntryEnd}
-              nextEntryStart={nextEntryStart}
-              data-testid="time-editor"
-            />
-          </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 pl-2 pr-0 cursor-pointer sm:w-32 w-24",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 5 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 5)}
-          >
-            <DurationEditor
-              duration={entry.duration}
-              startTime={entry.start}
-              endTime={entry.stop}
-              onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
-              onSaveWithStartTimeAdjustment={(newDuration) =>
-                onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
-              }
-              onEditingChange={setIsEditingCell}
-              onNavigateDown={navigateToNextRow}
-              data-testid="duration-editor"
-            />
-          </TableCell>
-          <TableCell
-            className={cn(
-              "px-4 py-2 cursor-pointer sm:w-16 w-12",
-              selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 6 &&
-                "ring-1 ring-gray-300 dark:ring-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-md"
-            )}
-            onClick={() => onSelectCell(rowIndex, 6)}
-          >
-            <ActionsMenu
-              onPin={() => onPin(entry)}
-              onUnpin={() => onUnpin(entry.id.toString())}
-              isPinned={isPinned}
-              onSplit={() => onSplit(entry)}
-              onCombine={() => onCombine(entry)}
-              onStartEntry={() => onStartEntry(entry)}
-              onStopTimer={() => onStopTimer(entry)}
-              onDelete={() => onDelete(entry)}
-              onOpenChange={setIsActionsMenuOpen}
-              onNavigateNext={navigateToNextCell}
-              isSelected={
-                selectedCell?.rowIndex === rowIndex &&
-                selectedCell?.cellIndex === 6
-              }
-              isRunning={!entry.stop || entry.duration === -1}
-              data-testid="actions-menu"
-            />
-          </TableCell>
+          <MemoizedTimeCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+            onTimeChange={onTimeChange}
+            setIsTimeEditorOpen={setIsTimeEditorOpen}
+            navigateToNextCell={navigateToNextCell}
+            navigateToNextRow={navigateToNextRow}
+            navigateToPrevCell={navigateToPrevCell}
+            prevEntryEnd={prevEntryEnd}
+            nextEntryStart={nextEntryStart}
+          />
+          <MemoizedDurationCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            onSelectCell={onSelectCell}
+            onDurationChange={onDurationChange}
+            onDurationChangeWithStartTimeAdjustment={
+              onDurationChangeWithStartTimeAdjustment
+            }
+            setIsEditingCell={setIsEditingCell}
+            navigateToNextRow={navigateToNextRow}
+          />
+          <MemoizedActionsCell
+            entry={entry}
+            rowIndex={rowIndex}
+            selectedCell={selectedCell}
+            isPinned={isPinned}
+            onPin={onPin}
+            onUnpin={onUnpin}
+            onSplit={onSplit}
+            onCombine={onCombine}
+            onStartEntry={onStartEntry}
+            onStopTimer={onStopTimer}
+            onDelete={onDelete}
+            setIsActionsMenuOpen={setIsActionsMenuOpen}
+            navigateToNextCell={navigateToNextCell}
+            onSelectCell={onSelectCell}
+          />
         </TableRow>
       </>
     );
@@ -690,8 +1641,17 @@ const MemoizedTableRow = React.memo(
     const nextSelectedInThisRow =
       nextProps.selectedCell?.rowIndex === nextProps.rowIndex;
 
+    // Check if this row is selected (using Set for non-contiguous selection)
+    const prevIsSelected = prevProps.selectedRows.has(prevProps.rowIndex);
+    const nextIsSelected = nextProps.selectedRows.has(nextProps.rowIndex);
+
     // If this row's selection state changed (selected/unselected), we need to rerender
     if (prevSelectedInThisRow !== nextSelectedInThisRow) {
+      return false; // Rerender
+    }
+
+    // If this row's checkbox selection state changed, we need to rerender
+    if (prevIsSelected !== nextIsSelected) {
       return false; // Rerender
     }
 
@@ -779,6 +1739,8 @@ const MemoizedTableRow = React.memo(
     const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
     const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
     const isFullscreenEqual = prevProps.isFullscreen === nextProps.isFullscreen;
+    const onCheckboxToggleEqual =
+      prevProps.onCheckboxToggle === nextProps.onCheckboxToggle;
 
     const shouldNotRerender =
       entryEqual &&
@@ -811,7 +1773,8 @@ const MemoizedTableRow = React.memo(
       navigateToNextRowEqual &&
       syncStatusEqual &&
       onRetrySyncEqual &&
-      isFullscreenEqual;
+      isFullscreenEqual &&
+      onCheckboxToggleEqual;
 
     // Debug logging (only for rows 1-3)
     if (
@@ -1039,6 +2002,20 @@ export function TimeTrackerTable({
   // State version for reactive badge updates
   const [hasLoadedMoreEntries, setHasLoadedMoreEntries] = React.useState(false);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  // Support non-contiguous multi-select using a Set of row indices
+  const [selectedRows, setSelectedRows] = React.useState<Set<number>>(
+    new Set()
+  );
+  const selectedRowsRef = React.useRef(selectedRows);
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    selectedRowsRef.current = selectedRows;
+  }, [selectedRows]);
+
+  // Track last selection direction for toggle behavior
+  const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
+
+  const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
 
   const [isEditingCell, setIsEditingCell] = React.useState(false);
@@ -1057,6 +2034,19 @@ export function TimeTrackerTable({
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(
     null
   );
+  const [deleteMultipleDialogOpen, setDeleteMultipleDialogOpen] =
+    React.useState(false);
+  const [entriesToDelete, setEntriesToDelete] = React.useState<TimeEntry[]>([]);
+  const [addTagDialogOpen, setAddTagDialogOpen] = React.useState(false);
+  const [entriesToTag, setEntriesToTag] = React.useState<TimeEntry[]>([]);
+  const [setProjectDialogOpen, setSetProjectDialogOpen] = React.useState(false);
+  const [entriesToSetProject, setEntriesToSetProject] = React.useState<
+    TimeEntry[]
+  >([]);
+  const [combineMultipleDialogOpen, setCombineMultipleDialogOpen] =
+    React.useState(false);
+  const [entriesToCombineMultiple, setEntriesToCombineMultiple] =
+    React.useState<TimeEntry[]>([]);
   const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
   const splitDialogOpenRef = React.useRef(false);
   const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
@@ -2284,6 +3274,640 @@ export function TimeTrackerTable({
     [showUpdateToast, selectedCell, timeEntries]
   );
 
+  const handleDeleteMultiple = React.useCallback(
+    (entriesToDelete: TimeEntry[]) => {
+      if (entriesToDelete.length === 0) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
+
+      // Remove entries from state immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.filter(
+          (entry) => !entryIdsToDelete.has(entry.id)
+        );
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const toastId: string | number | undefined = toast(
+        `Deleted ${entriesToDelete.length} time ${
+          entriesToDelete.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToDelete.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity, // Keep toast until API completes
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all delete API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const deletePromises = entriesToDelete.map(async (entry) => {
+          try {
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "DELETE",
+              headers: {
+                "x-toggl-session-token": sessionToken || "",
+              },
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleDeleteMultiple] ❌ DELETE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to delete entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleDeleteMultiple] Error deleting entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(deletePromises);
+          // Dismiss the toast now that API succeeded
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          // Dismiss the update toast and show error toast
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to delete some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+
+      // Adjust selector position if needed
+      if (selectedCell) {
+        const deletedIndices = entriesToDelete
+          .map((entry) => timeEntries.findIndex((e) => e.id === entry.id))
+          .filter((idx) => idx !== -1)
+          .sort((a, b) => a - b);
+
+        if (deletedIndices.length > 0) {
+          const minDeletedIndex = Math.min(...deletedIndices);
+          const maxDeletedIndex = Math.max(...deletedIndices);
+
+          if (
+            selectedCell.rowIndex >= minDeletedIndex &&
+            selectedCell.rowIndex <= maxDeletedIndex
+          ) {
+            // Selected row was deleted, move to previous row or first row
+            const newRowIndex = Math.max(0, minDeletedIndex - 1);
+            setTimeout(() => {
+              setSelectedCell({
+                rowIndex: newRowIndex,
+                cellIndex: selectedCell.cellIndex,
+              });
+            }, 50);
+          } else if (selectedCell.rowIndex > maxDeletedIndex) {
+            // Selected row is below deleted rows, shift up by number of deleted rows
+            setSelectedCell({
+              rowIndex: selectedCell.rowIndex - deletedIndices.length,
+              cellIndex: selectedCell.cellIndex,
+            });
+          }
+        }
+      }
+    },
+    [selectedCell, timeEntries, toastDuration]
+  );
+
+  const handleDeleteSelectedClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToDelete = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToDelete.length > 0) {
+      setEntriesToDelete(entriesToDelete);
+      setDeleteMultipleDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmDeleteMultiple = React.useCallback(() => {
+    if (entriesToDelete.length > 0) {
+      handleDeleteMultiple(entriesToDelete);
+      setEntriesToDelete([]);
+    }
+  }, [entriesToDelete, handleDeleteMultiple]);
+
+  const handleAddTagsToMultiple = React.useCallback(
+    (entriesToUpdate: TimeEntry[], tagsToAdd: string[]) => {
+      if (entriesToUpdate.length === 0 || tagsToAdd.length === 0) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
+
+      // Update entries with new tags immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.map((entry) => {
+          if (entryIdsToUpdate.has(entry.id)) {
+            const currentTags = entry.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
+            return { ...entry, tags: newTags };
+          }
+          return entry;
+        });
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const tagText =
+        tagsToAdd.length === 1
+          ? `tag "${tagsToAdd[0]}"`
+          : `${tagsToAdd.length} tags`;
+      const toastId: string | number | undefined = toast(
+        `Added ${tagText} to ${entriesToUpdate.length} ${
+          entriesToUpdate.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToUpdate.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity,
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all tag update API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const updatePromises = entriesToUpdate.map(async (entry) => {
+          try {
+            const currentTags = entry.tags || [];
+            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
+
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ tags: newTags }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleAddTagsToMultiple] ❌ UPDATE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to update entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleAddTagsToMultiple] Error updating entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(updatePromises);
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to add tags to some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+    },
+    [timeEntries, toastDuration]
+  );
+
+  const handleAddTagClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToTag = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToTag.length > 0) {
+      setEntriesToTag(entriesToTag);
+      setAddTagDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmAddTags = React.useCallback(
+    (tagNames: string[]) => {
+      if (entriesToTag.length > 0 && tagNames.length > 0) {
+        handleAddTagsToMultiple(entriesToTag, tagNames);
+        setEntriesToTag([]);
+      }
+    },
+    [entriesToTag, handleAddTagsToMultiple]
+  );
+
+  const handleSetProjectToMultiple = React.useCallback(
+    (entriesToUpdate: TimeEntry[], projectName: string) => {
+      if (entriesToUpdate.length === 0 || !projectName) return;
+
+      // Store original entries for undo
+      const originalEntries = [...timeEntries];
+      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
+      const project = projects.find((p) => p.name === projectName);
+
+      // Update entries with new project immediately
+      setTimeEntries((currentEntries) => {
+        return currentEntries.map((entry) => {
+          if (entryIdsToUpdate.has(entry.id)) {
+            return {
+              ...entry,
+              project_name: projectName,
+              project_color: project?.color || entry.project_color,
+              project_id: project?.id || entry.project_id,
+            } as TimeEntry;
+          }
+          return entry;
+        });
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null; // Reset direction state
+
+      // Show toast with undo functionality
+      let toastDismissed = false;
+      const state = { apiCallStarted: false };
+      const toastId: string | number | undefined = toast(
+        `Set project "${projectName}" for ${entriesToUpdate.length} ${
+          entriesToUpdate.length === 1 ? "entry" : "entries"
+        }`,
+        {
+          action: {
+            label: "Undo (U)",
+            onClick: () => {
+              toastDismissed = true;
+              // Restore all entries
+              setTimeEntries(originalEntries);
+              // Restore selected rows
+              const restoredIndices = new Set<number>();
+              entriesToUpdate.forEach((entry) => {
+                const index = originalEntries.findIndex(
+                  (e) => e.id === entry.id
+                );
+                if (index !== -1) {
+                  restoredIndices.add(index);
+                }
+              });
+              setSelectedRows(restoredIndices);
+            },
+          },
+          duration: Infinity,
+          onDismiss: () => {
+            if (!state.apiCallStarted) {
+              toastDismissed = true;
+            }
+          },
+        }
+      );
+
+      // Queue all project update API calls
+      setTimeout(async () => {
+        if (toastDismissed) {
+          return;
+        }
+
+        state.apiCallStarted = true;
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const updatePromises = entriesToUpdate.map(async (entry) => {
+          try {
+            const response = await fetch(`/api/time-entries/${entry.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ project_name: projectName }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[handleSetProjectToMultiple] ❌ UPDATE FAILED:`, {
+                status: response.status,
+                errorText,
+                entryId: entry.id,
+              });
+              throw new Error(`Failed to update entry ${entry.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `[handleSetProjectToMultiple] Error updating entry ${entry.id}:`,
+              error
+            );
+            throw error;
+          }
+        });
+
+        try {
+          await Promise.all(updatePromises);
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+        } catch (error) {
+          if (toastId !== undefined) {
+            toast.dismiss(toastId);
+          }
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to set project for some entries";
+          toast.error(errorMessage);
+        }
+      }, toastDuration);
+    },
+    [timeEntries, projects, toastDuration]
+  );
+
+  const handleSetProjectClick = React.useCallback(() => {
+    if (selectedRows.size === 0) return;
+
+    const entriesToSetProject = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter((entry): entry is TimeEntry => entry !== undefined);
+
+    if (entriesToSetProject.length > 0) {
+      setEntriesToSetProject(entriesToSetProject);
+      setSetProjectDialogOpen(true);
+    }
+  }, [selectedRows, decryptedEntries]);
+
+  const handleConfirmSetProject = React.useCallback(
+    (projectName: string) => {
+      if (entriesToSetProject.length > 0 && projectName) {
+        handleSetProjectToMultiple(entriesToSetProject, projectName);
+        setEntriesToSetProject([]);
+      }
+    },
+    [entriesToSetProject, handleSetProjectToMultiple]
+  );
+
+  const handleCombineClick = React.useCallback(() => {
+    if (selectedRows.size < 2) {
+      toast.error("Please select at least 2 entries to combine");
+      return;
+    }
+
+    const selectedEntries = Array.from(selectedRows)
+      .map((rowIndex) => decryptedEntries[rowIndex])
+      .filter(Boolean);
+
+    setEntriesToCombineMultiple(selectedEntries);
+    setCombineMultipleDialogOpen(true);
+  }, [selectedRows, decryptedEntries]);
+
+  const handleCombineMultiple = React.useCallback(
+    (entries: TimeEntry[]) => {
+      if (entries.length < 2) {
+        toast.error("Need at least 2 entries to combine");
+        return;
+      }
+
+      // Find the earliest entry (chronologically first - oldest start time)
+      const earliestEntry = entries.reduce((earliest, current) => {
+        return new Date(current.start).getTime() <
+          new Date(earliest.start).getTime()
+          ? current
+          : earliest;
+      });
+
+      // Find the latest entry (chronologically last - newest start time)
+      // and get its stop time (or check if any are running)
+      const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
+
+      // Find the latest stop time among all entries
+      let latestStopTime: string | null = null;
+      if (!hasRunningEntry) {
+        const entriesWithStop = entries.filter((e) => e.stop);
+        if (entriesWithStop.length > 0) {
+          latestStopTime = entriesWithStop.reduce((latest, current) => {
+            return new Date(current.stop!).getTime() >
+              new Date(latest.stop!).getTime()
+              ? current
+              : latest;
+          }).stop!;
+        }
+      }
+
+      // Entries to delete (all except the earliest)
+      const entriesToDelete = entries.filter((e) => e.id !== earliestEntry.id);
+      const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
+
+      // Calculate new stop time and duration for the earliest entry
+      let newStop: string;
+      let newDuration: number;
+
+      if (hasRunningEntry) {
+        // If any entry is running, make the earliest entry running
+        newStop = "";
+        newDuration = -1;
+      } else {
+        // Use the latest stop time
+        newStop = latestStopTime!;
+        const start = new Date(earliestEntry.start);
+        const stop = new Date(newStop);
+        newDuration = Math.floor((stop.getTime() - start.getTime()) / 1000);
+      }
+
+      let originalEntries: TimeEntry[] = [];
+
+      // Optimistically update UI
+      setTimeEntries((currentEntries) => {
+        originalEntries = [...currentEntries];
+
+        // Update earliest entry and remove others
+        const updatedEntries = currentEntries
+          .filter((e) => !entryIdsToDelete.has(e.id))
+          .map((e) => {
+            if (e.id === earliestEntry.id) {
+              return {
+                ...e,
+                stop: newStop,
+                duration: newDuration,
+                syncStatus: "pending" as SyncStatus,
+              };
+            }
+            return e;
+          });
+
+        return updatedEntries;
+      });
+
+      // Clear selected rows
+      setSelectedRows(new Set());
+      lastSelectionDirectionRef.current = null;
+
+      // Show toast with undo functionality
+      const toastId = toast(`Combined ${entries.length} entries`, {
+        description: hasRunningEntry
+          ? "Earliest entry is now running"
+          : `Extended to ${format(new Date(newStop), "h:mm a")}`,
+        duration: 5000,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setTimeEntries(originalEntries);
+            toast.dismiss(toastId);
+            toast("Combine undone", { duration: 2000 });
+          },
+        },
+      });
+
+      const sessionToken = localStorage.getItem("toggl_session_token");
+
+      // Make API calls to delete entries and update the earliest
+      const deletePromises = entriesToDelete.map((entry) =>
+        fetch(`/api/time-entries/${entry.id}`, {
+          method: "DELETE",
+          headers: {
+            "x-toggl-session-token": sessionToken || "",
+          },
+        })
+      );
+
+      const updatePromise = fetch(`/api/time-entries/${earliestEntry.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          stop: newStop || null,
+          duration: newDuration,
+        }),
+      });
+
+      Promise.all([...deletePromises, updatePromise])
+        .then(async (responses) => {
+          const allSuccessful = responses.every((r) => r.ok);
+          if (!allSuccessful) {
+            throw new Error("Some operations failed");
+          }
+
+          // Update the earliest entry with server response
+          const updateResponse = responses[responses.length - 1];
+          const updatedData = await updateResponse.json();
+
+          setTimeEntries((currentEntries) =>
+            currentEntries.map((e) =>
+              e.id === earliestEntry.id
+                ? {
+                    ...e,
+                    stop: updatedData.stop,
+                    duration: updatedData.duration,
+                    syncStatus: undefined,
+                  }
+                : e
+            )
+          );
+
+          toast.dismiss(toastId);
+          toast.success(`Combined ${entries.length} entries successfully`);
+        })
+        .catch((error) => {
+          console.error("Failed to combine entries:", error);
+          toast.error("Failed to combine entries. Reverting changes.");
+          setTimeEntries(originalEntries);
+        });
+    },
+    [lastSelectionDirectionRef]
+  );
+
+  const handleConfirmCombineMultiple = React.useCallback(() => {
+    if (entriesToCombineMultiple.length > 0) {
+      handleCombineMultiple(entriesToCombineMultiple);
+      setEntriesToCombineMultiple([]);
+    }
+  }, [entriesToCombineMultiple, handleCombineMultiple]);
+
   const handleSplit = React.useCallback((entry: TimeEntry) => {
     setEntryToSplit(entry);
     setSplitDialogOpen(true);
@@ -2313,7 +3937,7 @@ export function TimeTrackerTable({
         // For negative splits: don't modify original entry, create new entry extending forward
         // Split point is at the end time (where new entry starts)
         splitPoint = endTime.getTime();
-        
+
         // Create new entry starting at end time and extending forward
         const extensionMs = Math.abs(offsetMs); // Make it positive
         const secondEntry: TimeEntry = {
@@ -2482,7 +4106,7 @@ export function TimeTrackerTable({
           setTimeEntries(originalEntries);
         });
     },
-    [entryToSplit, toastDuration]
+    [entryToSplit, toastDuration, encryption]
   );
 
   const handleCombine = React.useCallback(
@@ -2706,7 +4330,7 @@ export function TimeTrackerTable({
         toast.error("Failed to combine entries. Reverting changes.");
         setTimeEntries(originalEntries);
       });
-  }, [entryToCombine, timeEntries, toastDuration, encryption]);
+  }, [entryToCombine, timeEntries, toastDuration]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -2786,9 +4410,9 @@ export function TimeTrackerTable({
         return [newEntry, ...updatedEntries];
       });
 
-      // Select the new entry for immediate editing (cellIndex 1 to skip date column)
+      // Select the new entry for immediate editing (start at checkbox)
       setTimeout(() => {
-        setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+        setSelectedCell({ rowIndex: 0, cellIndex: -1 });
       }, 50);
 
       // Use the same toast + delayed API pattern as updates for consistency
@@ -3374,7 +4998,7 @@ export function TimeTrackerTable({
       setSelectedCell((currentSelectedCell) => {
         if (!currentSelectedCell) return null;
 
-        const maxCellIndex = 6; // 7 columns: date, project, tags, description, time, duration, actions
+        const maxCellIndex = 6; // 7 columns: checkbox(-1), date(0), project(1), tags(2), description(3), time(4), duration(5), actions(6)
         const currentEntriesLength = timeEntriesRef.current.length;
 
         if (currentSelectedCell.cellIndex < maxCellIndex) {
@@ -3398,14 +5022,13 @@ export function TimeTrackerTable({
             cellIndex: nextCellIndex,
           };
         } else if (wrapToSameRow) {
-          // When Option+Tab is pressed at the end, wrap to cellIndex 1 of same row
-          shouldAutoOpen = true;
+          // When Option+Tab is pressed at the end, wrap to checkbox (-1) of same row
           targetRowIndex = currentSelectedCell.rowIndex;
-          targetCellIndex = 1;
-          return { rowIndex: currentSelectedCell.rowIndex, cellIndex: 1 };
+          targetCellIndex = -1;
+          return { rowIndex: currentSelectedCell.rowIndex, cellIndex: -1 };
         } else if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
-          // When wrapping to next row, skip cellIndex 0 (date column) and start at 1
-          return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: 1 };
+          // When wrapping to next row, start at checkbox (-1)
+          return { rowIndex: currentSelectedCell.rowIndex + 1, cellIndex: -1 };
         }
 
         return currentSelectedCell; // No change if at the end
@@ -3423,16 +5046,15 @@ export function TimeTrackerTable({
     setSelectedCell((currentSelectedCell) => {
       if (!currentSelectedCell) return null;
 
-      // cellIndex 0 = date (not editable, skip it)
-      // cellIndex 1 = first editable cell
-      if (currentSelectedCell.cellIndex > 1) {
+      // cellIndex -1 = checkbox, 0 = date, 1+ = editable cells
+      if (currentSelectedCell.cellIndex > -1) {
         const prevCellIndex = currentSelectedCell.cellIndex - 1;
         return {
           ...currentSelectedCell,
           cellIndex: prevCellIndex,
         };
-      } else if (currentSelectedCell.cellIndex === 1) {
-        // At first editable cell, wrap to previous row's last cell
+      } else if (currentSelectedCell.cellIndex === -1) {
+        // At checkbox, wrap to previous row's last cell
         if (currentSelectedCell.rowIndex > 0) {
           return {
             rowIndex: currentSelectedCell.rowIndex - 1,
@@ -3852,6 +5474,75 @@ export function TimeTrackerTable({
     []
   );
 
+  // Handle checkbox toggle for multi-select
+  // Without shift: toggle individual row (add/remove from set)
+  // With shift: extend selection to create contiguous range
+  const handleCheckboxToggle = React.useCallback(
+    (rowIndex: number, shiftKey: boolean = false) => {
+      const currentRows = selectedRowsRef.current;
+      const isSelected = currentRows.has(rowIndex);
+
+      if (shiftKey && currentRows.size > 0) {
+        // Shift+click: create contiguous range from last selected to this row
+        const sortedRows = Array.from(currentRows).sort((a, b) => a - b);
+        const lastSelected = sortedRows[sortedRows.length - 1];
+        const start = Math.min(lastSelected, rowIndex);
+        const end = Math.max(lastSelected, rowIndex);
+
+        const newRows = new Set(currentRows);
+        for (let i = start; i <= end; i++) {
+          newRows.add(i);
+        }
+        setSelectedRows(newRows);
+      } else {
+        // Normal click: toggle individual row
+        const newRows = new Set(currentRows);
+        if (isSelected) {
+          newRows.delete(rowIndex);
+        } else {
+          newRows.add(rowIndex);
+        }
+        setSelectedRows(newRows);
+      }
+    },
+    [] // No dependencies - uses ref to read current value
+  );
+
+  // Select all rows
+  const handleSelectAll = React.useCallback(() => {
+    if (decryptedEntries.length > 0) {
+      const allRows = new Set<number>();
+      for (let i = 0; i < decryptedEntries.length; i++) {
+        allRows.add(i);
+      }
+      setSelectedRows(allRows);
+    }
+  }, [decryptedEntries.length]);
+
+  // Select all the way up from current position
+  const handleSelectAllUp = React.useCallback(() => {
+    const currentRow = selectedCell?.rowIndex ?? 0;
+    if (decryptedEntries.length > 0) {
+      const rows = new Set<number>();
+      for (let i = 0; i <= currentRow; i++) {
+        rows.add(i);
+      }
+      setSelectedRows(rows);
+    }
+  }, [selectedCell, decryptedEntries.length]);
+
+  // Select all the way down from current position
+  const handleSelectAllDown = React.useCallback(() => {
+    const currentRow = selectedCell?.rowIndex ?? 0;
+    if (decryptedEntries.length > 0) {
+      const rows = new Set<number>();
+      for (let i = currentRow; i < decryptedEntries.length; i++) {
+        rows.add(i);
+      }
+      setSelectedRows(rows);
+    }
+  }, [selectedCell, decryptedEntries.length]);
+
   // Keyboard navigation
   const awaitingPinnedNumberRef = React.useRef(false);
   const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -4073,6 +5764,7 @@ export function TimeTrackerTable({
         deleteDialogOpen ||
         splitDialogOpen ||
         combineDialogOpen ||
+        multiSelectMenuOpen ||
         deleteDialogOpenRef.current ||
         splitDialogOpenRef.current ||
         combineDialogOpenRef.current;
@@ -4083,6 +5775,141 @@ export function TimeTrackerTable({
 
       // Normalize key to lowercase for case-insensitive comparison
       const key = e.key.toLowerCase();
+
+      // Helper function for Shift+Down selection (used by arrowdown and j)
+      const handleShiftDownSelection = () => {
+        const currentRow = selectedCell?.rowIndex ?? 0;
+        const maxRow = keyboardNavigationData.currentEntriesLength - 1;
+
+        setSelectedRows((prevRows) => {
+          const newRows = new Set(prevRows);
+          const lastDirection = lastSelectionDirectionRef.current;
+
+          console.log("🔽 SHIFT+DOWN:");
+          console.log("  Current Row:", currentRow);
+          console.log("  Last Direction:", lastDirection);
+          console.log(
+            "  Rows BEFORE:",
+            Array.from(prevRows).sort((a, b) => a - b)
+          );
+
+          // If no selection, start with current row
+          if (newRows.size === 0 && selectedCell) {
+            console.log("  🆕 No selection, adding current row:", currentRow);
+            newRows.add(currentRow);
+          }
+
+          // Move down and add next row
+          if (currentRow < maxRow) {
+            const nextRow = currentRow + 1;
+
+            // If direction changed from up to down, deselect the current row (unwinding)
+            if (lastDirection === "up") {
+              console.log(
+                "  ⚠️ Direction changed! Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            // If continuing down and next row is already selected, deselect current row
+            if (lastDirection === "down" && newRows.has(nextRow)) {
+              console.log(
+                "  ↩️ Continuing down, next row already selected. Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            console.log("  ➕ Adding next row:", nextRow);
+            newRows.add(nextRow);
+            // Update selectedCell to the new row
+            setSelectedCell({
+              rowIndex: nextRow,
+              cellIndex: selectedCell?.cellIndex ?? -1,
+            });
+          }
+
+          // Update direction
+          if (currentRow < maxRow) {
+            lastSelectionDirectionRef.current = "down";
+          }
+
+          console.log(
+            "  Rows AFTER:",
+            Array.from(newRows).sort((a, b) => a - b)
+          );
+          console.log("  New Direction:", lastSelectionDirectionRef.current);
+          return newRows;
+        });
+      };
+
+      // Helper function for Shift+Up selection (used by arrowup and k)
+      const handleShiftUpSelection = () => {
+        const currentRow = selectedCell?.rowIndex ?? 0;
+
+        setSelectedRows((prevRows) => {
+          const newRows = new Set(prevRows);
+          const lastDirection = lastSelectionDirectionRef.current;
+
+          console.log("🔼 SHIFT+UP:");
+          console.log("  Current Row:", currentRow);
+          console.log("  Last Direction:", lastDirection);
+          console.log(
+            "  Rows BEFORE:",
+            Array.from(prevRows).sort((a, b) => a - b)
+          );
+
+          // If no selection, start with current row
+          if (newRows.size === 0 && selectedCell) {
+            console.log("  🆕 No selection, adding current row:", currentRow);
+            newRows.add(currentRow);
+          }
+
+          // Move up and add next row
+          if (currentRow > 0) {
+            const nextRow = currentRow - 1;
+
+            // If direction changed from down to up, deselect the current row (unwinding)
+            if (lastDirection === "down") {
+              console.log(
+                "  ⚠️ Direction changed! Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            // If continuing up and next row is already selected, deselect current row
+            if (lastDirection === "up" && newRows.has(nextRow)) {
+              console.log(
+                "  ↩️ Continuing up, next row already selected. Deleting current row:",
+                currentRow
+              );
+              newRows.delete(currentRow);
+            }
+
+            console.log("  ➕ Adding next row:", nextRow);
+            newRows.add(nextRow);
+            // Update selectedCell to the new row
+            setSelectedCell({
+              rowIndex: nextRow,
+              cellIndex: selectedCell?.cellIndex ?? -1,
+            });
+          }
+
+          // Update direction
+          if (currentRow > 0) {
+            lastSelectionDirectionRef.current = "up";
+          }
+
+          console.log(
+            "  Rows AFTER:",
+            Array.from(newRows).sort((a, b) => a - b)
+          );
+          console.log("  New Direction:", lastSelectionDirectionRef.current);
+          return newRows;
+        });
+      };
 
       switch (key) {
         case "escape":
@@ -4095,6 +5922,13 @@ export function TimeTrackerTable({
             setShowPinnedEntriesValue(false);
             if (pinnedTimeoutIdRef.current)
               clearTimeout(pinnedTimeoutIdRef.current);
+            return;
+          }
+
+          // Clear multi-select if active
+          if (selectedRows.size > 0) {
+            setSelectedRows(new Set());
+            lastSelectionDirectionRef.current = null; // Reset direction state
             return;
           }
 
@@ -4111,10 +5945,15 @@ export function TimeTrackerTable({
         case "enter":
           e.preventDefault();
           if (selectedCell) {
-            activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
+            // If checkbox is selected, toggle it
+            if (selectedCell.cellIndex === -1) {
+              handleCheckboxToggle(selectedCell.rowIndex, e.shiftKey);
+            } else {
+              activateCell(selectedCell.rowIndex, selectedCell.cellIndex);
+            }
           } else if (keyboardNavigationData.currentEntriesLength > 0) {
-            // If no cell selected, select first cell of first row
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            // If no cell selected, select checkbox of first row
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           }
           break;
 
@@ -4124,16 +5963,16 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (selectedCell) {
             if (e.shiftKey) {
               // Shift+Tab or Option+Shift+Tab: Move backward
-              if (selectedCell.cellIndex > 1) {
+              if (selectedCell.cellIndex > -1) {
                 setSelectedCell({
                   ...selectedCell,
                   cellIndex: selectedCell.cellIndex - 1,
                 });
-              } else if (selectedCell.cellIndex === 1) {
+              } else if (selectedCell.cellIndex === -1) {
                 // At first editable cell
                 if (e.altKey) {
                   // Option+Shift+Tab: wrap to last cell of same row
@@ -4163,12 +6002,23 @@ export function TimeTrackerTable({
           break;
 
         case "arrowdown":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            // Cmd+Shift+Down: Select all the way down
+            e.preventDefault();
+            handleSelectAllDown();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftDownSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.rowIndex <
@@ -4182,6 +6032,16 @@ export function TimeTrackerTable({
           break;
 
         case "arrowup":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllUp();
+            break;
+          }
+          if (e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            handleShiftUpSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
@@ -4189,7 +6049,7 @@ export function TimeTrackerTable({
           ) {
             setSelectedCell({
               rowIndex: keyboardNavigationData.currentEntriesLength - 1,
-              cellIndex: 0,
+              cellIndex: -1,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
             setSelectedCell({
@@ -4200,6 +6060,21 @@ export function TimeTrackerTable({
           break;
 
         case "k":
+          if ((e.metaKey || e.ctrlKey) && selectedRows.size > 0) {
+            e.preventDefault();
+            setMultiSelectMenuOpen(true);
+            break;
+          }
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllUp();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftUpSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
@@ -4207,7 +6082,7 @@ export function TimeTrackerTable({
           ) {
             setSelectedCell({
               rowIndex: keyboardNavigationData.currentEntriesLength - 1,
-              cellIndex: 0,
+              cellIndex: -1,
             });
           } else if (selectedCell && selectedCell.rowIndex > 0) {
             setSelectedCell({
@@ -4218,12 +6093,22 @@ export function TimeTrackerTable({
           break;
 
         case "j":
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+            e.preventDefault();
+            handleSelectAllDown();
+            break;
+          }
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleShiftDownSelection();
+            break;
+          }
           e.preventDefault();
           if (
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.rowIndex <
@@ -4238,8 +6123,7 @@ export function TimeTrackerTable({
 
         case "arrowleft":
           e.preventDefault();
-          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
-          if (selectedCell && selectedCell.cellIndex > 1) {
+          if (selectedCell && selectedCell.cellIndex > -1) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex - 1,
@@ -4249,8 +6133,7 @@ export function TimeTrackerTable({
 
         case "l":
           e.preventDefault();
-          // cellIndex 0 is date column (not editable), so stop at cellIndex 1
-          if (selectedCell && selectedCell.cellIndex > 1) {
+          if (selectedCell && selectedCell.cellIndex > -1) {
             setSelectedCell({
               ...selectedCell,
               cellIndex: selectedCell.cellIndex - 1,
@@ -4264,8 +6147,8 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            // Start at cellIndex 1 (skip date column at 0)
-            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+            // Start at checkbox (-1)
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
@@ -4283,8 +6166,8 @@ export function TimeTrackerTable({
             !selectedCell &&
             keyboardNavigationData.currentEntriesLength > 0
           ) {
-            // Start at cellIndex 1 (skip date column at 0)
-            setSelectedCell({ rowIndex: 0, cellIndex: 1 });
+            // Start at checkbox (-1)
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (
             selectedCell &&
             selectedCell.cellIndex < keyboardNavigationData.maxCellIndex
@@ -4299,9 +6182,9 @@ export function TimeTrackerTable({
         case "home":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            setSelectedCell({ rowIndex: 0, cellIndex: 0 });
+            setSelectedCell({ rowIndex: 0, cellIndex: -1 });
           } else if (selectedCell) {
-            setSelectedCell({ ...selectedCell, cellIndex: 0 });
+            setSelectedCell({ ...selectedCell, cellIndex: -1 });
           }
           break;
 
@@ -4320,24 +6203,39 @@ export function TimeTrackerTable({
           }
           break;
 
-        case "d":
-          e.preventDefault();
-          handleDeleteSelectedWithConfirmation();
+        case "a":
+          if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            handleSelectAll();
+            break;
+          }
           break;
 
-        case "x":
+        case "d":
           e.preventDefault();
-          if (selectedCell) {
-            const entry = decryptedEntries[selectedCell.rowIndex];
-            if (entry) {
-              handleSplit(entry);
-            }
+          if (selectedRows.size > 0) {
+            // Multi-select delete
+            handleDeleteSelectedClick();
+          } else {
+            handleDeleteSelectedWithConfirmation();
+          }
+          break;
+
+        case "t":
+          e.preventDefault();
+          if (selectedRows.size > 0) {
+            // Add common tag to selected entries
+            handleAddTagClick();
           }
           break;
 
         case "c":
           e.preventDefault();
-          if (selectedCell) {
+          if (selectedRows.size > 1) {
+            // Combine all selected entries
+            handleCombineClick();
+          } else if (selectedCell) {
+            // Normal combine (combine with previous entry)
             const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
               handleCombine(entry);
@@ -4366,7 +6264,10 @@ export function TimeTrackerTable({
 
         case "p":
           e.preventDefault();
-          if (selectedCell) {
+          if (selectedRows.size > 0) {
+            // Set project for all selected entries
+            handleSetProjectClick();
+          } else if (selectedCell) {
             const entry = timeEntries[selectedCell.rowIndex];
             if (entry) {
               const entryId = entry.id.toString();
@@ -4389,6 +6290,7 @@ export function TimeTrackerTable({
   }, [
     // Essential dependencies only - remove functions that don't need to be in deps
     selectedCell,
+    selectedRows,
     keyboardNavigationData.currentEntriesLength,
     keyboardNavigationData.maxCellIndex,
     isEditingCell,
@@ -4411,6 +6313,9 @@ export function TimeTrackerTable({
     handleRefreshData,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
+    handleDeleteSelectedClick,
+    handleAddTagClick,
+    handleSetProjectClick,
     handleStartTimerFromPinned,
     handleSplit,
     handleCombine,
@@ -4419,6 +6324,12 @@ export function TimeTrackerTable({
     handleFullscreenToggle,
     handlePinEntry,
     handleUnpinEntry,
+    handleSelectAll,
+    handleSelectAllUp,
+    handleSelectAllDown,
+    handleCheckboxToggle,
+    multiSelectMenuOpen,
+    setShowPinnedEntriesValue,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -4635,7 +6546,7 @@ export function TimeTrackerTable({
           "space-y-6 overflow-auto overscroll-none",
           isFullscreen
             ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
-            : "h-[calc(100vh-8rem)] border rounded-xl p-6"
+            : "h-[calc(100vh-8rem)] border rounded-xl p-6 pt-0"
         )}
         ref={tableRef}
       >
@@ -4647,243 +6558,64 @@ export function TimeTrackerTable({
           onNewTimer={handlePinnedNewTimer}
           onNewEntry={handlePinnedNewEntry}
         />
-        <div className="mb-4">
-          {/* Desktop layout - single row */}
-          <div className="hidden md:flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="date"
-                    variant={"outline"}
-                    className={cn(
-                      "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                    {date?.from ? (
-                      date.to ? (
-                        <>
-                          {format(date.from, "LLL dd, y")} -{" "}
-                          {format(date.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        format(date.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto p-0 border-border/60"
-                  align="start"
-                >
-                  <Calendar
-                    mode="range"
-                    defaultMonth={date?.from}
-                    selected={date}
-                    onSelect={(selectedRange) => {
-                      if (selectedRange?.from && selectedRange?.to) {
-                        // Set end date to end of day
-                        const endOfDayTo = endOfDay(selectedRange.to);
-                        setDate({ from: selectedRange.from, to: endOfDayTo });
-                      } else {
-                      }
-                    }}
-                    numberOfMonths={2}
-                    className="rounded-md border-0"
-                  />
-                </PopoverContent>
-              </Popover>
-              <SyncStatusBadge
-                status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
-                lastSyncTime={lastSyncTime}
-                onReauthenticate={handleReauthenticate}
-                onRetry={() => fetchData()}
-              />
-              <EncryptionStatus
-                isE2EEEnabled={encryption.isE2EEEnabled}
-                isUnlocked={encryption.isUnlocked}
-                onLock={handleLockEncryption}
-                onUnlock={handleUnlockEncryption}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={() =>
-                      window.open("https://track.toggl.com/reports/", "_blank")
-                    }
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>View Analytics</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleFullscreenToggle}
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md hover:scale-105 active:scale-95"
-                    disabled={isTransitioning}
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="w-4 h-4" />
-                    ) : (
-                      <Maximize2 className="w-4 h-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleNewEntryClick}
-                    size="icon"
-                    variant="outline"
-                    className="rounded-full h-9 w-9 border-border/40 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-105 active:scale-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>New (N)</TooltipContent>
-              </Tooltip>
+        {selectedRows.size > 0 && (
+          <div
+            className={cn(
+              "sticky top-0 z-10 flex justify-center items-center gap-4 mb-4 py-2 bg-background/95 backdrop-blur-sm border-b",
+              isFullscreen ? "-mx-4 px-4" : "-mx-6 px-6"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedRows.size} selected
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMultiSelectMenuOpen(true)}
+                className="h-8"
+              >
+                Actions (⌘K)
+              </Button>
             </div>
           </div>
+        )}
+        <div className="mb-4">
+          {/* Desktop layout - single row */}
+          <MemoizedDatePickerRow
+            date={date}
+            setDate={setDate}
+            syncStatus={syncStatus}
+            hasLoadedMoreEntries={hasLoadedMoreEntries}
+            lastSyncTime={lastSyncTime}
+            handleReauthenticate={handleReauthenticate}
+            fetchData={fetchData}
+            encryption={encryption}
+            handleLockEncryption={handleLockEncryption}
+            handleUnlockEncryption={handleUnlockEncryption}
+            isFullscreen={isFullscreen}
+            isTransitioning={isTransitioning}
+            handleFullscreenToggle={handleFullscreenToggle}
+            handleNewEntryClick={handleNewEntryClick}
+          />
 
           {/* Mobile layout - two rows */}
           <div className="md:hidden space-y-3">
-            {/* First row - Date picker */}
-            <div className="flex items-center">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="date-mobile"
-                    variant={"outline"}
-                    className={cn(
-                      "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                    {date?.from ? (
-                      date.to ? (
-                        <>
-                          {format(date.from, "MMM dd")} -{" "}
-                          {format(date.to, "MMM dd, y")}
-                        </>
-                      ) : (
-                        format(date.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto p-0 border-border/60"
-                  align="start"
-                >
-                  <Calendar
-                    mode="range"
-                    defaultMonth={date?.from}
-                    selected={date}
-                    onSelect={(selectedRange) => {
-                      if (selectedRange?.from && selectedRange?.to) {
-                        // Set end date to end of day
-                        const endOfDayTo = endOfDay(selectedRange.to);
-                        setDate({ from: selectedRange.from, to: endOfDayTo });
-                      } else {
-                      }
-                    }}
-                    numberOfMonths={1}
-                    className="rounded-md border-0"
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* Second row - Buttons and status */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <SyncStatusBadge
-                  status={hasLoadedMoreEntries ? "sync_paused" : syncStatus}
-                  lastSyncTime={lastSyncTime}
-                  onReauthenticate={handleReauthenticate}
-                  onRetry={() => fetchData()}
-                />
-                <EncryptionStatus
-                  isE2EEEnabled={encryption.isE2EEEnabled}
-                  isUnlocked={encryption.isUnlocked}
-                  onLock={handleLockEncryption}
-                  onUnlock={handleUnlockEncryption}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() =>
-                        window.open(
-                          "https://track.toggl.com/reports/",
-                          "_blank"
-                        )
-                      }
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                    >
-                      <BarChart3 className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>View Analytics</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleFullscreenToggle}
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                      disabled={isTransitioning}
-                    >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-4 h-4" />
-                      ) : (
-                        <Maximize2 className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleNewEntryClick}
-                      size="icon"
-                      variant="outline"
-                      className="rounded-full h-9 w-9 border-border/40 shadow-sm"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>New (N)</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
+            <MemoizedMobileDatePickerRow date={date} setDate={setDate} />
+            <MemoizedMobileButtonsRow
+              syncStatus={syncStatus}
+              hasLoadedMoreEntries={hasLoadedMoreEntries}
+              lastSyncTime={lastSyncTime}
+              handleReauthenticate={handleReauthenticate}
+              fetchData={fetchData}
+              encryption={encryption}
+              handleLockEncryption={handleLockEncryption}
+              handleUnlockEncryption={handleUnlockEncryption}
+              isFullscreen={isFullscreen}
+              isTransitioning={isTransitioning}
+              handleFullscreenToggle={handleFullscreenToggle}
+              handleNewEntryClick={handleNewEntryClick}
+            />
           </div>
         </div>
 
@@ -4908,44 +6640,13 @@ export function TimeTrackerTable({
           >
             <Table className="md:table-auto table-fixed w-full">
               <TableHeader>
-                <TableRow className="hidden md:table-row hover:bg-muted/30 transition-colors duration-200 border-border/60">
-                  <TableHead className="px-2 w-8"></TableHead>
-                  <TableHead className="px-4 py-3 sm:w-28 w-24 font-medium text-muted-foreground">
-                    Date
-                  </TableHead>
-                  {isFullscreen ? (
-                    <>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Project
-                      </TableHead>
-                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Tags
-                      </TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead className="px-4 py-3 font-medium text-muted-foreground description-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Project
-                      </TableHead>
-                      <TableHead className="px-4 py-3 sm:w-48 w-32 font-medium text-muted-foreground">
-                        Tags
-                      </TableHead>
-                    </>
-                  )}
-                  <TableHead className="px-4 py-3 sm:w-32 w-24 font-medium text-muted-foreground">
-                    Time
-                  </TableHead>
-                  <TableHead className="px-4 py-3 sm:w-24 w-20 font-medium text-muted-foreground min-w-[80px]">
-                    Duration
-                  </TableHead>
-                  <TableHead className="px-4 py-3 sm:w-16 w-12 font-medium text-muted-foreground"></TableHead>
-                </TableRow>
+                <MemoizedTableHeaderRow
+                  isFullscreen={isFullscreen}
+                  selectedRows={selectedRows}
+                  decryptedEntriesLength={decryptedEntries.length}
+                  setSelectedRows={setSelectedRows}
+                  lastSelectionDirectionRef={lastSelectionDirectionRef}
+                />
               </TableHeader>
               <TableBody>
                 {decryptedEntries.map((entry, rowIndex) => {
@@ -4968,7 +6669,9 @@ export function TimeTrackerTable({
                       prevEntryEnd={prevEntry?.stop || null}
                       nextEntryStart={nextEntry?.start || null}
                       selectedCell={selectedCell}
+                      selectedRows={selectedRows}
                       onSelectCell={handleSelectCell}
+                      onCheckboxToggle={handleCheckboxToggle}
                       onDescriptionSave={handleDescriptionSave}
                       onProjectChange={handleProjectChange}
                       onTagsChange={handleTagsChange}
@@ -5038,7 +6741,7 @@ export function TimeTrackerTable({
           </div>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex justify-center items-center gap-4">
           <p className="text-sm text-muted-foreground">
             Showing {timeEntries.length} entries
             {hasMore && " (click to load more)"}
@@ -5056,6 +6759,55 @@ export function TimeTrackerTable({
           }}
           entry={entryToDelete}
           onConfirm={handleConfirmDelete}
+        />
+        <DeleteMultipleConfirmationDialog
+          open={deleteMultipleDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteMultipleDialogOpen(open);
+            if (!open) {
+              setEntriesToDelete([]);
+            }
+          }}
+          entries={entriesToDelete}
+          onConfirm={handleConfirmDeleteMultiple}
+        />
+        <AddTagConfirmationDialog
+          open={addTagDialogOpen}
+          onOpenChange={(open) => {
+            setAddTagDialogOpen(open);
+            if (!open) {
+              setEntriesToTag([]);
+            }
+          }}
+          entries={entriesToTag}
+          availableTags={availableTags}
+          onConfirm={handleConfirmAddTags}
+          onTagCreated={handleTagCreated}
+        />
+        <SetProjectConfirmationDialog
+          open={setProjectDialogOpen}
+          onOpenChange={(open) => {
+            setSetProjectDialogOpen(open);
+            if (!open) {
+              setEntriesToSetProject([]);
+            }
+          }}
+          entries={entriesToSetProject}
+          projects={projects}
+          onConfirm={handleConfirmSetProject}
+          onProjectCreated={handleProjectCreated}
+        />
+
+        <CombineConfirmationDialog
+          open={combineMultipleDialogOpen}
+          onOpenChange={(open) => {
+            setCombineMultipleDialogOpen(open);
+            if (!open) {
+              setEntriesToCombineMultiple([]);
+            }
+          }}
+          entries={entriesToCombineMultiple}
+          onConfirm={handleConfirmCombineMultiple}
         />
 
         <SplitEntryDialog
@@ -5099,6 +6851,78 @@ export function TimeTrackerTable({
               : undefined
           }
         />
+
+        {/* Multi-select menu dialog */}
+        <Dialog
+          open={multiSelectMenuOpen}
+          onOpenChange={setMultiSelectMenuOpen}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Multi-Select Actions</DialogTitle>
+              <DialogDescription>
+                {selectedRows.size > 0
+                  ? `${selectedRows.size} entries selected`
+                  : "No entries selected"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  handleDeleteSelectedClick();
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                <span>🗑️ Delete Selected</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  D
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  handleAddTagClick();
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                <span>🏷️ Add Common Tag</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  T
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  handleSetProjectClick();
+                  setMultiSelectMenuOpen(false);
+                }}
+              >
+                <span>📕 Set Project</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  P
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  handleCombineClick();
+                  setMultiSelectMenuOpen(false);
+                }}
+                disabled={selectedRows.size < 2}
+              >
+                <span>📚 Combine All</span>
+                <span className="text-xs text-muted-foreground ml-auto pl-4">
+                  C
+                </span>
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );

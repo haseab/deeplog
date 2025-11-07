@@ -18,6 +18,8 @@ interface TagSelectorProps {
   onTagsChange?: (newTags: string[]) => void;
   availableTags: Tag[];
   onOpenChange?: (isOpen: boolean) => void;
+  isOpen?: boolean; // Optional controlled open state
+  closeOnSelect?: boolean; // Close the selector when a tag is selected
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
   onTagCreated?: (tag: Tag) => void;
@@ -29,13 +31,15 @@ export function TagSelector({
   onTagsChange,
   availableTags,
   onOpenChange,
+  isOpen: controlledIsOpen,
+  closeOnSelect = false,
   onNavigateNext,
   onNavigatePrev,
   onTagCreated,
   "data-testid": dataTestId,
 }: TagSelectorProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [internalIsOpen, setInternalIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const [isChanging, setIsChanging] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -43,10 +47,22 @@ export function TagSelector({
   const [newTagName, setNewTagName] = React.useState("");
   const [isCreatingTag, setIsCreatingTag] = React.useState(false);
 
-  // Notify parent of open state changes
+  // Use controlled state if provided, otherwise use internal state
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+  const setIsOpen = (value: boolean | ((prev: boolean) => boolean)) => {
+    const newValue = typeof value === 'function' ? value(isOpen) : value;
+    if (controlledIsOpen === undefined) {
+      setInternalIsOpen(newValue);
+    }
+    onOpenChange?.(newValue);
+  };
+
+  // Notify parent of open state changes (for backward compatibility)
   React.useEffect(() => {
-    onOpenChange?.(isOpen);
-  }, [isOpen, onOpenChange]);
+    if (controlledIsOpen === undefined) {
+      onOpenChange?.(internalIsOpen);
+    }
+  }, [internalIsOpen, onOpenChange, controlledIsOpen]);
 
   // Create options array (selected tags first, then filtered available tags)
   const allOptions = React.useMemo(() => {
@@ -94,6 +110,11 @@ export function TagSelector({
     setSearchTerm("");
     setHighlightedIndex(0);
     setIsChanging(false);
+    
+    // Close the selector if closeOnSelect is true
+    if (closeOnSelect) {
+      setIsOpen(false);
+    }
   };
 
   const handleRemoveTag = async (tagName: string) => {
