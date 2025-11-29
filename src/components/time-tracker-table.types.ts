@@ -109,6 +109,7 @@ export interface MemoizedActionsCellProps {
   onUnpin: (id: string) => void;
   onSplit: (entry: TimeEntry) => void;
   onCombine: (entry: TimeEntry) => void;
+  onCombineReverse: (entry: TimeEntry) => void;
   onStartEntry: (entry: TimeEntry) => void;
   onStopTimer: (entry: TimeEntry) => void;
   onDelete: (entry: TimeEntry) => void;

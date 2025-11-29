@@ -20,6 +20,7 @@ interface CombineEntryDialogProps {
   currentEntry: TimeEntry | null;
   previousEntry: TimeEntry | null;
   onConfirm: () => void;
+  reverse?: boolean;
 }
 
 export function CombineEntryDialog({
@@ -28,6 +29,7 @@ export function CombineEntryDialog({
   currentEntry,
   previousEntry,
   onConfirm,
+  reverse = false,
 }: CombineEntryDialogProps) {
   const combineButtonRef = React.useRef<HTMLButtonElement>(null);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -38,11 +40,15 @@ export function CombineEntryDialog({
         combineButtonRef.current?.focus();
       }, 100);
     }
-  }, [open]);
+  }, [open, reverse]);
 
   if (!currentEntry || !previousEntry) return null;
 
   const isCurrentEntryRunning = !currentEntry.stop || currentEntry.duration === -1;
+
+  // Determine which entry's metadata to keep based on reverse mode
+  const entryToKeep = reverse ? currentEntry : previousEntry;
+  const entryToDelete = reverse ? previousEntry : currentEntry;
 
   const formatTime = (dateStr: string) => {
     try {
@@ -83,7 +89,9 @@ export function CombineEntryDialog({
             <DialogTitle className="text-left">Combine Time Entries</DialogTitle>
           </div>
           <DialogDescription className="text-left pt-2">
-            This will delete one entry and extend the other.
+            {reverse
+              ? "This will delete the earlier entry and extend the later one (using most recent entry's details)."
+              : "This will delete the later entry and extend the earlier one (using earliest entry's details)."}
           </DialogDescription>
         </DialogHeader>
 
@@ -95,19 +103,19 @@ export function CombineEntryDialog({
             </span>
             <div className="rounded-md bg-blue-50 dark:bg-blue-900/10 p-2.5 border border-blue-200 dark:border-blue-800 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {previousEntry.description || "(no description)"}
+                {entryToKeep.description || "(no description)"}
               </p>
               <div className="flex items-center gap-1.5 mt-1 min-w-0">
                 <div
                   className="w-2 h-2 rounded-sm flex-shrink-0"
-                  style={{ backgroundColor: previousEntry.project_color || "#6b7280" }}
+                  style={{ backgroundColor: entryToKeep.project_color || "#6b7280" }}
                 />
                 <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
-                  {previousEntry.project_name || "No Project"}
+                  {entryToKeep.project_name || "No Project"}
                 </p>
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">
-                {formatTime(previousEntry.start)} → {previousEntry.stop ? formatTime(previousEntry.stop) : "Running"}
+                {formatTime(entryToKeep.start)} → {entryToKeep.stop ? formatTime(entryToKeep.stop) : "Running"}
               </p>
             </div>
           </div>
@@ -124,19 +132,19 @@ export function CombineEntryDialog({
             </span>
             <div className="rounded-md bg-red-50 dark:bg-red-900/10 p-2.5 border border-red-200 dark:border-red-800 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {currentEntry.description || "(no description)"}
+                {entryToDelete.description || "(no description)"}
               </p>
               <div className="flex items-center gap-1.5 mt-1 min-w-0">
                 <div
                   className="w-2 h-2 rounded-sm flex-shrink-0"
-                  style={{ backgroundColor: currentEntry.project_color || "#6b7280" }}
+                  style={{ backgroundColor: entryToDelete.project_color || "#6b7280" }}
                 />
                 <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
-                  {currentEntry.project_name || "No Project"}
+                  {entryToDelete.project_name || "No Project"}
                 </p>
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">
-                {formatTime(currentEntry.start)} → {currentEntry.stop ? formatTime(currentEntry.stop) : "Running"}
+                {formatTime(entryToDelete.start)} → {entryToDelete.stop ? formatTime(entryToDelete.stop) : "Running"}
               </p>
             </div>
           </div>
@@ -154,15 +162,15 @@ export function CombineEntryDialog({
           </span>
           <div className="rounded-md bg-green-50 dark:bg-green-900/10 p-2.5 border border-green-200 dark:border-green-800 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-              {previousEntry.description || "(no description)"}
+              {entryToKeep.description || "(no description)"}
             </p>
             <div className="flex items-center gap-1.5 mt-1 min-w-0">
               <div
                 className="w-2 h-2 rounded-sm flex-shrink-0"
-                style={{ backgroundColor: previousEntry.project_color || "#6b7280" }}
+                style={{ backgroundColor: entryToKeep.project_color || "#6b7280" }}
               />
               <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
-                {previousEntry.project_name || "No Project"}
+                {entryToKeep.project_name || "No Project"}
               </p>
             </div>
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">

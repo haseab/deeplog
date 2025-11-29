@@ -5,16 +5,15 @@ export async function POST(request: NextRequest) {
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
     const body = await request.json();
-    const { currentEntryId, olderEntryId } = body;
+    const { currentEntryId, olderEntryId, reverse = false } = body;
 
     if (!currentEntryId || !olderEntryId) {
       return createErrorResponse("currentEntryId and olderEntryId are required", 400);
     }
 
-    console.log(`[Combine API] Combining entries:`, {
-      currentEntryId: currentEntryId + " (will be deleted)",
-      olderEntryId: olderEntryId + " (will be extended)",
-    });
+    // In reverse mode, keep current entry's metadata instead of older entry's
+    const entryToKeepId = reverse ? currentEntryId : olderEntryId;
+    const entryToDeleteId = reverse ? olderEntryId : currentEntryId;
 
     // Fetch both entries
     const [currentEntryResponse, olderEntryResponse] = await Promise.all([
@@ -49,27 +48,12 @@ export async function POST(request: NextRequest) {
     const currentEntry = await currentEntryResponse.json();
     const olderEntry = await olderEntryResponse.json();
 
-    console.log(`[Combine API] Fetched entries:`, {
-      currentEntry: {
-        id: currentEntry.id,
-        start: currentEntry.start,
-        stop: currentEntry.stop,
-      },
-      olderEntry: {
-        id: olderEntry.id,
-        start: olderEntry.start,
-        stop: olderEntry.stop,
-      },
-    });
-
     // Determine if current entry is running
     const isCurrentEntryRunning = !currentEntry.stop || currentEntry.duration === -1;
 
-    console.log(`[Combine API] Current entry is ${isCurrentEntryRunning ? "running" : "stopped"}`);
-
-    // Delete the current entry first
+    // Delete the entry we're not keeping
     const deleteResponse = await fetch(
-      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${currentEntryId}`,
+      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryToDeleteId}`,
       {
         method: "DELETE",
         headers: {
@@ -81,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     if (!deleteResponse.ok) {
       const errorText = await deleteResponse.text();
-      console.error(`[Combine API] Failed to delete current entry:`, {
+      console.error(`[Combine API] Failed to delete entry:`, {
         status: deleteResponse.status,
         statusText: deleteResponse.statusText,
         error: errorText,
@@ -90,45 +74,43 @@ export async function POST(request: NextRequest) {
       if (deleteResponse.status === 401) {
         return createErrorResponse("Session expired - please reauthenticate", 401);
       }
-      throw new Error(`Failed to delete current entry: ${errorText}`);
+      throw new Error(`Failed to delete entry: ${errorText}`);
     }
 
-    console.log(`[Combine API] Successfully deleted current entry ${currentEntryId}`);
+    // Get the entry to keep based on reverse mode
+    const entryToKeep = reverse ? currentEntry : olderEntry;
+    const earliestStart = olderEntry.start; // Always use the earliest start
 
-    // Update the older entry
+    // Update the entry we're keeping
     const updateBody: Record<string, string | number | boolean | number[] | undefined> = {
-      description: olderEntry.description,
-      start: olderEntry.start,
-      billable: olderEntry.billable,
+      description: entryToKeep.description,
+      start: earliestStart,
+      billable: entryToKeep.billable,
       wid: workspaceId,
-      created_with: olderEntry.created_with || "deeplog",
+      created_with: entryToKeep.created_with || "deeplog",
     };
 
     if (isCurrentEntryRunning) {
-      // Make older entry a running timer
+      // Make kept entry a running timer
       updateBody.duration = -1;
       // Don't include stop field for running timers
-      console.log(`[Combine API] Making older entry a running timer`);
     } else {
-      // Extend older entry to current entry's stop time
+      // Extend kept entry to current entry's stop time
       updateBody.stop = currentEntry.stop;
-      console.log(`[Combine API] Extending older entry to ${currentEntry.stop}`);
     }
 
     // Only include project_id if it exists and is valid
-    if (olderEntry.project_id) {
-      updateBody.project_id = olderEntry.project_id;
+    if (entryToKeep.project_id) {
+      updateBody.project_id = entryToKeep.project_id;
     }
 
     // Only include tag_ids if they exist
-    if (olderEntry.tag_ids && olderEntry.tag_ids.length > 0) {
-      updateBody.tag_ids = olderEntry.tag_ids;
+    if (entryToKeep.tag_ids && entryToKeep.tag_ids.length > 0) {
+      updateBody.tag_ids = entryToKeep.tag_ids;
     }
 
-    console.log(`[Combine API] Updating older entry ${olderEntryId}:`, updateBody);
-
     const updateResponse = await fetch(
-      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${olderEntryId}`,
+      `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryToKeepId}`,
       {
         method: "PUT",
         headers: {
@@ -142,7 +124,7 @@ export async function POST(request: NextRequest) {
 
     if (!updateResponse.ok) {
       const errorText = await updateResponse.text();
-      console.error(`[Combine API] Failed to update older entry:`, {
+      console.error(`[Combine API] Failed to update kept entry:`, {
         status: updateResponse.status,
         statusText: updateResponse.statusText,
         error: errorText,
@@ -151,18 +133,17 @@ export async function POST(request: NextRequest) {
       if (updateResponse.status === 401) {
         return createErrorResponse("Session expired - please reauthenticate", 401);
       }
-      throw new Error(`Failed to update older entry: ${errorText}`);
+      throw new Error(`Failed to update kept entry: ${errorText}`);
     }
 
     const updatedEntry = await updateResponse.json();
-    console.log(`[Combine API] Successfully updated older entry:`, updatedEntry);
 
     return new Response(
       JSON.stringify({
         updatedEntry,
-        deletedEntryId: currentEntryId,
+        deletedEntryId: entryToDeleteId,
         message: isCurrentEntryRunning
-          ? "Combined entries - older entry is now running"
+          ? `Combined entries - ${reverse ? "current" : "older"} entry is now running`
           : "Combined entries successfully",
       }),
       {

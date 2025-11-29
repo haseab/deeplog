@@ -15,6 +15,7 @@ interface ActionsMenuProps {
   isPinned?: boolean;
   onSplit?: () => void;
   onCombine?: () => void;
+  onCombineReverse?: () => void;
   onStartEntry?: () => void;
   onStopTimer?: () => void;
   onDelete?: () => void;
@@ -31,6 +32,7 @@ export function ActionsMenu({
   isPinned = false,
   onSplit,
   onCombine,
+  onCombineReverse,
   onStartEntry,
   onStopTimer,
   onDelete,
@@ -51,6 +53,7 @@ export function ActionsMenu({
     { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true, shortcut: "D" },
     { label: "✂️ Split", action: onSplit || (() => {}), shortcut: "X" },
     { label: "🔗 Combine", action: onCombine || (() => {}), shortcut: "C" },
+    { label: "🔗 Combine (Reverse)", action: onCombineReverse || (() => {}), shortcut: "⌥C" },
     isPinned
       ? { label: "📌 Unpin", action: onUnpin || (() => {}), shortcut: "P" }
       : { label: "📌 Pin", action: onPin || (() => {}), shortcut: "P" },

@@ -1179,6 +1179,7 @@ const MemoizedTableRow = React.memo(
     onUnpin,
     onSplit,
     onCombine,
+    onCombineReverse,
     onStartEntry,
     onStopTimer,
     isPinned,
@@ -1239,6 +1240,7 @@ const MemoizedTableRow = React.memo(
     onUnpin: (id: string) => void;
     onSplit: (entry: TimeEntry) => void;
     onCombine: (entry: TimeEntry) => void;
+    onCombineReverse: (entry: TimeEntry) => void;
     onStartEntry: (entry: TimeEntry) => void;
     onStopTimer: (entry: TimeEntry) => void;
     isPinned: boolean;
@@ -1640,6 +1642,7 @@ const MemoizedTableRow = React.memo(
             onUnpin={onUnpin}
             onSplit={onSplit}
             onCombine={onCombine}
+            onCombineReverse={onCombineReverse}
             onStartEntry={onStartEntry}
             onStopTimer={onStopTimer}
             onDelete={onDelete}
@@ -2106,6 +2109,7 @@ export function TimeTrackerTable({
     React.useState(false);
   const [entriesToCombineMultiple, setEntriesToCombineMultiple] =
     React.useState<TimeEntry[]>([]);
+  const [isReverseCombine, setIsReverseCombine] = React.useState(false);
   const [splitDialogOpen, setSplitDialogOpen] = React.useState(false);
   const splitDialogOpenRef = React.useRef(false);
   const [entryToSplit, setEntryToSplit] = React.useState<TimeEntry | null>(
@@ -2116,6 +2120,7 @@ export function TimeTrackerTable({
   const [entryToCombine, setEntryToCombine] = React.useState<TimeEntry | null>(
     null
   );
+  const [isReverseCombineSingle, setIsReverseCombineSingle] = React.useState(false);
   const [syncStatus, setSyncStatus] = React.useState<
     "synced" | "syncing" | "error" | "session_expired" | "offline"
   >("synced");
@@ -3802,7 +3807,7 @@ export function TimeTrackerTable({
     [entriesToSetProject, handleSetProjectToMultiple]
   );
 
-  const handleCombineClick = React.useCallback(() => {
+  const handleCombineClick = React.useCallback((reverse = false) => {
     if (selectedRows.size < 2) {
       toast.error("Please select at least 2 entries to combine");
       return;
@@ -3813,11 +3818,12 @@ export function TimeTrackerTable({
       .filter(Boolean);
 
     setEntriesToCombineMultiple(selectedEntries);
+    setIsReverseCombine(reverse);
     setCombineMultipleDialogOpen(true);
   }, [selectedRows, decryptedEntries]);
 
   const handleCombineMultiple = React.useCallback(
-    (entries: TimeEntry[]) => {
+    (entries: TimeEntry[], reverse = false) => {
       if (entries.length < 2) {
         toast.error("Need at least 2 entries to combine");
         return;
@@ -3832,7 +3838,14 @@ export function TimeTrackerTable({
       });
 
       // Find the latest entry (chronologically last - newest start time)
-      // and get its stop time (or check if any are running)
+      const latestEntry = entries.reduce((latest, current) => {
+        return new Date(current.start).getTime() >
+          new Date(latest.start).getTime()
+          ? current
+          : latest;
+      });
+
+      // Check if any are running
       const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
 
       // Find the latest stop time among all entries
@@ -3849,22 +3862,28 @@ export function TimeTrackerTable({
         }
       }
 
-      // Entries to delete (all except the earliest)
-      const entriesToDelete = entries.filter((e) => e.id !== earliestEntry.id);
+      // Determine which entry to keep based on reverse mode
+      const entryToKeep = reverse ? latestEntry : earliestEntry;
+
+      // Entries to delete (all except the one we're keeping)
+      const entriesToDelete = entries.filter((e) => e.id !== entryToKeep.id);
       const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
 
-      // Calculate new stop time and duration for the earliest entry
+      // Calculate new start/stop time and duration for the entry to keep
       let newStop: string;
       let newDuration: number;
 
+      // Always use the earliest start time
+      const newStart = earliestEntry.start;
+
       if (hasRunningEntry) {
-        // If any entry is running, make the earliest entry running
+        // If any entry is running, make the kept entry running
         newStop = "";
         newDuration = -1;
       } else {
         // Use the latest stop time
         newStop = latestStopTime!;
-        const start = new Date(earliestEntry.start);
+        const start = new Date(newStart);
         const stop = new Date(newStop);
         newDuration = Math.floor((stop.getTime() - start.getTime()) / 1000);
       }
@@ -3875,17 +3894,19 @@ export function TimeTrackerTable({
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
 
-        // Update earliest entry and remove others
+        // Update entry to keep and remove others
         const updatedEntries = currentEntries
           .filter((e) => !entryIdsToDelete.has(e.id))
           .map((e) => {
-            if (e.id === earliestEntry.id) {
-              return {
-                ...e,
+            if (e.id === entryToKeep.id) {
+              const updatedEntry = {
+                ...entryToKeep,  // Use entryToKeep's metadata (description, project, tags)
+                start: newStart,
                 stop: newStop,
                 duration: newDuration,
                 syncStatus: "pending" as SyncStatus,
               };
+              return updatedEntry;
             }
             return e;
           });
@@ -3900,7 +3921,7 @@ export function TimeTrackerTable({
       // Show toast with undo functionality
       const toastId = toast(`Combined ${entries.length} entries`, {
         description: hasRunningEntry
-          ? "Earliest entry is now running"
+          ? `${reverse ? "Latest" : "Earliest"} entry is now running`
           : `Extended to ${format(new Date(newStop), "h:mm a")}`,
         duration: 5000,
         action: {
@@ -3959,10 +3980,10 @@ export function TimeTrackerTable({
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
 
-          // Step 2: Update the earliest entry
+          // Step 2: Update the entry to keep
           try {
             const updateResponse = await fetch(
-              `/api/time-entries/${earliestEntry.id}`,
+              `/api/time-entries/${entryToKeep.id}`,
               {
                 method: "PATCH",
                 headers: {
@@ -3970,6 +3991,7 @@ export function TimeTrackerTable({
                   "x-toggl-session-token": sessionToken || "",
                 },
                 body: JSON.stringify({
+                  start: newStart,
                   stop: newStop || null,
                   duration: newDuration,
                 }),
@@ -3981,19 +4003,20 @@ export function TimeTrackerTable({
               console.error(`[handleCombineMultiple] ❌ UPDATE FAILED:`, {
                 status: updateResponse.status,
                 errorText,
-                entryId: earliestEntry.id,
+                entryId: entryToKeep.id,
               });
-              throw new Error("Failed to update earliest entry");
+              throw new Error("Failed to update entry");
             }
 
             const updatedData = await updateResponse.json();
 
-            // Update the earliest entry with server response
+            // Update the kept entry with server response
             setTimeEntries((currentEntries) =>
               currentEntries.map((e) =>
-                e.id === earliestEntry.id
+                e.id === entryToKeep.id
                   ? {
                       ...e,
+                      start: updatedData.start,
                       stop: updatedData.stop,
                       duration: updatedData.duration,
                       syncStatus: undefined,
@@ -4030,10 +4053,11 @@ export function TimeTrackerTable({
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
     if (entriesToCombineMultiple.length > 0) {
-      handleCombineMultiple(entriesToCombineMultiple);
+      handleCombineMultiple(entriesToCombineMultiple, isReverseCombine);
       setEntriesToCombineMultiple([]);
+      setIsReverseCombine(false);
     }
-  }, [entriesToCombineMultiple, handleCombineMultiple]);
+  }, [entriesToCombineMultiple, isReverseCombine, handleCombineMultiple]);
 
   const handleSplit = React.useCallback((entry: TimeEntry) => {
     setEntryToSplit(entry);
@@ -4246,6 +4270,24 @@ export function TimeTrackerTable({
       }
 
       setEntryToCombine(entry);
+      setIsReverseCombineSingle(false);
+      combineDialogOpenRef.current = true;
+      setCombineDialogOpen(true);
+    },
+    [timeEntries]
+  );
+
+  const handleCombineReverse = React.useCallback(
+    (entry: TimeEntry) => {
+      // Find chronologically previous entry (older entry, which is at HIGHER index since list is sorted newest first)
+      const currentIndex = timeEntries.findIndex((e) => e.id === entry.id);
+      if (currentIndex === timeEntries.length - 1) {
+        toast.error("Cannot combine the last entry (oldest entry)");
+        return;
+      }
+
+      setEntryToCombine(entry);
+      setIsReverseCombineSingle(true);
       combineDialogOpenRef.current = true;
       setCombineDialogOpen(true);
     },
@@ -4274,19 +4316,24 @@ export function TimeTrackerTable({
 
     let originalEntries: TimeEntry[] = [];
 
+    // Determine which entry's metadata to keep based on reverse mode
+    const entryToKeep = isReverseCombineSingle ? entryToCombine : olderEntry;
+    const entryToDelete = isReverseCombineSingle ? olderEntry : entryToCombine;
+
     // Optimistically update UI
     setTimeEntries((currentEntries) => {
       originalEntries = [...currentEntries];
 
-      // Remove current entry and update older entry
+      // Remove the entry to delete and update the entry to keep
       const updatedEntries = currentEntries
-        .filter((e) => e.id !== entryToCombine.id)
+        .filter((e) => e.id !== entryToDelete.id)
         .map((e) => {
-          if (e.id === olderEntry.id) {
+          if (e.id === entryToKeep.id) {
             if (isCurrentEntryRunning) {
-              // Make older entry a running timer
+              // Make kept entry a running timer with kept entry's metadata
               return {
-                ...e,
+                ...entryToKeep,  // Use entryToKeep's metadata (description, project, tags)
+                start: olderEntry.start,  // Always use earliest start
                 stop: "",
                 duration: -1,
                 syncStatus:
@@ -4295,14 +4342,15 @@ export function TimeTrackerTable({
                     : e.syncStatus,
               };
             } else {
-              // Extend older entry to current entry's stop time
-              const start = new Date(e.start);
+              // Extend kept entry to latest stop time with kept entry's metadata
+              const start = new Date(olderEntry.start);  // Always use earliest start
               const stop = new Date(entryToCombine.stop!);
               const newDuration = Math.floor(
                 (stop.getTime() - start.getTime()) / 1000
               );
               return {
-                ...e,
+                ...entryToKeep,  // Use entryToKeep's metadata (description, project, tags)
+                start: olderEntry.start,  // Always use earliest start
                 stop: entryToCombine.stop!,
                 duration: newDuration,
                 syncStatus:
@@ -4355,6 +4403,7 @@ export function TimeTrackerTable({
             body: JSON.stringify({
               currentEntryId: finalCurrentId,
               olderEntryId: finalOlderId,
+              reverse: isReverseCombineSingle,
             }),
           });
 
@@ -4396,6 +4445,8 @@ export function TimeTrackerTable({
           }, 2000);
 
           toast.success(data.message || "Entries combined successfully");
+          // Reset reverse mode flag after successful combine
+          setIsReverseCombineSingle(false);
         },
       };
 
@@ -4426,6 +4477,7 @@ export function TimeTrackerTable({
       body: JSON.stringify({
         currentEntryId: entryToCombine.id,
         olderEntryId: olderEntry.id,
+        reverse: isReverseCombineSingle,
       }),
     })
       .then(async (response) => {
@@ -4451,13 +4503,17 @@ export function TimeTrackerTable({
         );
 
         toast.success(data.message || "Entries combined successfully");
+        // Reset reverse mode flag after successful combine
+        setIsReverseCombineSingle(false);
       })
       .catch((error) => {
         console.error("Failed to combine time entries:", error);
         toast.error("Failed to combine entries. Reverting changes.");
         setTimeEntries(originalEntries);
+        // Reset reverse mode flag on error too
+        setIsReverseCombineSingle(false);
       });
-  }, [entryToCombine, timeEntries, toastDuration]);
+  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -5701,6 +5757,23 @@ export function TimeTrackerTable({
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Log ALL 'c' key presses to debug Option+C with comprehensive event properties
+      if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
+        console.log('[Global KeyDown] Key event detected:', {
+          key: e.key,
+          code: e.code,
+          keyCode: e.keyCode,
+          which: e.which,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          charCode: 'charCode' in e ? (e as KeyboardEvent & { charCode: number }).charCode : undefined,
+          type: e.type,
+          isTrusted: e.isTrusted
+        });
+      }
+
       // Don't handle shortcuts if user is typing in an input/textarea OR editing a cell
       const activeElement = document.activeElement;
       const isInInput =
@@ -5714,6 +5787,11 @@ export function TimeTrackerTable({
       const isActionShortcut = ["d", "x", "c", "s", "p"].includes(
         e.key.toLowerCase()
       );
+
+      if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
+        console.log('[Global KeyDown] After checks - isInInput:', isInInput, 'isEditingCell:', isEditingCell, 'isActionShortcut:', isActionShortcut, 'will return:', (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen || (isActionsMenuOpen && !isActionShortcut)));
+      }
+
       if (
         isEditingCell ||
         isProjectSelectorOpen ||
@@ -6432,15 +6510,21 @@ export function TimeTrackerTable({
           break;
 
         case "c":
+        case "ç":  // Safari produces 'ç' when Option+C is pressed on macOS
           e.preventDefault();
+          const isReverse = e.altKey || e.key === "ç";  // Detect reverse mode from altKey OR special character
           if (selectedRows.size > 1) {
-            // Combine all selected entries
-            handleCombineClick();
+            // Combine all selected entries (Option+C for reverse mode)
+            handleCombineClick(isReverse);
           } else if (selectedCell) {
-            // Normal combine (combine with previous entry)
+            // Single entry combine (Option+C for reverse mode)
             const entry = decryptedEntries[selectedCell.rowIndex];
             if (entry) {
-              handleCombine(entry);
+              if (isReverse) {
+                handleCombineReverse(entry);
+              } else {
+                handleCombine(entry);
+              }
             }
           }
           break;
@@ -6535,6 +6619,7 @@ export function TimeTrackerTable({
     handleStartTimerFromPinned,
     handleSplit,
     handleCombine,
+    handleCombineReverse,
     handleCopyAndStartEntry,
     handleStopTimer,
     handleFullscreenToggle,
@@ -6932,6 +7017,7 @@ export function TimeTrackerTable({
                       onUnpin={handleUnpinEntry}
                       onSplit={handleSplit}
                       onCombine={handleCombine}
+                      onCombineReverse={handleCombineReverse}
                       onStartEntry={handleCopyAndStartEntry}
                       onStopTimer={handleStopTimer}
                       isPinned={isPinned(entry.id.toString())}
@@ -7047,10 +7133,12 @@ export function TimeTrackerTable({
             setCombineMultipleDialogOpen(open);
             if (!open) {
               setEntriesToCombineMultiple([]);
+              setIsReverseCombine(false);
             }
           }}
           entries={entriesToCombineMultiple}
           onConfirm={handleConfirmCombineMultiple}
+          reverse={isReverseCombine}
         />
 
         <SplitEntryDialog
@@ -7069,6 +7157,7 @@ export function TimeTrackerTable({
           onOpenChange={(open) => {
             combineDialogOpenRef.current = open;
             setCombineDialogOpen(open);
+            // Don't reset isReverseCombineSingle here - it will be reset after the operation completes
           }}
           currentEntry={entryToCombine}
           previousEntry={
@@ -7081,6 +7170,7 @@ export function TimeTrackerTable({
               : null
           }
           onConfirm={handleConfirmCombine}
+          reverse={isReverseCombineSingle}
         />
         <PinDialog
           open={pinDialogOpen}

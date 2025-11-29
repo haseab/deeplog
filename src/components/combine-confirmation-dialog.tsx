@@ -19,22 +19,23 @@ interface CombineConfirmationDialogProps {
   onOpenChange: (open: boolean) => void;
   entries: TimeEntry[];
   onConfirm: () => void;
+  reverse?: boolean;
 }
 
 // Entry card component
 function EntryCard({
   entry,
-  isEarliest,
+  isKept,
   formatTime,
 }: {
   entry: TimeEntry;
-  isEarliest: boolean;
+  isKept: boolean;
   formatTime: (dateStr: string) => string;
 }) {
   return (
     <div
       className={`rounded-md p-2.5 border ${
-        isEarliest
+        isKept
           ? "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800"
           : "bg-muted/50 border-red-300 dark:border-red-800"
       }`}
@@ -43,12 +44,12 @@ function EntryCard({
         <p className="text-sm font-medium text-foreground flex-1">
           {entry.description || "(no description)"}
         </p>
-        {isEarliest && (
+        {isKept && (
           <span className="text-xs font-medium text-blue-700 dark:text-blue-300 flex-shrink-0 whitespace-nowrap">
             Extended
           </span>
         )}
-        {!isEarliest && (
+        {!isKept && (
           <span className="text-xs font-medium text-red-700 dark:text-red-300 flex-shrink-0 whitespace-nowrap">
             Deleted
           </span>
@@ -78,6 +79,7 @@ export function CombineConfirmationDialog({
   onOpenChange,
   entries,
   onConfirm,
+  reverse = false,
 }: CombineConfirmationDialogProps) {
   const confirmButtonRef = React.useRef<HTMLButtonElement>(null);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -89,7 +91,7 @@ export function CombineConfirmationDialog({
         confirmButtonRef.current?.focus();
       }, 100);
     }
-  }, [open]);
+  }, [open, reverse, entries.length]);
 
   if (entries.length === 0) return null;
 
@@ -116,6 +118,17 @@ export function CombineConfirmationDialog({
       ? current
       : earliest;
   });
+
+  // Find latest entry (chronologically last - newest start time)
+  const latestEntry = entries.reduce((latest, current) => {
+    return new Date(current.start).getTime() >
+      new Date(latest.start).getTime()
+      ? current
+      : latest;
+  });
+
+  // Determine which entry to keep based on reverse mode
+  const entryToKeep = reverse ? latestEntry : earliestEntry;
 
   // Check if any entry is running
   const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
@@ -188,8 +201,9 @@ export function CombineConfirmationDialog({
             </DialogTitle>
           </div>
           <DialogDescription className="text-left pt-2">
-            The earliest entry will be extended to the latest stop time. All
-            other entries will be deleted.
+            {reverse
+              ? "The most recent entry will be extended to span from the earliest start to the latest stop time. All other entries will be deleted."
+              : "The earliest entry will be extended to the latest stop time. All other entries will be deleted."}
           </DialogDescription>
         </DialogHeader>
 
@@ -203,7 +217,7 @@ export function CombineConfirmationDialog({
                 <EntryCard
                   key={entry.id}
                   entry={entry}
-                  isEarliest={entry.id === earliestEntry.id}
+                  isKept={entry.id === entryToKeep.id}
                   formatTime={formatTime}
                 />
               ))}
@@ -221,17 +235,17 @@ export function CombineConfirmationDialog({
             </span>
             <div className="rounded-md bg-green-50 dark:bg-green-900/10 p-3 border border-green-200 dark:border-green-800">
               <p className="text-sm font-medium text-foreground">
-                {earliestEntry.description || "(no description)"}
+                {entryToKeep.description || "(no description)"}
               </p>
               <div className="flex items-center gap-1.5 mt-1 min-w-0">
                 <div
                   className="w-2 h-2 rounded-sm flex-shrink-0"
                   style={{
-                    backgroundColor: earliestEntry.project_color || "#6b7280",
+                    backgroundColor: entryToKeep.project_color || "#6b7280",
                   }}
                 />
                 <p className="text-xs text-muted-foreground truncate min-w-0">
-                  {earliestEntry.project_name || "No Project"}
+                  {entryToKeep.project_name || "No Project"}
                 </p>
               </div>
               <p className="text-xs text-green-700 dark:text-green-300 mt-1 font-medium truncate">
