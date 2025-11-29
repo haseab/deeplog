@@ -96,6 +96,12 @@ export interface MemoizedDurationCellProps {
   onDurationChangeWithStartTimeAdjustment: (
     entryId: number
   ) => (newDuration: number) => void;
+  onDurationChangeWithForcePush: (
+    entryId: number
+  ) => (newDuration: number) => void;
+  onDurationChangeWithStartTimeAdjustmentAndForcePush: (
+    entryId: number
+  ) => (newDuration: number) => void;
   setIsEditingCell: (editing: boolean) => void;
   navigateToNextRow: () => void;
   prevEntryEnd?: string | null;

@@ -568,6 +568,8 @@ const MemoizedDurationCell = React.memo(
     onSelectCell,
     onDurationChange,
     onDurationChangeWithStartTimeAdjustment,
+    onDurationChangeWithForcePush,
+    onDurationChangeWithStartTimeAdjustmentAndForcePush,
     setIsEditingCell,
     navigateToNextRow,
     prevEntryEnd,
@@ -594,6 +596,12 @@ const MemoizedDurationCell = React.memo(
           onSave={(newDuration) => onDurationChange(entry.id)(newDuration)}
           onSaveWithStartTimeAdjustment={(newDuration) =>
             onDurationChangeWithStartTimeAdjustment(entry.id)(newDuration)
+          }
+          onSaveWithForcePush={(newDuration) =>
+            onDurationChangeWithForcePush(entry.id)(newDuration)
+          }
+          onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
+            onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
           }
           onEditingChange={setIsEditingCell}
           onNavigateDown={navigateToNextRow}
@@ -1182,6 +1190,8 @@ const MemoizedTableRow = React.memo(
     onTimeChange,
     onDurationChange,
     onDurationChangeWithStartTimeAdjustment,
+    onDurationChangeWithForcePush,
+    onDurationChangeWithStartTimeAdjustmentAndForcePush,
     onDelete,
     onPin,
     onUnpin,
@@ -1241,6 +1251,12 @@ const MemoizedTableRow = React.memo(
     ) => (startTime: string, endTime: string | null) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
     onDurationChangeWithStartTimeAdjustment: (
+      entryId: number
+    ) => (newDuration: number) => void;
+    onDurationChangeWithForcePush: (
+      entryId: number
+    ) => (newDuration: number) => void;
+    onDurationChangeWithStartTimeAdjustmentAndForcePush: (
       entryId: number
     ) => (newDuration: number) => void;
     onDelete: (entry: TimeEntry) => void;
@@ -1420,6 +1436,12 @@ const MemoizedTableRow = React.memo(
                         onDurationChangeWithStartTimeAdjustment(entry.id)(
                           newDuration
                         )
+                      }
+                      onSaveWithForcePush={(newDuration) =>
+                        onDurationChangeWithForcePush(entry.id)(newDuration)
+                      }
+                      onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
+                        onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
                       }
                       onEditingChange={setIsEditingCell}
                       onNavigateDown={navigateToNextRow}
@@ -1639,6 +1661,10 @@ const MemoizedTableRow = React.memo(
             onDurationChange={onDurationChange}
             onDurationChangeWithStartTimeAdjustment={
               onDurationChangeWithStartTimeAdjustment
+            }
+            onDurationChangeWithForcePush={onDurationChangeWithForcePush}
+            onDurationChangeWithStartTimeAdjustmentAndForcePush={
+              onDurationChangeWithStartTimeAdjustmentAndForcePush
             }
             setIsEditingCell={setIsEditingCell}
             navigateToNextRow={navigateToNextRow}
@@ -3255,6 +3281,222 @@ export function TimeTrackerTable({
               const errorText = await response.text();
               console.error("API Error:", response.status, errorText);
               throw new Error("Failed to update start time");
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast]
+  );
+
+  const handleDurationChangeWithForcePush = React.useCallback(
+    (entryId: number) => (newDuration: number) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Find the current entry and the next entry (chronologically)
+        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
+        const entry = currentEntries[entryIndex];
+        if (!entry) return currentEntries;
+
+        const isRunning = !entry.stop || entry.duration === -1;
+        if (isRunning) {
+          // Don't force push for running timers
+          return currentEntries;
+        }
+
+        // Calculate new stop time based on start + new duration
+        const startDate = new Date(entry.start);
+        const newStopDate = new Date(startDate.getTime() + newDuration * 1000);
+
+        // Find next entry (previous in array since sorted desc by start time)
+        const nextEntry = entryIndex > 0 ? currentEntries[entryIndex - 1] : null;
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((e) => {
+          if (e.id === entryId) {
+            // Update current entry's duration and stop time
+            return {
+              ...e,
+              duration: newDuration,
+              stop: newStopDate.toISOString(),
+            };
+          }
+          // If there's overlap with next entry, adjust next entry's start time
+          if (nextEntry && e.id === nextEntry.id) {
+            const nextStart = new Date(nextEntry.start);
+            if (newStopDate > nextStart) {
+              // Push next entry's start time to match this entry's new stop time
+              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+              const newNextDuration = nextStop
+                ? Math.floor((nextStop.getTime() - newStopDate.getTime()) / 1000)
+                : nextEntry.duration;
+
+              return {
+                ...e,
+                start: newStopDate.toISOString(),
+                duration: newNextDuration,
+              };
+            }
+          }
+          return e;
+        });
+
+        const sessionToken = localStorage.getItem("toggl_session_token");
+
+        showUpdateToast(
+          nextEntry && newStopDate > new Date(nextEntry.start)
+            ? "Duration updated, next entry adjusted."
+            : "Duration updated.",
+          entryId,
+          () => setTimeEntries(originalEntries),
+          async () => {
+            // Update current entry
+            const response1 = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({ duration: newDuration }),
+            });
+
+            if (!response1.ok) {
+              throw new Error("Failed to update duration");
+            }
+
+            // Update next entry if needed
+            if (nextEntry && newStopDate > new Date(nextEntry.start)) {
+              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+              const newNextDuration = nextStop
+                ? Math.floor((nextStop.getTime() - newStopDate.getTime()) / 1000)
+                : nextEntry.duration;
+
+              const response2 = await fetch(`/api/time-entries/${nextEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  start: newStopDate.toISOString(),
+                  duration: newNextDuration,
+                }),
+              });
+
+              if (!response2.ok) {
+                throw new Error("Failed to update next entry");
+              }
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast]
+  );
+
+  const handleDurationChangeWithStartTimeAdjustmentAndForcePush = React.useCallback(
+    (entryId: number) => (newDuration: number) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Find the current entry and the previous entry (chronologically)
+        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
+        const entry = currentEntries[entryIndex];
+        if (!entry) return currentEntries;
+
+        const isRunning = !entry.stop || entry.duration === -1;
+        if (isRunning) {
+          // Don't force push for running timers
+          return currentEntries;
+        }
+
+        // Calculate new start time based on stop - new duration
+        const stopDate = new Date(entry.stop!);
+        const newStartDate = new Date(stopDate.getTime() - newDuration * 1000);
+
+        // Find previous entry (next in array since sorted desc by start time)
+        const prevEntry = entryIndex < currentEntries.length - 1 ? currentEntries[entryIndex + 1] : null;
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((e) => {
+          if (e.id === entryId) {
+            // Update current entry's duration and start time
+            return {
+              ...e,
+              start: newStartDate.toISOString(),
+              duration: newDuration,
+            };
+          }
+          // If there's overlap with prev entry, adjust prev entry's stop time
+          if (prevEntry && e.id === prevEntry.id) {
+            const prevStop = prevEntry.stop ? new Date(prevEntry.stop) : null;
+            if (prevStop && newStartDate < prevStop) {
+              // Push prev entry's stop time back to match this entry's new start time
+              const prevStart = new Date(prevEntry.start);
+              const newPrevDuration = Math.floor((newStartDate.getTime() - prevStart.getTime()) / 1000);
+
+              return {
+                ...e,
+                stop: newStartDate.toISOString(),
+                duration: newPrevDuration,
+              };
+            }
+          }
+          return e;
+        });
+
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const prevStop = prevEntry?.stop ? new Date(prevEntry.stop) : null;
+
+        showUpdateToast(
+          prevEntry && prevStop && newStartDate < prevStop
+            ? "Start time adjusted, previous entry adjusted."
+            : "Start time adjusted.",
+          entryId,
+          () => setTimeEntries(originalEntries),
+          async () => {
+            // Update current entry
+            const response1 = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({
+                start: newStartDate.toISOString(),
+                duration: newDuration
+              }),
+            });
+
+            if (!response1.ok) {
+              throw new Error("Failed to update start time");
+            }
+
+            // Update prev entry if needed
+            if (prevEntry && prevStop && newStartDate < prevStop) {
+              const prevStart = new Date(prevEntry.start);
+              const newPrevDuration = Math.floor((newStartDate.getTime() - prevStart.getTime()) / 1000);
+
+              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  stop: newStartDate.toISOString(),
+                  duration: newPrevDuration,
+                }),
+              });
+
+              if (!response2.ok) {
+                throw new Error("Failed to update previous entry");
+              }
             }
           }
         );
@@ -7084,6 +7326,12 @@ export function TimeTrackerTable({
                       onDurationChange={handleDurationChange}
                       onDurationChangeWithStartTimeAdjustment={
                         handleDurationChangeWithStartTimeAdjustment
+                      }
+                      onDurationChangeWithForcePush={
+                        handleDurationChangeWithForcePush
+                      }
+                      onDurationChangeWithStartTimeAdjustmentAndForcePush={
+                        handleDurationChangeWithStartTimeAdjustmentAndForcePush
                       }
                       onDelete={handleDeleteWithConfirmation}
                       onPin={handlePinEntry}

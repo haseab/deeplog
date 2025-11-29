@@ -11,6 +11,8 @@ interface DurationEditorProps {
   endTime: string | null;
   onSave?: (duration: number) => void;
   onSaveWithStartTimeAdjustment?: (duration: number) => void;
+  onSaveWithForcePush?: (duration: number) => void; // Adjust next entry's start time if overlap
+  onSaveWithStartTimeAdjustmentAndForcePush?: (duration: number) => void; // Adjust start time and push prev entry
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateDown?: () => void;
   prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
@@ -24,6 +26,8 @@ export function DurationEditor({
   endTime,
   onSave,
   onSaveWithStartTimeAdjustment,
+  onSaveWithForcePush,
+  onSaveWithStartTimeAdjustmentAndForcePush,
   onEditingChange,
   onNavigateDown,
   prevEntryEnd,
@@ -199,8 +203,22 @@ export function DurationEditor({
       const s = parseInt(seconds) || 0;
       const totalSeconds = h * 3600 + m * 60 + s;
 
+      // Cmd+Option+Shift+Enter: adjust start time and force push prev entry
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey) {
+        if (totalSeconds !== duration) {
+          onSaveWithStartTimeAdjustmentAndForcePush?.(totalSeconds);
+        }
+        setIsEditing(false);
+      }
+      // Cmd+Shift+Enter: force push next entry if overlap
+      else if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+        if (totalSeconds !== duration) {
+          onSaveWithForcePush?.(totalSeconds);
+        }
+        setIsEditing(false);
+      }
       // Option+Enter or Cmd+Option+Enter: adjust start time instead of stop time
-      if (e.altKey) {
+      else if (e.altKey) {
         if (totalSeconds !== duration) {
           onSaveWithStartTimeAdjustment?.(totalSeconds);
         }
