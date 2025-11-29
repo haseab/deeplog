@@ -55,6 +55,10 @@ export function LimitlessTranscriptionTable({
   } | null>(null);
   // Use state to track if we have a range (for button visibility)
   const [hasOriginalSearchRange, setHasOriginalSearchRange] = React.useState(false);
+  // Ref for the "Load before" button to auto-focus when no results
+  const loadBeforeButtonRef = React.useRef<HTMLButtonElement>(null);
+  // Track if we've scrolled for the current query
+  const hasScrolledForQueryRef = React.useRef(false);
 
   const fetchTranscriptions = React.useCallback(
     async (showLoadingState = true, resetData = true, nextCursor?: string, fetchBeforeRange?: boolean) => {
@@ -309,8 +313,78 @@ export function LimitlessTranscriptionTable({
 
   React.useEffect(() => {
     // Fetch when activeQuery changes (including initial load)
+    // Reset scroll flag when query changes
+    hasScrolledForQueryRef.current = false;
     fetchTranscriptions();
   }, [activeQuery, fetchTranscriptions]);
+
+  // Auto-load transcriptions before range when no results are found
+  // This will keep loading until we find results or there's an error
+  React.useEffect(() => {
+    if (
+      !loading &&
+      transcriptions.length === 0 &&
+      hasOriginalSearchRange
+    ) {
+      // Keep loading until we get results
+      loadBeforeRange();
+    }
+  }, [loading, transcriptions.length, hasOriginalSearchRange, loadBeforeRange]);
+
+  // Scroll to the original query time range when results are found
+  // Works for both auto-loaded results and immediate results
+  React.useEffect(() => {
+    if (
+      !loading &&
+      transcriptions.length > 0 &&
+      originalSearchRangeRef.current &&
+      !hasScrolledForQueryRef.current // Only scroll once per query
+    ) {
+      // Find the transcription that contains or is closest to the original start time
+      const targetTime = originalSearchRangeRef.current.startTime;
+
+      // Small delay to ensure DOM is rendered
+      setTimeout(() => {
+        // Find the LAST content segment that matches or is closest to target time
+        // (chronologically first, but last in the list since they're sorted desc)
+        const contentElements = document.querySelectorAll('[data-content-time]');
+        let targetElement: HTMLElement | null = null;
+        let closestDiff = Infinity;
+
+        // Iterate through all content segments to find matches
+        contentElements.forEach((el) => {
+          const timeStr = el.getAttribute('data-content-time');
+          if (timeStr) {
+            const elementTime = new Date(timeStr);
+            const diff = Math.abs(elementTime.getTime() - targetTime.getTime());
+
+            // Find closest match, but prefer LATER elements (last chronologically)
+            // Use <= instead of < to keep updating to later elements with same diff
+            if (diff <= closestDiff) {
+              closestDiff = diff;
+              targetElement = el as HTMLElement;
+            }
+          }
+        });
+
+        if (targetElement) {
+          const timeStr = targetElement.getAttribute('data-content-time');
+          console.log('[Scroll] Scrolling to content segment:', {
+            time: timeStr,
+            targetTime: targetTime.toISOString(),
+            element: targetElement,
+            closestDiff: closestDiff,
+            closestDiffSeconds: Math.round(closestDiff / 1000),
+          });
+          targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Mark as scrolled to prevent re-scrolling
+          hasScrolledForQueryRef.current = true;
+        } else {
+          console.log('[Scroll] No target content segment found. Target time:', targetTime.toISOString());
+        }
+      }, 300);
+    }
+  }, [loading, transcriptions.length]);
 
   const formatTranscriptionTime = (timestamp: string) => {
     try {
@@ -418,7 +492,12 @@ export function LimitlessTranscriptionTable({
               )}
 
               {/* Original transcript segment */}
-              <div className="flex items-start gap-2">
+              <div
+                className="flex items-start gap-2"
+                data-content-time={content.startOffsetMs !== undefined
+                  ? new Date(new Date(transcription.startTime).getTime() + content.startOffsetMs).toISOString()
+                  : undefined}
+              >
                 {content.startOffsetMs !== undefined && (
                   <span className="text-xs text-muted-foreground font-mono min-w-[60px] mt-0.5">
                     {formatActualTime(
@@ -486,6 +565,7 @@ export function LimitlessTranscriptionTable({
               </p>
               {hasOriginalSearchRange && (
                 <Button
+                  ref={loadBeforeButtonRef}
                   onClick={loadBeforeRange}
                   variant="outline"
                   disabled={loading}
@@ -506,6 +586,7 @@ export function LimitlessTranscriptionTable({
             transcriptions.map((transcription) => (
               <div
                 key={transcription.id}
+                data-transcription-time={transcription.startTime}
                 className="rounded-lg border border-border/60 overflow-hidden shadow-sm bg-card hover:shadow-md transition-all duration-200"
               >
                 <div className="px-6 py-4 border-b border-border/40 bg-muted/20">

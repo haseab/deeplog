@@ -5784,9 +5784,10 @@ export function TimeTrackerTable({
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
+      // Note: 'p' with Cmd/Ctrl is NOT an action shortcut (it's for Pendant/Rewind navigation)
       const isActionShortcut = ["d", "x", "c", "s", "p"].includes(
         e.key.toLowerCase()
-      );
+      ) && !(e.metaKey || e.ctrlKey);
 
       if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
         console.log('[Global KeyDown] After checks - isInInput:', isInInput, 'isEditingCell:', isEditingCell, 'isActionShortcut:', isActionShortcut, 'will return:', (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen || (isActionsMenuOpen && !isActionShortcut)));
@@ -5921,6 +5922,66 @@ export function TimeTrackerTable({
         !isInInput
       ) {
         e.preventDefault();
+        return;
+      }
+
+      // Check if Limitless API key exists (required for both Cmd+P shortcuts)
+      const hasLimitlessKey = !!localStorage.getItem("limitless_api_key");
+
+      // Cmd+P: Open Limitless pendant page in new tab with selected entry's time range
+      if (
+        e.key.toLowerCase() === "p" &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !isInInput &&
+        selectedCell &&
+        hasLimitlessKey
+      ) {
+        e.preventDefault();
+        const entry = decryptedEntries[selectedCell.rowIndex];
+        if (entry) {
+          const startDateObj = new Date(entry.start);
+          const endDateObj = entry.stop ? new Date(entry.stop) : new Date();
+
+          // Check if start and end are on the same day
+          const sameDay = format(startDateObj, "yyyy-MM-dd") === format(endDateObj, "yyyy-MM-dd");
+
+          let query: string;
+          if (sameDay) {
+            // Format: "2025-11-04 from 3:48am to 3:49am"
+            const dateStr = format(startDateObj, "yyyy-MM-dd");
+            const startTimeStr = format(startDateObj, "h:mma").toLowerCase();
+            const endTimeStr = format(endDateObj, "h:mma").toLowerCase();
+            query = `${dateStr} from ${startTimeStr} to ${endTimeStr}`;
+          } else {
+            // Format: "2025-11-02 11:25am to 2025-11-03 1:35pm"
+            const startFormatted = format(startDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+            const endFormatted = format(endDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+            query = `${startFormatted} to ${endFormatted}`;
+          }
+
+          window.open(`/pendant?q=${encodeURIComponent(query)}`, '_blank');
+        }
+        return;
+      }
+
+      // Cmd+Shift+P: Open Rewind AI deeplink with selected entry's start timestamp
+      if (
+        e.key.toLowerCase() === "p" &&
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        !isInInput &&
+        selectedCell &&
+        hasLimitlessKey
+      ) {
+        e.preventDefault();
+        const entry = decryptedEntries[selectedCell.rowIndex];
+        if (entry) {
+          // Convert to Unix timestamp in seconds (Rewind AI expects seconds, not milliseconds)
+          const startTimestamp = Math.floor(new Date(entry.start).getTime() / 1000);
+          const rewindUrl = `rewindai://show-moment?timestamp=${startTimestamp}`;
+          window.open(rewindUrl, '_blank');
+        }
         return;
       }
 
