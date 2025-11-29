@@ -1328,7 +1328,7 @@ const MemoizedTableRow = React.memo(
       <>
         {/* Mobile View */}
         <TableRow
-          key={`${entry.tempId || entry.id}-mobile`}
+          key={`${entry.id}-mobile`}
           data-entry-id={entry.id}
           className={cn(
             "md:hidden hover:bg-accent/20 border-border/40 group",
@@ -1541,7 +1541,7 @@ const MemoizedTableRow = React.memo(
 
         {/* Desktop View */}
         <TableRow
-          key={entry.tempId || entry.id}
+          key={entry.id}
           data-entry-id={entry.id}
           className={cn(
             "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
@@ -1805,10 +1805,10 @@ const MemoizedTableRow = React.memo(
       prevEntry.stop === nextEntry.stop &&
       prevEntry.duration === nextEntry.duration &&
       prevEntry.syncStatus === nextEntry.syncStatus &&
-      prevEntry.tags.length === nextEntry.tags.length &&
-      prevEntry.tags.every((tag, i) => tag === nextEntry.tags[i]) &&
-      prevEntry.tag_ids.length === nextEntry.tag_ids.length &&
-      prevEntry.tag_ids.every((id, i) => id === nextEntry.tag_ids[i]);
+      (prevEntry.tags?.length || 0) === (nextEntry.tags?.length || 0) &&
+      (prevEntry.tags || []).every((tag, i) => tag === (nextEntry.tags || [])[i]) &&
+      (prevEntry.tag_ids?.length || 0) === (nextEntry.tag_ids?.length || 0) &&
+      (prevEntry.tag_ids || []).every((id, i) => id === (nextEntry.tag_ids || [])[i]);
 
     const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
     // Only require rowIndex to be equal if this row is selected (selection state already checked above)
@@ -4474,6 +4474,7 @@ export function TimeTrackerTable({
           start: new Date(splitPoint).toISOString(),
           stop: new Date(splitPoint + extensionMs).toISOString(),
           duration: Math.floor(extensionMs / 1000),
+          syncStatus: "pending" as SyncStatus,
         };
         splitEntries.push(secondEntry);
       } else {
@@ -4501,6 +4502,7 @@ export function TimeTrackerTable({
           duration: isRunning
             ? -1
             : Math.floor((endTime.getTime() - splitPoint) / 1000),
+          syncStatus: "pending" as SyncStatus,
         };
         splitEntries.push(secondEntry);
       }
@@ -4532,6 +4534,9 @@ export function TimeTrackerTable({
         }
       });
 
+      // Set initial sync status for the temp entry
+      setEntrySyncStatus((prev) => new Map(prev).set(tempId, "pending"));
+
       // Make API call
       const sessionToken = localStorage.getItem("toggl_session_token");
 
@@ -4560,7 +4565,7 @@ export function TimeTrackerTable({
           return response.json();
         })
         .then((data) => {
-          const { createdEntry } = data;
+          const { createdEntry, updatedEntry } = data;
           if (createdEntry && createdEntry.id) {
             const realId = createdEntry.id;
 
@@ -4572,17 +4577,33 @@ export function TimeTrackerTable({
             encryption.swapEncryptedEntryId(tempId, realId);
 
             // Replace the temporary entry with the real one from the server
+            // Use the full server data, not just the client-side optimistic data
             setTimeEntries((prev) =>
-              prev.map((entry) =>
-                entry.id === tempId
-                  ? ({
-                      ...entry,
-                      id: realId,
-                      tempId,
-                      syncStatus: "syncing" as SyncStatus,
-                    } as TimeEntry)
-                  : entry
-              )
+              prev.map((entry) => {
+                if (entry.id === tempId) {
+                  // Use server response data with proper denormalization
+                  return {
+                    ...createdEntry,
+                    project_name: entry.project_name, // Keep denormalized fields
+                    project_color: entry.project_color,
+                    tags: entry.tags || [],
+                    tag_ids: createdEntry.tag_ids || [],
+                    tempId,
+                    syncStatus: "syncing" as SyncStatus,
+                  } as TimeEntry;
+                }
+                // Also update the original entry if it was modified (non-negative split)
+                if (!isNegativeSplit && entry.id === entryToSplit.id && updatedEntry) {
+                  return {
+                    ...updatedEntry,
+                    project_name: entry.project_name,
+                    project_color: entry.project_color,
+                    tags: entry.tags || [],
+                    tag_ids: updatedEntry.tag_ids || [],
+                  } as TimeEntry;
+                }
+                return entry;
+              })
             );
 
             // Move sync status from temp ID to real ID
@@ -7454,7 +7475,7 @@ export function TimeTrackerTable({
 
                   return (
                     <MemoizedTableRow
-                      key={entry.tempId || entry.id}
+                      key={entry.id}
                       entry={entry}
                       rowIndex={rowIndex}
                       prevEntryEnd={prevEntry?.stop || null}
