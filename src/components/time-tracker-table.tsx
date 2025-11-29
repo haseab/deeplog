@@ -14,7 +14,7 @@ import {
   triggerUndo,
 } from "@/lib/toast";
 import type { PinnedEntry, SyncStatus } from "@/types";
-import { endOfDay, format, startOfDay, subDays } from "date-fns";
+import { endOfDay, format, parse, startOfDay, subDays } from "date-fns";
 import {
   AlertCircle,
   BarChart3,
@@ -25,7 +25,9 @@ import {
   Maximize2,
   Minimize2,
   Plus,
+  RotateCcw,
 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { DateRange } from "react-day-picker";
 import { PinnedTimeEntries } from "./pinned-time-entries";
@@ -776,6 +778,17 @@ const MemoizedDatePickerRow = React.memo(
                 numberOfMonths={2}
                 className="rounded-md border-0"
               />
+              <div className="p-3 border-t border-border/60">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.href = '/'}
+                  className="w-full text-xs hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+                >
+                  <RotateCcw className="mr-2 h-3 w-3" />
+                  Reset to Last 7 Days
+                </Button>
+              </div>
             </PopoverContent>
           </Popover>
           <SyncStatusBadge
@@ -912,6 +925,17 @@ const MemoizedMobileDatePickerRow = React.memo(
               numberOfMonths={1}
               className="rounded-md border-0"
             />
+            <div className="p-3 border-t border-border/60">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.location.href = '/'}
+                className="w-full text-xs hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+              >
+                <RotateCcw className="mr-2 h-3 w-3" />
+                Reset to Last 7 Days
+              </Button>
+            </div>
           </PopoverContent>
         </Popover>
       </div>
@@ -1931,6 +1955,8 @@ const MemoizedTableRow = React.memo(
 export function TimeTrackerTable({
   onFullscreenChange,
 }: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const encryption = useEncryptionContext();
 
@@ -2023,8 +2049,9 @@ export function TimeTrackerTable({
 
       if (fromParam && toParam) {
         try {
-          const from = new Date(fromParam);
-          const to = new Date(toParam);
+          // Parse dates in local time (not UTC) to avoid timezone shifts
+          const from = parse(fromParam, "yyyy-MM-dd", new Date());
+          const to = parse(toParam, "yyyy-MM-dd", new Date());
 
           // Validate dates
           if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
@@ -2046,6 +2073,32 @@ export function TimeTrackerTable({
   const [date, setDate] = React.useState<DateRange | undefined>(
     getInitialDateRange()
   );
+
+  // Watch for URL changes and update date range accordingly
+  React.useEffect(() => {
+    const fromParam = searchParams.get("from");
+    const toParam = searchParams.get("to");
+
+    // If no params, reset to default range
+    if (!fromParam || !toParam) {
+      setDate(getDefaultDateRange());
+    } else {
+      try {
+        const from = parse(fromParam, "yyyy-MM-dd", new Date());
+        const to = parse(toParam, "yyyy-MM-dd", new Date());
+
+        if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+          setDate({
+            from: startOfDay(from),
+            to: endOfDay(to),
+          });
+        }
+      } catch {
+        // Invalid date format, ignore
+      }
+    }
+  }, [searchParams]);
+
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
 
@@ -6250,6 +6303,20 @@ export function TimeTrackerTable({
       ) {
         e.preventDefault();
         handleFullscreenToggle();
+        return;
+      }
+
+      // Cmd+Option+R: Reset date range to last 7 days
+      // Note: Use e.code instead of e.key because Cmd+Option+R produces '®' on Mac
+      if (
+        e.code === "KeyR" &&
+        e.altKey &&
+        (e.metaKey || e.ctrlKey) &&
+        !isInInput
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        router.push('/');
         return;
       }
 

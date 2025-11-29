@@ -272,7 +272,18 @@ export function LimitlessTranscriptionTable({
     }
 
     // Convert 24-hour military time formats (e.g., "1405" -> "14:05", "205" -> "02:05")
-    queryToUse = queryToUse.replace(/\b(\d{3,4})\b/g, (match) => {
+    // But avoid converting years (1900-2099) or dates
+    queryToUse = queryToUse.replace(/\b(\d{3,4})\b/g, (match, _p1, offset, fullString) => {
+      // Check if this number is part of a date pattern (YYYY-MM-DD)
+      // Look at surrounding characters to see if this is a year in a date
+      const beforeChar = offset > 0 ? fullString[offset - 1] : '';
+      const afterChar = offset + match.length < fullString.length ? fullString[offset + match.length] : '';
+
+      // If surrounded by dashes or part of YYYY-MM-DD pattern, skip it (it's a date component)
+      if (beforeChar === '-' || afterChar === '-') {
+        return match;
+      }
+
       // Only process 3 or 4 digit numbers that look like times
       if (match.length === 3) {
         // e.g., "205" -> "02:05"
@@ -280,6 +291,12 @@ export function LimitlessTranscriptionTable({
         const minutes = match.slice(1);
         return `${hours}:${minutes}`;
       } else if (match.length === 4) {
+        // Don't convert if it looks like a year (1900-2099)
+        const num = parseInt(match, 10);
+        if (num >= 1900 && num <= 2099) {
+          return match; // Keep as-is, it's a year
+        }
+
         // e.g., "1405" -> "14:05"
         const hours = match.slice(0, 2);
         const minutes = match.slice(2);
