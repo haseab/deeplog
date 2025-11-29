@@ -2992,6 +2992,229 @@ export function TimeTrackerTable({
     [handleBulkEntryUpdate]
   );
 
+  // Unified helper for force push updates (handles all overlap scenarios)
+  const handleForceUpdate = React.useCallback(
+    (
+      entryId: number,
+      updateType: 'time' | 'duration-end' | 'duration-start',
+      newValues: { startTime?: string; endTime?: string | null; duration?: number }
+    ) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Find the current entry
+        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
+        const entry = currentEntries[entryIndex];
+        if (!entry) return currentEntries;
+
+        const isRunning = !entry.stop || entry.duration === -1;
+
+        // Calculate the new times based on update type
+        let newStart: Date;
+        let newEnd: Date | null;
+        let newDuration: number;
+
+        if (updateType === 'time') {
+          // Direct time change
+          newStart = new Date(newValues.startTime!);
+          newEnd = newValues.endTime ? new Date(newValues.endTime) : null;
+          newDuration = newEnd
+            ? Math.floor((newEnd.getTime() - newStart.getTime()) / 1000)
+            : -1;
+        } else if (updateType === 'duration-end') {
+          // Duration change with stop time adjustment (start stays fixed)
+          if (isRunning) {
+            // For running timers, adjust start time instead (end = now)
+            const now = new Date();
+            newStart = new Date(now.getTime() - newValues.duration! * 1000);
+            newEnd = null; // Still running
+            newDuration = -1; // Keep as running timer
+          } else {
+            newStart = new Date(entry.start);
+            newEnd = new Date(newStart.getTime() + newValues.duration! * 1000);
+            newDuration = newValues.duration!;
+          }
+        } else {
+          // Duration change with start time adjustment (stop stays fixed)
+          if (isRunning) {
+            // For running timers, adjust start time (end = now)
+            const now = new Date();
+            newStart = new Date(now.getTime() - newValues.duration! * 1000);
+            newEnd = null; // Still running
+            newDuration = -1; // Keep as running timer
+          } else {
+            newEnd = new Date(entry.stop!);
+            newStart = new Date(newEnd.getTime() - newValues.duration! * 1000);
+            newDuration = newValues.duration!;
+          }
+        }
+
+        // Find adjacent entries (remember: sorted desc by start time)
+        const prevEntry = entryIndex < currentEntries.length - 1 ? currentEntries[entryIndex + 1] : null;
+        const nextEntry = entryIndex > 0 ? currentEntries[entryIndex - 1] : null;
+
+        // Check for overlaps
+        const prevStop = prevEntry?.stop ? new Date(prevEntry.stop) : null;
+        const nextStart = nextEntry?.start ? new Date(nextEntry.start) : null;
+
+        // For running timers (no end time), we can only check start time overlap with previous entry
+        const prevOverlap = prevEntry && prevStop && newStart < prevStop;
+        const nextOverlap = nextEntry && newEnd && nextStart && newEnd > nextStart; // newEnd is null for running timers
+
+        // Validate that force push won't create invalid entries (negative duration)
+        if (prevOverlap && prevEntry) {
+          const prevStart = new Date(prevEntry.start);
+          const wouldBeNegative = newStart <= prevStart;
+          if (wouldBeNegative) {
+            // Show error toast and abort
+            toast.error("Cannot adjust: would create invalid time entry for previous entry.");
+            return currentEntries;
+          }
+        }
+
+        if (nextOverlap && nextEntry) {
+          const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+          const wouldBeNegative = nextStop && newEnd! >= nextStop;
+          if (wouldBeNegative) {
+            // Show error toast and abort
+            toast.error("Cannot adjust: would create invalid time entry for next entry.");
+            return currentEntries;
+          }
+        }
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((e) => {
+          if (e.id === entryId) {
+            // Update current entry
+            return {
+              ...e,
+              start: newStart.toISOString(),
+              stop: newEnd ? newEnd.toISOString() : "",
+              duration: newDuration,
+            };
+          }
+
+          // Push previous entry's stop time backwards if overlap
+          if (prevOverlap && e.id === prevEntry.id) {
+            const prevStart = new Date(prevEntry.start);
+            const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
+            return {
+              ...e,
+              stop: newStart.toISOString(),
+              duration: newPrevDuration,
+            };
+          }
+
+          // Push next entry's start time forward if overlap
+          if (nextOverlap && e.id === nextEntry.id) {
+            const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+            const newNextDuration = nextStop
+              ? Math.floor((nextStop.getTime() - newEnd!.getTime()) / 1000)
+              : nextEntry.duration;
+            return {
+              ...e,
+              start: newEnd!.toISOString(),
+              duration: newNextDuration,
+            };
+          }
+
+          return e;
+        });
+
+        const sessionToken = localStorage.getItem("toggl_session_token");
+
+        // Show toast with appropriate message
+        const message = prevOverlap || nextOverlap
+          ? updateType === 'time'
+            ? "Time updated, adjacent entry adjusted."
+            : prevOverlap
+            ? "Start time adjusted, previous entry adjusted."
+            : "Duration updated, next entry adjusted."
+          : updateType === 'time'
+          ? "Time updated."
+          : updateType.includes('start')
+          ? "Start time adjusted."
+          : "Duration updated.";
+
+        showUpdateToast(
+          message,
+          entryId,
+          () => setTimeEntries(originalEntries),
+          async () => {
+            // Update current entry
+            const currentPayload = updateType === 'time'
+              ? { start: newStart.toISOString(), stop: newEnd?.toISOString() || undefined }
+              : updateType === 'duration-end'
+              ? (isRunning ? { start: newStart.toISOString() } : { duration: newDuration })
+              : (isRunning ? { start: newStart.toISOString() } : { start: newStart.toISOString(), duration: newDuration });
+
+            const response1 = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify(currentPayload),
+            });
+
+            if (!response1.ok) {
+              throw new Error(`Failed to update ${updateType === 'time' ? 'time' : 'duration'}`);
+            }
+
+            // Update previous entry if needed
+            if (prevOverlap && prevEntry) {
+              const prevStart = new Date(prevEntry.start);
+              const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
+
+              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  stop: newStart.toISOString(),
+                  duration: newPrevDuration,
+                }),
+              });
+
+              if (!response2.ok) {
+                throw new Error("Failed to update previous entry");
+              }
+            }
+
+            // Update next entry if needed
+            if (nextOverlap && nextEntry && newEnd) {
+              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+              const newNextDuration = nextStop
+                ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
+                : nextEntry.duration;
+
+              const response3 = await fetch(`/api/time-entries/${nextEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  start: newEnd.toISOString(),
+                  duration: newNextDuration,
+                }),
+              });
+
+              if (!response3.ok) {
+                throw new Error("Failed to update next entry");
+              }
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast]
+  );
+
   const handleTimeChange = React.useCallback(
     (entryId: number) => (startTime: string, endTime: string | null) => {
       // Calculate duration for optimistic update
@@ -3094,155 +3317,9 @@ export function TimeTrackerTable({
 
   const handleTimeChangeWithForcePush = React.useCallback(
     (entryId: number) => (startTime: string, endTime: string | null) => {
-      setTimeEntries((currentEntries) => {
-        const originalEntries = [...currentEntries];
-
-        // Find the current entry
-        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
-        const entry = currentEntries[entryIndex];
-        if (!entry) return currentEntries;
-
-        // Calculate new times
-        const newStart = new Date(startTime);
-        const newEnd = endTime ? new Date(endTime) : null;
-
-        // Find adjacent entries
-        const prevEntry = entryIndex < currentEntries.length - 1 ? currentEntries[entryIndex + 1] : null;
-        const nextEntry = entryIndex > 0 ? currentEntries[entryIndex - 1] : null;
-
-        // Create updated entries
-        const updatedEntries = currentEntries.map((e) => {
-          if (e.id === entryId) {
-            // Update current entry
-            const duration = newEnd
-              ? Math.floor((newEnd.getTime() - newStart.getTime()) / 1000)
-              : -1;
-            return {
-              ...e,
-              start: startTime,
-              stop: endTime || "",
-              duration: duration,
-            };
-          }
-
-          // Check if start time moved backwards and overlaps with previous entry
-          if (prevEntry && e.id === prevEntry.id) {
-            const prevStop = prevEntry.stop ? new Date(prevEntry.stop) : null;
-            if (prevStop && newStart < prevStop) {
-              // Push prev entry's stop time back
-              const prevStart = new Date(prevEntry.start);
-              const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
-              return {
-                ...e,
-                stop: newStart.toISOString(),
-                duration: newPrevDuration,
-              };
-            }
-          }
-
-          // Check if end time moved forward and overlaps with next entry
-          if (nextEntry && e.id === nextEntry.id && newEnd) {
-            const nextStart = new Date(nextEntry.start);
-            if (newEnd > nextStart) {
-              // Push next entry's start time forward
-              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
-              const newNextDuration = nextStop
-                ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
-                : nextEntry.duration;
-              return {
-                ...e,
-                start: newEnd.toISOString(),
-                duration: newNextDuration,
-              };
-            }
-          }
-
-          return e;
-        });
-
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const prevStop = prevEntry?.stop ? new Date(prevEntry.stop) : null;
-        const nextStart = nextEntry?.start ? new Date(nextEntry.start) : null;
-
-        const prevAdjusted = prevEntry && prevStop && newStart < prevStop;
-        const nextAdjusted = nextEntry && newEnd && nextStart && newEnd > nextStart;
-
-        showUpdateToast(
-          prevAdjusted || nextAdjusted
-            ? "Time updated, adjacent entry adjusted."
-            : "Time updated.",
-          entryId,
-          () => setTimeEntries(originalEntries),
-          async () => {
-            // Update current entry
-            const response1 = await fetch(`/api/time-entries/${entryId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify({
-                start: startTime,
-                stop: endTime || undefined,
-              }),
-            });
-
-            if (!response1.ok) {
-              throw new Error("Failed to update time");
-            }
-
-            // Update prev entry if needed
-            if (prevEntry && prevStop && newStart < prevStop) {
-              const prevStart = new Date(prevEntry.start);
-              const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
-
-              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-toggl-session-token": sessionToken || "",
-                },
-                body: JSON.stringify({
-                  stop: newStart.toISOString(),
-                  duration: newPrevDuration,
-                }),
-              });
-
-              if (!response2.ok) {
-                throw new Error("Failed to update previous entry");
-              }
-            }
-
-            // Update next entry if needed
-            if (nextEntry && newEnd && nextStart && newEnd > nextStart) {
-              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
-              const newNextDuration = nextStop
-                ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
-                : nextEntry.duration;
-
-              const response3 = await fetch(`/api/time-entries/${nextEntry.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-toggl-session-token": sessionToken || "",
-                },
-                body: JSON.stringify({
-                  start: newEnd.toISOString(),
-                  duration: newNextDuration,
-                }),
-              });
-
-              if (!response3.ok) {
-                throw new Error("Failed to update next entry");
-              }
-            }
-          }
-        );
-
-        return updatedEntries;
-      });
+      handleForceUpdate(entryId, 'time', { startTime, endTime });
     },
-    [showUpdateToast]
+    [handleForceUpdate]
   );
 
   const handleDurationChange = React.useCallback(
@@ -3458,218 +3535,16 @@ export function TimeTrackerTable({
 
   const handleDurationChangeWithForcePush = React.useCallback(
     (entryId: number) => (newDuration: number) => {
-      setTimeEntries((currentEntries) => {
-        const originalEntries = [...currentEntries];
-
-        // Find the current entry and the next entry (chronologically)
-        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
-        const entry = currentEntries[entryIndex];
-        if (!entry) return currentEntries;
-
-        const isRunning = !entry.stop || entry.duration === -1;
-        if (isRunning) {
-          // Don't force push for running timers
-          return currentEntries;
-        }
-
-        // Calculate new stop time based on start + new duration
-        const startDate = new Date(entry.start);
-        const newStopDate = new Date(startDate.getTime() + newDuration * 1000);
-
-        // Find next entry (previous in array since sorted desc by start time)
-        const nextEntry = entryIndex > 0 ? currentEntries[entryIndex - 1] : null;
-
-        // Create updated entries
-        const updatedEntries = currentEntries.map((e) => {
-          if (e.id === entryId) {
-            // Update current entry's duration and stop time
-            return {
-              ...e,
-              duration: newDuration,
-              stop: newStopDate.toISOString(),
-            };
-          }
-          // If there's overlap with next entry, adjust next entry's start time
-          if (nextEntry && e.id === nextEntry.id) {
-            const nextStart = new Date(nextEntry.start);
-            if (newStopDate > nextStart) {
-              // Push next entry's start time to match this entry's new stop time
-              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
-              const newNextDuration = nextStop
-                ? Math.floor((nextStop.getTime() - newStopDate.getTime()) / 1000)
-                : nextEntry.duration;
-
-              return {
-                ...e,
-                start: newStopDate.toISOString(),
-                duration: newNextDuration,
-              };
-            }
-          }
-          return e;
-        });
-
-        const sessionToken = localStorage.getItem("toggl_session_token");
-
-        showUpdateToast(
-          nextEntry && newStopDate > new Date(nextEntry.start)
-            ? "Duration updated, next entry adjusted."
-            : "Duration updated.",
-          entryId,
-          () => setTimeEntries(originalEntries),
-          async () => {
-            // Update current entry
-            const response1 = await fetch(`/api/time-entries/${entryId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify({ duration: newDuration }),
-            });
-
-            if (!response1.ok) {
-              throw new Error("Failed to update duration");
-            }
-
-            // Update next entry if needed
-            if (nextEntry && newStopDate > new Date(nextEntry.start)) {
-              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
-              const newNextDuration = nextStop
-                ? Math.floor((nextStop.getTime() - newStopDate.getTime()) / 1000)
-                : nextEntry.duration;
-
-              const response2 = await fetch(`/api/time-entries/${nextEntry.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-toggl-session-token": sessionToken || "",
-                },
-                body: JSON.stringify({
-                  start: newStopDate.toISOString(),
-                  duration: newNextDuration,
-                }),
-              });
-
-              if (!response2.ok) {
-                throw new Error("Failed to update next entry");
-              }
-            }
-          }
-        );
-
-        return updatedEntries;
-      });
+      handleForceUpdate(entryId, 'duration-end', { duration: newDuration });
     },
-    [showUpdateToast]
+    [handleForceUpdate]
   );
 
   const handleDurationChangeWithStartTimeAdjustmentAndForcePush = React.useCallback(
     (entryId: number) => (newDuration: number) => {
-      setTimeEntries((currentEntries) => {
-        const originalEntries = [...currentEntries];
-
-        // Find the current entry and the previous entry (chronologically)
-        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
-        const entry = currentEntries[entryIndex];
-        if (!entry) return currentEntries;
-
-        const isRunning = !entry.stop || entry.duration === -1;
-        if (isRunning) {
-          // Don't force push for running timers
-          return currentEntries;
-        }
-
-        // Calculate new start time based on stop - new duration
-        const stopDate = new Date(entry.stop!);
-        const newStartDate = new Date(stopDate.getTime() - newDuration * 1000);
-
-        // Find previous entry (next in array since sorted desc by start time)
-        const prevEntry = entryIndex < currentEntries.length - 1 ? currentEntries[entryIndex + 1] : null;
-
-        // Create updated entries
-        const updatedEntries = currentEntries.map((e) => {
-          if (e.id === entryId) {
-            // Update current entry's duration and start time
-            return {
-              ...e,
-              start: newStartDate.toISOString(),
-              duration: newDuration,
-            };
-          }
-          // If there's overlap with prev entry, adjust prev entry's stop time
-          if (prevEntry && e.id === prevEntry.id) {
-            const prevStop = prevEntry.stop ? new Date(prevEntry.stop) : null;
-            if (prevStop && newStartDate < prevStop) {
-              // Push prev entry's stop time back to match this entry's new start time
-              const prevStart = new Date(prevEntry.start);
-              const newPrevDuration = Math.floor((newStartDate.getTime() - prevStart.getTime()) / 1000);
-
-              return {
-                ...e,
-                stop: newStartDate.toISOString(),
-                duration: newPrevDuration,
-              };
-            }
-          }
-          return e;
-        });
-
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const prevStop = prevEntry?.stop ? new Date(prevEntry.stop) : null;
-
-        showUpdateToast(
-          prevEntry && prevStop && newStartDate < prevStop
-            ? "Start time adjusted, previous entry adjusted."
-            : "Start time adjusted.",
-          entryId,
-          () => setTimeEntries(originalEntries),
-          async () => {
-            // Update current entry
-            const response1 = await fetch(`/api/time-entries/${entryId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify({
-                start: newStartDate.toISOString(),
-                duration: newDuration
-              }),
-            });
-
-            if (!response1.ok) {
-              throw new Error("Failed to update start time");
-            }
-
-            // Update prev entry if needed
-            if (prevEntry && prevStop && newStartDate < prevStop) {
-              const prevStart = new Date(prevEntry.start);
-              const newPrevDuration = Math.floor((newStartDate.getTime() - prevStart.getTime()) / 1000);
-
-              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-toggl-session-token": sessionToken || "",
-                },
-                body: JSON.stringify({
-                  stop: newStartDate.toISOString(),
-                  duration: newPrevDuration,
-                }),
-              });
-
-              if (!response2.ok) {
-                throw new Error("Failed to update previous entry");
-              }
-            }
-          }
-        );
-
-        return updatedEntries;
-      });
+      handleForceUpdate(entryId, 'duration-start', { duration: newDuration });
     },
-    [showUpdateToast]
+    [handleForceUpdate]
   );
 
   const handleDelete = React.useCallback(
