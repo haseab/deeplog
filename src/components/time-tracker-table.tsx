@@ -5267,6 +5267,14 @@ export function TimeTrackerTable({
         return;
       }
 
+      // Don't sync if any entries are currently syncing, pending, or recently synced
+      const hasActiveSync = Array.from(entrySyncStatusRef.current.values()).some(
+        (status) => status === "syncing" || status === "pending" || status === "synced"
+      );
+      if (hasActiveSync) {
+        return;
+      }
+
       // Don't sync if any input field is being edited
       if (
         isEditingCell ||
