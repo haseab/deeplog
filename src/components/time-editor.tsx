@@ -351,6 +351,43 @@ export function TimeEditor({
     setError("");
   };
 
+  const shiftBothTimes = (minutesToShift: number) => {
+    // Parse current start and end times
+    const startDateParsed = parse(startDateValue, "yyyy-MM-dd", new Date());
+    const startHours = parseInt(startTimeHours) || 0;
+    const startMinutes = parseInt(startTimeMinutes) || 0;
+    const startSeconds = parseInt(startTimeSeconds) || 0;
+
+    const currentStart = new Date(startDateParsed);
+    currentStart.setHours(startHours, startMinutes, startSeconds);
+
+    // Shift start time
+    const newStart = new Date(currentStart.getTime() + minutesToShift * 60 * 1000);
+    setStartDateValue(format(newStart, "yyyy-MM-dd"));
+    setStartTimeHours(format(newStart, "HH"));
+    setStartTimeMinutes(format(newStart, "mm"));
+    setStartTimeSeconds(format(newStart, "ss"));
+
+    // If there's an end time, shift it too
+    if (endDateValue && endTimeHours) {
+      const endDateParsed = parse(endDateValue, "yyyy-MM-dd", new Date());
+      const endHours = parseInt(endTimeHours) || 0;
+      const endMinutes = parseInt(endTimeMinutes) || 0;
+      const endSeconds = parseInt(endTimeSeconds) || 0;
+
+      const currentEnd = new Date(endDateParsed);
+      currentEnd.setHours(endHours, endMinutes, endSeconds);
+
+      const newEnd = new Date(currentEnd.getTime() + minutesToShift * 60 * 1000);
+      setEndDateValue(format(newEnd, "yyyy-MM-dd"));
+      setEndTimeHours(format(newEnd, "HH"));
+      setEndTimeMinutes(format(newEnd, "mm"));
+      setEndTimeSeconds(format(newEnd, "ss"));
+    }
+
+    setError("");
+  };
+
   const handleKeyDown = (
     e: React.KeyboardEvent,
     field:
@@ -363,6 +400,19 @@ export function TimeEditor({
       | "startDate"
       | "endDate"
   ) => {
+    // Shift both times: Option+Left/Right
+    if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        shiftBothTimes(-1); // Shift back 1 minute
+        return;
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        shiftBothTimes(1); // Shift forward 1 minute
+        return;
+      }
+    }
+
     // Snap shortcuts: Cmd+Shift+Left/Right
     if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
       if (e.key === "ArrowLeft" && prevEntryEnd) {
