@@ -2014,8 +2014,37 @@ export function TimeTrackerTable({
     };
   };
 
+  const getInitialDateRange = (): DateRange => {
+    // Try to read from URL query params first
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const fromParam = params.get("from");
+      const toParam = params.get("to");
+
+      if (fromParam && toParam) {
+        try {
+          const from = new Date(fromParam);
+          const to = new Date(toParam);
+
+          // Validate dates
+          if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+            return {
+              from: startOfDay(from),
+              to: endOfDay(to),
+            };
+          }
+        } catch {
+          // Invalid dates in URL, fall through to default
+        }
+      }
+    }
+
+    // Fall back to default range
+    return getDefaultDateRange();
+  };
+
   const [date, setDate] = React.useState<DateRange | undefined>(
-    getDefaultDateRange()
+    getInitialDateRange()
   );
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
@@ -5594,6 +5623,21 @@ export function TimeTrackerTable({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]); // Note: fetchData is intentionally not in deps to avoid infinite loop
+
+  // Update URL query params when date range changes
+  React.useEffect(() => {
+    if (date?.from && date?.to) {
+      const params = new URLSearchParams(window.location.search);
+      const fromStr = format(date.from, "yyyy-MM-dd");
+      const toStr = format(date.to, "yyyy-MM-dd");
+
+      params.set("from", fromStr);
+      params.set("to", toStr);
+
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, [date]);
 
   // Refresh data when tab becomes visible or window gains focus (with debouncing)
   React.useEffect(() => {
