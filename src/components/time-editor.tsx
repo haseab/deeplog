@@ -17,6 +17,7 @@ interface TimeEditorProps {
   startTime: string;
   endTime: string | null;
   onSave?: (startTime: string, endTime: string | null) => void;
+  onSaveWithForcePush?: (startTime: string, endTime: string | null) => void; // Force push adjacent entries if overlap
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
   onNavigateDown?: () => void;
@@ -30,6 +31,7 @@ export function TimeEditor({
   startTime,
   endTime,
   onSave,
+  onSaveWithForcePush,
   onEditingChange,
   onNavigateNext,
   onNavigateDown,
@@ -231,6 +233,60 @@ export function TimeEditor({
     setError("");
   };
 
+  const handleSaveWithForcePush = () => {
+    const finalStartDateTime = buildDateTime(
+      startDateValue,
+      startTimeHours,
+      startTimeMinutes,
+      startTimeSeconds
+    );
+
+    if (!finalStartDateTime) {
+      setError("Invalid start time");
+      return;
+    }
+
+    let finalEndDateTime: Date | null = null;
+    if (endTimeHours.trim() || endTimeMinutes.trim() || endTimeSeconds.trim()) {
+      finalEndDateTime = buildDateTime(
+        endDateValue,
+        endTimeHours,
+        endTimeMinutes,
+        endTimeSeconds
+      );
+
+      if (!finalEndDateTime) {
+        setError("Invalid end time");
+        return;
+      }
+
+      if (finalEndDateTime < finalStartDateTime) {
+        setError("End time must be at or after start time");
+        return;
+      }
+    }
+
+    // Check if anything actually changed
+    const originalStart = new Date(startTime);
+    const originalEnd = endTime ? new Date(endTime) : null;
+
+    const startChanged =
+      finalStartDateTime.getTime() !== originalStart.getTime();
+    const endChanged = finalEndDateTime
+      ? !originalEnd || finalEndDateTime.getTime() !== originalEnd.getTime()
+      : originalEnd !== null;
+
+    if (startChanged || endChanged) {
+      onSaveWithForcePush?.(
+        finalStartDateTime.toISOString(),
+        finalEndDateTime ? finalEndDateTime.toISOString() : null
+      );
+    }
+
+    setIsOpen(false);
+    setError("");
+  };
+
   const handleCancel = () => {
     setIsOpen(false);
     setError("");
@@ -377,9 +433,15 @@ export function TimeEditor({
 
     if (e.key === "Enter") {
       e.preventDefault();
-      handleSave();
-      if (e.metaKey || e.ctrlKey) {
-        onNavigateDown?.();
+
+      // Cmd+Shift+Enter: force push adjacent entries if overlap
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+        handleSaveWithForcePush();
+      } else {
+        handleSave();
+        if (e.metaKey || e.ctrlKey) {
+          onNavigateDown?.();
+        }
       }
     } else if (e.key === "Tab") {
       if (e.shiftKey) {

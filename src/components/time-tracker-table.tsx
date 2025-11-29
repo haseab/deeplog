@@ -503,6 +503,7 @@ const MemoizedTimeCell = React.memo(
     selectedCell,
     onSelectCell,
     onTimeChange,
+    onTimeChangeWithForcePush,
     setIsTimeEditorOpen,
     navigateToNextCell,
     navigateToNextRow,
@@ -529,6 +530,9 @@ const MemoizedTimeCell = React.memo(
           endTime={entry.stop}
           onSave={(startTime, endTime) =>
             onTimeChange(entry.id)(startTime, endTime)
+          }
+          onSaveWithForcePush={(startTime, endTime) =>
+            onTimeChangeWithForcePush(entry.id)(startTime, endTime)
           }
           onEditingChange={setIsTimeEditorOpen}
           onNavigateNext={navigateToNextCell}
@@ -1188,6 +1192,7 @@ const MemoizedTableRow = React.memo(
     onBulkEntryUpdate: _onBulkEntryUpdate,
     onBulkEntryUpdateByRowIndex,
     onTimeChange,
+    onTimeChangeWithForcePush,
     onDurationChange,
     onDurationChangeWithStartTimeAdjustment,
     onDurationChangeWithForcePush,
@@ -1247,6 +1252,9 @@ const MemoizedTableRow = React.memo(
       tags?: string[];
     }) => void;
     onTimeChange: (
+      entryId: number
+    ) => (startTime: string, endTime: string | null) => void;
+    onTimeChangeWithForcePush: (
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
@@ -1396,6 +1404,9 @@ const MemoizedTableRow = React.memo(
                       endTime={entry.stop}
                       onSave={(startTime, endTime) =>
                         onTimeChange(entry.id)(startTime, endTime)
+                      }
+                      onSaveWithForcePush={(startTime, endTime) =>
+                        onTimeChangeWithForcePush(entry.id)(startTime, endTime)
                       }
                       onEditingChange={setIsTimeEditorOpen}
                       onNavigateNext={navigateToNextCell}
@@ -1646,6 +1657,7 @@ const MemoizedTableRow = React.memo(
             selectedCell={selectedCell}
             onSelectCell={onSelectCell}
             onTimeChange={onTimeChange}
+            onTimeChangeWithForcePush={onTimeChangeWithForcePush}
             setIsTimeEditorOpen={setIsTimeEditorOpen}
             navigateToNextCell={navigateToNextCell}
             navigateToNextRow={navigateToNextRow}
@@ -3078,6 +3090,159 @@ export function TimeTrackerTable({
       });
     },
     [showUpdateToast, handleUpdateWithQueue]
+  );
+
+  const handleTimeChangeWithForcePush = React.useCallback(
+    (entryId: number) => (startTime: string, endTime: string | null) => {
+      setTimeEntries((currentEntries) => {
+        const originalEntries = [...currentEntries];
+
+        // Find the current entry
+        const entryIndex = currentEntries.findIndex((e) => e.id === entryId);
+        const entry = currentEntries[entryIndex];
+        if (!entry) return currentEntries;
+
+        // Calculate new times
+        const newStart = new Date(startTime);
+        const newEnd = endTime ? new Date(endTime) : null;
+
+        // Find adjacent entries
+        const prevEntry = entryIndex < currentEntries.length - 1 ? currentEntries[entryIndex + 1] : null;
+        const nextEntry = entryIndex > 0 ? currentEntries[entryIndex - 1] : null;
+
+        // Create updated entries
+        const updatedEntries = currentEntries.map((e) => {
+          if (e.id === entryId) {
+            // Update current entry
+            const duration = newEnd
+              ? Math.floor((newEnd.getTime() - newStart.getTime()) / 1000)
+              : -1;
+            return {
+              ...e,
+              start: startTime,
+              stop: endTime || "",
+              duration: duration,
+            };
+          }
+
+          // Check if start time moved backwards and overlaps with previous entry
+          if (prevEntry && e.id === prevEntry.id) {
+            const prevStop = prevEntry.stop ? new Date(prevEntry.stop) : null;
+            if (prevStop && newStart < prevStop) {
+              // Push prev entry's stop time back
+              const prevStart = new Date(prevEntry.start);
+              const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
+              return {
+                ...e,
+                stop: newStart.toISOString(),
+                duration: newPrevDuration,
+              };
+            }
+          }
+
+          // Check if end time moved forward and overlaps with next entry
+          if (nextEntry && e.id === nextEntry.id && newEnd) {
+            const nextStart = new Date(nextEntry.start);
+            if (newEnd > nextStart) {
+              // Push next entry's start time forward
+              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+              const newNextDuration = nextStop
+                ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
+                : nextEntry.duration;
+              return {
+                ...e,
+                start: newEnd.toISOString(),
+                duration: newNextDuration,
+              };
+            }
+          }
+
+          return e;
+        });
+
+        const sessionToken = localStorage.getItem("toggl_session_token");
+        const prevStop = prevEntry?.stop ? new Date(prevEntry.stop) : null;
+        const nextStart = nextEntry?.start ? new Date(nextEntry.start) : null;
+
+        const prevAdjusted = prevEntry && prevStop && newStart < prevStop;
+        const nextAdjusted = nextEntry && newEnd && nextStart && newEnd > nextStart;
+
+        showUpdateToast(
+          prevAdjusted || nextAdjusted
+            ? "Time updated, adjacent entry adjusted."
+            : "Time updated.",
+          entryId,
+          () => setTimeEntries(originalEntries),
+          async () => {
+            // Update current entry
+            const response1 = await fetch(`/api/time-entries/${entryId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({
+                start: startTime,
+                stop: endTime || undefined,
+              }),
+            });
+
+            if (!response1.ok) {
+              throw new Error("Failed to update time");
+            }
+
+            // Update prev entry if needed
+            if (prevEntry && prevStop && newStart < prevStop) {
+              const prevStart = new Date(prevEntry.start);
+              const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
+
+              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  stop: newStart.toISOString(),
+                  duration: newPrevDuration,
+                }),
+              });
+
+              if (!response2.ok) {
+                throw new Error("Failed to update previous entry");
+              }
+            }
+
+            // Update next entry if needed
+            if (nextEntry && newEnd && nextStart && newEnd > nextStart) {
+              const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
+              const newNextDuration = nextStop
+                ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
+                : nextEntry.duration;
+
+              const response3 = await fetch(`/api/time-entries/${nextEntry.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-toggl-session-token": sessionToken || "",
+                },
+                body: JSON.stringify({
+                  start: newEnd.toISOString(),
+                  duration: newNextDuration,
+                }),
+              });
+
+              if (!response3.ok) {
+                throw new Error("Failed to update next entry");
+              }
+            }
+          }
+        );
+
+        return updatedEntries;
+      });
+    },
+    [showUpdateToast]
   );
 
   const handleDurationChange = React.useCallback(
@@ -7323,6 +7488,7 @@ export function TimeTrackerTable({
                         handleBulkEntryUpdateByRowIndex
                       }
                       onTimeChange={handleTimeChange}
+                      onTimeChangeWithForcePush={handleTimeChangeWithForcePush}
                       onDurationChange={handleDurationChange}
                       onDurationChangeWithStartTimeAdjustment={
                         handleDurationChangeWithStartTimeAdjustment
