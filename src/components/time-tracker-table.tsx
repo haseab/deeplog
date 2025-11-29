@@ -2191,9 +2191,6 @@ export function TimeTrackerTable({
         // Mark that API call has started - toast can no longer be cancelled
         state.apiCallStarted = true;
 
-        // Disable undo button and U key when API call starts
-        clearUndoAction();
-
         // Mark as syncing
         setEntrySyncStatus((prev) => {
           const next = new Map(prev);
