@@ -220,3 +220,27 @@ export function searchRecentTimers(
 
   return scoredMatches.map((item) => item.timer);
 }
+
+export function removeRecentTimer(
+  description: string,
+  projectId: number | null,
+  tagIds: number[]
+): void {
+  try {
+    const timers = getRecentTimers();
+
+    // Find and remove the matching timer
+    const filteredTimers = timers.filter(
+      (t) =>
+        !(
+          t.description === description &&
+          t.projectId === projectId &&
+          JSON.stringify(t.tagIds.sort()) === JSON.stringify(tagIds.sort())
+        )
+    );
+
+    localStorage.setItem(CACHE_KEY, JSON.stringify(filteredTimers));
+  } catch (error) {
+    console.error("Failed to remove recent timer:", error);
+  }
+}

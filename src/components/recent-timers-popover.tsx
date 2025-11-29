@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Clock } from "lucide-react";
+import { Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { searchRecentTimers, incrementTimerUsage, type RecentTimerEntry } from "@/lib/recent-timers-cache";
+import { searchRecentTimers, incrementTimerUsage, removeRecentTimer, type RecentTimerEntry } from "@/lib/recent-timers-cache";
 
 type Project = {
   id: number;
@@ -54,21 +54,23 @@ export function RecentTimersPopover({
 }: RecentTimersPopoverProps) {
   const [recentTimers, setRecentTimers] = React.useState<RecentTimerEntry[]>([]);
 
+  const refreshTimers = React.useCallback(() => {
+    const results = searchRecentTimers(searchQuery, maxResults);
+    setRecentTimers(results);
+    onTimersChange?.(results);
+  }, [searchQuery, maxResults, onTimersChange]);
+
   React.useEffect(() => {
     if (open) {
-      const results = searchRecentTimers(searchQuery, maxResults);
-      setRecentTimers(results);
-
-      // Notify parent of the current timers
-      onTimersChange?.(results);
+      refreshTimers();
 
       // If no results found, close the popover state in parent
       // This ensures keyboard shortcuts work properly
-      if (results.length === 0 && searchQuery.trim().length > 0) {
+      if (recentTimers.length === 0 && searchQuery.trim().length > 0) {
         onOpenChange(false);
       }
     }
-  }, [open, searchQuery, maxResults, onTimersChange, onOpenChange]);
+  }, [open, searchQuery, maxResults, onTimersChange, onOpenChange, refreshTimers, recentTimers.length]);
 
   // Clamp highlighted index to valid range
   React.useEffect(() => {
@@ -120,25 +122,25 @@ export function RecentTimersPopover({
               <div
                 key={index}
                 className={cn(
-                  "relative flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-150 rounded-md cursor-pointer",
-                  "hover:bg-gray-200 dark:hover:bg-gray-700",
-                  "active:scale-[0.98]",
+                  "relative flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-150 rounded-md group",
                   index === highlightedIndex && "bg-gray-200 dark:bg-gray-700"
                 )}
-                onClick={() => {
-                  // Increment usage count
-                  incrementTimerUsage(timer.description, timer.projectId, timer.tagIds);
-
-                  onSelect({
-                    description: timer.description,
-                    projectId: timer.projectId,
-                    tagIds: timer.tagIds,
-                  });
-                  onOpenChange(false);
-                }}
                 onMouseEnter={() => onHighlightedIndexChange(index)}
               >
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 -m-2.5 p-2.5 rounded-md active:scale-[0.98] transition-all duration-150"
+                  onClick={() => {
+                    // Increment usage count
+                    incrementTimerUsage(timer.description, timer.projectId, timer.tagIds);
+
+                    onSelect({
+                      description: timer.description,
+                      projectId: timer.projectId,
+                      tagIds: timer.tagIds,
+                    });
+                    onOpenChange(false);
+                  }}
+                >
                   <div className="font-medium truncate">{timer.description}</div>
                   <div className="flex items-center gap-2 mt-1">
                     {project && (
@@ -166,6 +168,24 @@ export function RecentTimersPopover({
                     )}
                   </div>
                 </div>
+                <button
+                  className={cn(
+                    "shrink-0 w-6 h-6 rounded-md flex items-center justify-center",
+                    "text-muted-foreground hover:text-foreground",
+                    "hover:bg-gray-300 dark:hover:bg-gray-600",
+                    "transition-all duration-150",
+                    "opacity-0 group-hover:opacity-100",
+                    "active:scale-90"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeRecentTimer(timer.description, timer.projectId, timer.tagIds);
+                    refreshTimers();
+                  }}
+                  title="Remove from recent timers"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             );
           })}
