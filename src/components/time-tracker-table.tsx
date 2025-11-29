@@ -4538,9 +4538,11 @@ export function TimeTrackerTable({
         return [newEntry, ...updatedEntries];
       });
 
-      // Select the new entry for immediate editing (start at checkbox)
+      // Select the new entry for immediate editing (description cell)
+      // In fullscreen: cellIndex 2 (Date, Project, Description)
+      // In normal mode: cellIndex 1 (Date, Description)
       setTimeout(() => {
-        setSelectedCell({ rowIndex: 0, cellIndex: -1 });
+        setSelectedCell({ rowIndex: 0, cellIndex: isFullscreen ? 2 : 1 });
       }, 50);
 
       // Use the same toast + delayed API pattern as updates for consistency
@@ -4694,7 +4696,7 @@ export function TimeTrackerTable({
         apiCall
       );
     },
-    [projects, availableTags, showUpdateToast, encryption]
+    [projects, availableTags, showUpdateToast, encryption, isFullscreen]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
