@@ -9,7 +9,6 @@ import {
   type QueuedOperation,
 } from "@/lib/sync-queue";
 import {
-  clearUndoAction,
   hasActiveToast,
   toast,
   triggerUndo,
