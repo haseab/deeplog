@@ -149,7 +149,9 @@ const MemoizedDurationEditor = React.memo(
     return (
       prevProps.duration === nextProps.duration &&
       prevProps.startTime === nextProps.startTime &&
-      prevProps.endTime === nextProps.endTime
+      prevProps.endTime === nextProps.endTime &&
+      prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+      prevProps.nextEntryStart === nextProps.nextEntryStart
       // Callbacks are intentionally not compared - they should be stable via useCallback
     );
   }
@@ -568,6 +570,8 @@ const MemoizedDurationCell = React.memo(
     onDurationChangeWithStartTimeAdjustment,
     setIsEditingCell,
     navigateToNextRow,
+    prevEntryEnd,
+    nextEntryStart,
   }: MemoizedDurationCellProps) {
     const cellIndex = 5;
     const isSelected =
@@ -593,6 +597,8 @@ const MemoizedDurationCell = React.memo(
           }
           onEditingChange={setIsEditingCell}
           onNavigateDown={navigateToNextRow}
+          prevEntryEnd={prevEntryEnd}
+          nextEntryStart={nextEntryStart}
           data-testid="duration-editor"
         />
       </TableCell>
@@ -614,6 +620,8 @@ const MemoizedDurationCell = React.memo(
       prevProps.entry.duration === nextProps.entry.duration &&
       prevProps.entry.start === nextProps.entry.start &&
       prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
+      prevProps.nextEntryStart === nextProps.nextEntryStart &&
       prevIsSelected === nextIsSelected
     );
   }
@@ -1415,6 +1423,8 @@ const MemoizedTableRow = React.memo(
                       }
                       onEditingChange={setIsEditingCell}
                       onNavigateDown={navigateToNextRow}
+                      prevEntryEnd={prevEntryEnd}
+                      nextEntryStart={nextEntryStart}
                       data-testid="duration-editor"
                     />
                     <MemoizedActionsMenu
@@ -1632,6 +1642,8 @@ const MemoizedTableRow = React.memo(
             }
             setIsEditingCell={setIsEditingCell}
             navigateToNextRow={navigateToNextRow}
+            prevEntryEnd={prevEntryEnd}
+            nextEntryStart={nextEntryStart}
           />
           <MemoizedActionsCell
             entry={entry}

@@ -354,7 +354,7 @@ export function LimitlessTranscriptionTable({
         // Iterate through all content segments to find matches
         contentElements.forEach((el) => {
           const timeStr = el.getAttribute('data-content-time');
-          if (timeStr) {
+          if (timeStr && el instanceof HTMLElement) {
             const elementTime = new Date(timeStr);
             const diff = Math.abs(elementTime.getTime() - targetTime.getTime());
 
@@ -362,21 +362,22 @@ export function LimitlessTranscriptionTable({
             // Use <= instead of < to keep updating to later elements with same diff
             if (diff <= closestDiff) {
               closestDiff = diff;
-              targetElement = el as HTMLElement;
+              targetElement = el;
             }
           }
         });
 
-        if (targetElement) {
-          const timeStr = targetElement.getAttribute('data-content-time');
+        if (targetElement !== null) {
+          const element = targetElement as HTMLElement;
+          const timeStr = element.getAttribute('data-content-time');
           console.log('[Scroll] Scrolling to content segment:', {
             time: timeStr,
             targetTime: targetTime.toISOString(),
-            element: targetElement,
+            element: element,
             closestDiff: closestDiff,
             closestDiffSeconds: Math.round(closestDiff / 1000),
           });
-          targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           // Mark as scrolled to prevent re-scrolling
           hasScrolledForQueryRef.current = true;
         } else {

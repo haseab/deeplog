@@ -98,6 +98,8 @@ export interface MemoizedDurationCellProps {
   ) => (newDuration: number) => void;
   setIsEditingCell: (editing: boolean) => void;
   navigateToNextRow: () => void;
+  prevEntryEnd?: string | null;
+  nextEntryStart?: string | null;
 }
 
 export interface MemoizedActionsCellProps {

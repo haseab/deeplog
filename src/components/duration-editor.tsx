@@ -13,6 +13,8 @@ interface DurationEditorProps {
   onSaveWithStartTimeAdjustment?: (duration: number) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateDown?: () => void;
+  prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
+  nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
   "data-testid"?: string;
 }
 
@@ -24,6 +26,8 @@ export function DurationEditor({
   onSaveWithStartTimeAdjustment,
   onEditingChange,
   onNavigateDown,
+  prevEntryEnd,
+  nextEntryStart,
   "data-testid": dataTestId,
 }: DurationEditorProps) {
   const [isEditing, setIsEditing] = React.useState(false);
@@ -118,10 +122,59 @@ export function DurationEditor({
     }
   };
 
+  const snapStartToPrevEnd = () => {
+    if (!prevEntryEnd || !endTime) return;
+
+    const prevEnd = new Date(prevEntryEnd);
+    const currentEnd = new Date(endTime);
+    const newDuration = Math.floor((currentEnd.getTime() - prevEnd.getTime()) / 1000);
+
+    if (newDuration > 0) {
+      const h = Math.floor(newDuration / 3600);
+      const m = Math.floor((newDuration % 3600) / 60);
+      const s = newDuration % 60;
+
+      setHours(h.toString().padStart(2, "0"));
+      setMinutes(m.toString().padStart(2, "0"));
+      setSeconds(s.toString().padStart(2, "0"));
+    }
+  };
+
+  const snapEndToNextStart = () => {
+    if (!nextEntryStart) return;
+
+    const currentStart = new Date(startTime);
+    const nextStart = new Date(nextEntryStart);
+    const newDuration = Math.floor((nextStart.getTime() - currentStart.getTime()) / 1000);
+
+    if (newDuration > 0) {
+      const h = Math.floor(newDuration / 3600);
+      const m = Math.floor((newDuration % 3600) / 60);
+      const s = newDuration % 60;
+
+      setHours(h.toString().padStart(2, "0"));
+      setMinutes(m.toString().padStart(2, "0"));
+      setSeconds(s.toString().padStart(2, "0"));
+    }
+  };
+
   const handleKeyDown = (
     e: React.KeyboardEvent,
     field: "hours" | "minutes" | "seconds"
   ) => {
+    // Snap shortcuts: Cmd+Shift+Left/Right
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+      if (e.key === "ArrowLeft" && prevEntryEnd) {
+        e.preventDefault();
+        snapStartToPrevEnd();
+        return;
+      } else if (e.key === "ArrowRight" && nextEntryStart) {
+        e.preventDefault();
+        snapEndToNextStart();
+        return;
+      }
+    }
+
     // Ignore standalone modifier keys
     if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") {
       return;
