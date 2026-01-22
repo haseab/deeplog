@@ -6196,7 +6196,7 @@ export function TimeTrackerTable({
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
-      // Note: 'p' with Cmd/Ctrl is NOT an action shortcut (it's for Pendant/Rewind navigation)
+      // Note: 'p' with Cmd/Ctrl is NOT an action shortcut (it's for Pendant/Retrace navigation)
       const isActionShortcut = ["d", "x", "c", "s", "p"].includes(
         e.key.toLowerCase()
       ) && !(e.metaKey || e.ctrlKey);
@@ -6391,7 +6391,7 @@ export function TimeTrackerTable({
         return;
       }
 
-      // Cmd+Shift+P: Open Rewind AI deeplink with selected entry's start timestamp
+      // Cmd+Shift+P: Open Retrace timeline deeplink with selected entry's start timestamp
       if (
         e.key.toLowerCase() === "p" &&
         (e.metaKey || e.ctrlKey) &&
@@ -6403,10 +6403,9 @@ export function TimeTrackerTable({
         e.preventDefault();
         const entry = decryptedEntries[selectedCell.rowIndex];
         if (entry) {
-          // Convert to Unix timestamp in seconds (Rewind AI expects seconds, not milliseconds)
-          const startTimestamp = Math.floor(new Date(entry.start).getTime() / 1000);
-          const rewindUrl = `rewindai://show-moment?timestamp=${startTimestamp}`;
-          window.open(rewindUrl, '_blank');
+          const startTimestamp = new Date(entry.start).getTime();
+          const retraceUrl = `retrace://timeline?t=${startTimestamp}`;
+          window.open(retraceUrl, '_blank');
         }
         return;
       }
