@@ -6405,7 +6405,7 @@ export function TimeTrackerTable({
         if (entry) {
           const startTimestamp = new Date(entry.start).getTime();
           const retraceUrl = `retrace://timeline?t=${startTimestamp}`;
-          window.open(retraceUrl, '_blank');
+          window.location.href = retraceUrl;
         }
         return;
       }
