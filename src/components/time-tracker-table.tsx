@@ -6404,7 +6404,7 @@ export function TimeTrackerTable({
         const entry = decryptedEntries[selectedCell.rowIndex];
         if (entry) {
           const startTimestamp = new Date(entry.start).getTime();
-          const retraceUrl = `retrace://timeline?t=${startTimestamp}`;
+          const retraceUrl = `retracedev://timeline?t=${startTimestamp}`;
           window.location.href = retraceUrl;
         }
         return;
