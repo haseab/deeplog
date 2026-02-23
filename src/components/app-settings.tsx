@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ export function AppSettings({
 }: AppSettingsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
+  const previousTitleRef = useRef<string | null>(null);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -211,6 +212,53 @@ export function AppSettings({
     { id: "api-keys" as const, label: "API Keys", icon: Key },
     { id: "danger-zone" as const, label: "Danger Zone", icon: AlertTriangle },
   ];
+
+  const settingsWindowTitle = useMemo(() => {
+    switch (activeSection) {
+      case "api-keys":
+        return "deeplog - Settings - API Keys";
+      case "danger-zone":
+        return "deeplog - Settings - Danger Zone";
+      case "general":
+      default:
+        return "deeplog - Settings";
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const root = document.documentElement;
+    if (isOpen) {
+      if (!previousTitleRef.current) {
+        previousTitleRef.current = document.title;
+      }
+      root.setAttribute("data-settings-open", "true");
+      root.setAttribute("data-settings-title", settingsWindowTitle);
+      document.title = settingsWindowTitle;
+      return;
+    }
+
+    root.removeAttribute("data-settings-open");
+    root.removeAttribute("data-settings-title");
+    if (previousTitleRef.current) {
+      document.title = previousTitleRef.current;
+      previousTitleRef.current = null;
+    }
+  }, [isOpen, settingsWindowTitle]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document === "undefined") return;
+      const root = document.documentElement;
+      root.removeAttribute("data-settings-open");
+      root.removeAttribute("data-settings-title");
+      if (previousTitleRef.current) {
+        document.title = previousTitleRef.current;
+        previousTitleRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <TooltipProvider delayDuration={0}>

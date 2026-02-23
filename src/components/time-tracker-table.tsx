@@ -2074,6 +2074,20 @@ export function TimeTrackerTable({
     getInitialDateRange()
   );
 
+  const fallbackTimelineTitle = React.useMemo(() => {
+    const now = new Date();
+    const fallbackFrom = startOfDay(subDays(now, 7));
+    const fallbackTo = endOfDay(now);
+    const fromDate = date?.from ?? fallbackFrom;
+    const toDate = date?.to ?? fromDate ?? fallbackTo;
+
+    return `timeline - ${format(fromDate, "yyyy-MM-dd")} to ${format(
+      toDate,
+      "yyyy-MM-dd"
+    )}`;
+  }, [date?.from, date?.to]);
+  const pinnedSelectionTitle = "deeplog - New Pinned Timer Selection";
+
   // Watch for URL changes and update date range accordingly
   React.useEffect(() => {
     const fromParam = searchParams.get("from");
@@ -2184,6 +2198,41 @@ export function TimeTrackerTable({
   // State version for reactive badge updates
   const [hasLoadedMoreEntries, setHasLoadedMoreEntries] = React.useState(false);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  const isRowActivationCell = React.useCallback((cellIndex: number) => {
+    return cellIndex >= 1 && cellIndex <= 5;
+  }, []);
+
+  const getRowActivationTitle = React.useCallback((entry: TimeEntry) => {
+    const projectName = entry.project_name?.trim() || "No Project";
+    const descriptionSnippet =
+      entry.description
+        ?.trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 10)
+        .join(" ") || "No description";
+
+    return `${projectName} - ${descriptionSnippet}`;
+  }, []);
+
+  const activeRowTitle = React.useMemo(() => {
+    if (!selectedCell || !isRowActivationCell(selectedCell.cellIndex)) {
+      return null;
+    }
+
+    const activeEntry = decryptedEntries[selectedCell.rowIndex];
+    if (!activeEntry) {
+      return null;
+    }
+
+    return getRowActivationTitle(activeEntry);
+  }, [
+    selectedCell,
+    decryptedEntries,
+    isRowActivationCell,
+    getRowActivationTitle,
+  ]);
+
   // Support non-contiguous multi-select using a Set of row indices
   const [selectedRows, setSelectedRows] = React.useState<Set<number>>(
     new Set()
@@ -2218,6 +2267,35 @@ export function TimeTrackerTable({
   const [isTagSelectorOpen, setIsTagSelectorOpen] = React.useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
   const [isTimeEditorOpen, setIsTimeEditorOpen] = React.useState(false);
+  const isAnyRowEditorActive =
+    isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen;
+
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      const settingsOpen =
+        document.documentElement.getAttribute("data-settings-open") === "true";
+      const settingsTitle = document.documentElement.getAttribute(
+        "data-settings-title"
+      );
+
+      if (settingsOpen) {
+        document.title = settingsTitle || "deeplog - Settings";
+      } else if (showPinnedEntries) {
+        document.title = pinnedSelectionTitle;
+      } else if (isAnyRowEditorActive && activeRowTitle) {
+        document.title = activeRowTitle;
+      } else {
+        document.title = fallbackTimelineTitle;
+      }
+    }
+  }, [
+    showPinnedEntries,
+    pinnedSelectionTitle,
+    isAnyRowEditorActive,
+    activeRowTitle,
+    fallbackTimelineTitle,
+  ]);
+
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [newlyLoadedEntries, setNewlyLoadedEntries] = React.useState<
     Set<number>
