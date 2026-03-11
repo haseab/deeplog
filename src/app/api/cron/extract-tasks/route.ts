@@ -24,6 +24,10 @@ interface ProcessedState {
   lastProcessedTimestamp: string;
 }
 
+function getFallbackStartTimestamp(referenceTime = Date.now()): string {
+  return new Date(referenceTime - 24 * 60 * 60 * 1000).toISOString();
+}
+
 const PROCESSED_STATE_FILE = join(
   process.cwd(),
   "data",
@@ -37,9 +41,7 @@ async function loadProcessedState(): Promise<ProcessedState> {
   } catch {
     // File doesn't exist or error reading - return default state
     return {
-      lastProcessedTimestamp: new Date(
-        Date.now() - 24 * 60 * 60 * 1000
-      ).toISOString(),
+      lastProcessedTimestamp: getFallbackStartTimestamp(),
     };
   }
 }
@@ -125,7 +127,7 @@ async function fetchAllTranscripts(
     allTranscripts.push(...transcripts);
 
     // Check for pagination
-    cursor = data.data?.cursor || null;
+    cursor = data.meta?.lifelogs?.nextCursor || data.data?.cursor || null;
     hasMore = !!cursor && transcripts.length > 0;
 
     console.log(
@@ -145,13 +147,33 @@ async function processUserTasks(
 ) {
   console.log(`=== TASK EXTRACTION STARTED at ${new Date().toISOString()} ===`);
 
-  // Load processed state
-  const state = await loadProcessedState();
-  console.log("Loaded state:", state);
+  const shouldPersistState = !startDate && !endDate;
+
+  const end = endDate || new Date().toISOString();
+  const endMs = Date.parse(end);
+
+  let state: ProcessedState | null = null;
+  if (!startDate) {
+    state = await loadProcessedState();
+    console.log("Loaded state:", state);
+  }
 
   // Use provided dates or fall back to state tracking
-  const start = startDate || state.lastProcessedTimestamp;
-  const end = endDate || new Date().toISOString();
+  let start =
+    startDate ||
+    state?.lastProcessedTimestamp ||
+    getFallbackStartTimestamp(Number.isNaN(endMs) ? Date.now() : endMs);
+
+  const startMs = Date.parse(start);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || startMs > endMs) {
+    const fallbackStart = getFallbackStartTimestamp(
+      Number.isNaN(endMs) ? Date.now() : endMs
+    );
+    console.warn(
+      `Invalid date range detected (${start} to ${end}). Resetting start to ${fallbackStart}`
+    );
+    start = fallbackStart;
+  }
 
   console.log(`Date range: ${start} to ${end}`);
 
@@ -166,6 +188,10 @@ async function processUserTasks(
       potentialTasks: 0,
       createdTasks: 0,
       tasks: [],
+      processedRange: {
+        start,
+        end,
+      },
     };
   }
 
@@ -264,9 +290,11 @@ async function processUserTasks(
 
   // If no task keywords found, return early
   if (relevantContexts.length === 0) {
-    console.log("No task keywords found, updating state and returning");
+    console.log("No task keywords found, finishing without task creation");
 
-    await saveProcessedState({ lastProcessedTimestamp: end });
+    if (shouldPersistState) {
+      await saveProcessedState({ lastProcessedTimestamp: end });
+    }
     return {
       totalTranscripts: allTranscripts.length,
       potentialTasks: 0,
@@ -400,7 +428,9 @@ async function processUserTasks(
   }
 
   // Update processed state with current end timestamp
-  await saveProcessedState({ lastProcessedTimestamp: end });
+  if (shouldPersistState) {
+    await saveProcessedState({ lastProcessedTimestamp: end });
+  }
 
   console.log(`=== TASK EXTRACTION COMPLETE ===`);
   console.log(`Created ${createdTasks.length} tasks in Todoist`);
