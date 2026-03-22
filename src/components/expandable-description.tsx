@@ -16,6 +16,22 @@ import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
 import { RecentTimersPopover } from "./recent-timers-popover";
 
+const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g;
+const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
+const MARKDOWN_ESCAPE_REGEX = /\\([\\`*_[\]{}()#+\-.!])/g;
+
+function decodeMarkdownEscapes(text: string): string {
+  let decoded = text;
+  let previous = "";
+
+  while (decoded !== previous) {
+    previous = decoded;
+    decoded = decoded.replace(MARKDOWN_ESCAPE_REGEX, "$1");
+  }
+
+  return decoded;
+}
+
 type Project = {
   id: number;
   name: string;
@@ -101,10 +117,12 @@ export function ExpandableDescription({
     const html = markdown
       // Convert links: [text](url) or [text](url "title")
       .replace(
-        /\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g,
-        (match, text, url, title) => {
-          const titleAttr = title ? ` title="${title}"` : "";
-          return `<a href="${url}"${titleAttr}>${text}</a>`;
+        MARKDOWN_LINK_REGEX,
+        (_match, text, url, title) => {
+          const titleAttr = title
+            ? ` title="${decodeMarkdownEscapes(title)}"`
+            : "";
+          return `<a href="${url}"${titleAttr}>${decodeMarkdownEscapes(text)}</a>`;
         }
       )
       // Convert bold: **text** or __text__
@@ -126,15 +144,7 @@ export function ExpandableDescription({
     if (!editorRef.current) return "";
     const html = editorRef.current.getHTML();
     const markdown = turndownService.turndown(html);
-    // Unescape markdown special characters that Turndown escapes
-    // We want to keep the plain text as-is
-    return markdown
-      .replace(/\\_/g, '_')  // Unescape underscores
-      .replace(/\\\*/g, '*')  // Unescape asterisks
-      .replace(/\\\[/g, '[')  // Unescape brackets
-      .replace(/\\\]/g, ']')
-      .replace(/\\#/g, '#')   // Unescape hashes
-      .replace(/\\`/g, '`');  // Unescape backticks
+    return decodeMarkdownEscapes(markdown);
   }, [turndownService]);
 
   // Notify parent of editing state changes
@@ -215,6 +225,24 @@ export function ExpandableDescription({
             ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
             : "border-border/60 focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
         }`,
+      },
+      handlePaste: (_view, event) => {
+        const pastedText = event.clipboardData?.getData("text/plain");
+
+        if (
+          !editor ||
+          !pastedText ||
+          !MARKDOWN_LINK_DETECTION_REGEX.test(pastedText.trim())
+        ) {
+          return false;
+        }
+
+        event.preventDefault();
+        editor.chain().focus().insertContent(markdownToHtml(pastedText)).run();
+        setTimeout(() => {
+          updateCharCount();
+        }, 0);
+        return true;
       },
       handleKeyDown: (view, event) => {
         // Handle arrow keys when recent timers popover is open
