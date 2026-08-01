@@ -7,6 +7,46 @@ export type RecentTimerEntry = {
 };
 
 const CACHE_KEY = "deeplog_recent_timers";
+const DISMISSED_CACHE_KEY = "deeplog_dismissed_recent_timers";
+
+function getTimerSignature(
+  description: string,
+  projectId: number | null,
+  tagIds: number[]
+): string {
+  return JSON.stringify([
+    description,
+    projectId,
+    [...tagIds].sort((a, b) => a - b),
+  ]);
+}
+
+function getDismissedTimerSignatures(): string[] {
+  try {
+    const cached = localStorage.getItem(DISMISSED_CACHE_KEY);
+    if (!cached) return [];
+
+    const signatures = JSON.parse(cached);
+    return Array.isArray(signatures)
+      ? signatures.filter(
+          (signature): signature is string => typeof signature === "string"
+        )
+      : [];
+  } catch (error) {
+    console.error("Failed to load dismissed recent timers:", error);
+    return [];
+  }
+}
+
+function isRecentTimerDismissed(
+  description: string,
+  projectId: number | null,
+  tagIds: number[]
+): boolean {
+  return getDismissedTimerSignatures().includes(
+    getTimerSignature(description, projectId, tagIds)
+  );
+}
 
 export function getRecentTimers(): RecentTimerEntry[] {
   try {
@@ -15,10 +55,19 @@ export function getRecentTimers(): RecentTimerEntry[] {
     const timers = JSON.parse(cached) as RecentTimerEntry[];
 
     // Migrate old entries without usageCount
-    return timers.map(timer => ({
-      ...timer,
-      usageCount: timer.usageCount ?? 0
-    }));
+    return timers
+      .filter(
+        (timer) =>
+          !isRecentTimerDismissed(
+            timer.description,
+            timer.projectId,
+            timer.tagIds
+          )
+      )
+      .map((timer) => ({
+        ...timer,
+        usageCount: timer.usageCount ?? 0,
+      }));
   } catch (error) {
     console.error("Failed to load recent timers cache:", error);
     return [];
@@ -27,6 +76,12 @@ export function getRecentTimers(): RecentTimerEntry[] {
 
 export function addToRecentTimers(entry: RecentTimerEntry): void {
   try {
+    if (
+      isRecentTimerDismissed(entry.description, entry.projectId, entry.tagIds)
+    ) {
+      return;
+    }
+
     const timers = getRecentTimers();
 
     // First check if this exact combination (description, project, tags) already exists
@@ -34,7 +89,8 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
       (t) =>
         t.description === entry.description &&
         t.projectId === entry.projectId &&
-        JSON.stringify(t.tagIds.sort()) === JSON.stringify(entry.tagIds.sort())
+        getTimerSignature(t.description, t.projectId, t.tagIds) ===
+          getTimerSignature(entry.description, entry.projectId, entry.tagIds)
     );
 
     if (duplicateIndex !== -1) {
@@ -85,7 +141,16 @@ export function updateRecentTimersCache(
     const dataMatches =
       cachedEntry.description === fetchedEntry.description &&
       cachedEntry.projectId === fetchedEntry.project_id &&
-      JSON.stringify(cachedEntry.tagIds.sort()) === JSON.stringify((fetchedEntry.tag_ids || []).sort());
+      getTimerSignature(
+        cachedEntry.description,
+        cachedEntry.projectId,
+        cachedEntry.tagIds
+      ) ===
+        getTimerSignature(
+          fetchedEntry.description,
+          fetchedEntry.project_id,
+          fetchedEntry.tag_ids || []
+        );
 
     // Keep only if data matches; remove if stale
     return dataMatches;
@@ -106,7 +171,12 @@ export function updateRecentTimersCache(
       (t) =>
         t.description === entry.description &&
         t.projectId === entry.project_id &&
-        JSON.stringify(t.tagIds.sort()) === JSON.stringify((entry.tag_ids || []).sort())
+        getTimerSignature(t.description, t.projectId, t.tagIds) ===
+          getTimerSignature(
+            entry.description,
+            entry.project_id,
+            entry.tag_ids || []
+          )
     );
 
     addToRecentTimers({
@@ -132,7 +202,8 @@ export function incrementTimerUsage(
       (t) =>
         t.description === description &&
         t.projectId === projectId &&
-        JSON.stringify(t.tagIds.sort()) === JSON.stringify(tagIds.sort())
+        getTimerSignature(t.description, t.projectId, t.tagIds) ===
+          getTimerSignature(description, projectId, tagIds)
     );
 
     if (index !== -1) {
@@ -228,6 +299,7 @@ export function removeRecentTimer(
 ): void {
   try {
     const timers = getRecentTimers();
+    const signature = getTimerSignature(description, projectId, tagIds);
 
     // Find and remove the matching timer
     const filteredTimers = timers.filter(
@@ -235,11 +307,20 @@ export function removeRecentTimer(
         !(
           t.description === description &&
           t.projectId === projectId &&
-          JSON.stringify(t.tagIds.sort()) === JSON.stringify(tagIds.sort())
+          getTimerSignature(t.description, t.projectId, t.tagIds) === signature
         )
     );
 
     localStorage.setItem(CACHE_KEY, JSON.stringify(filteredTimers));
+
+    const dismissedSignatures = getDismissedTimerSignatures();
+    if (!dismissedSignatures.includes(signature)) {
+      dismissedSignatures.push(signature);
+      localStorage.setItem(
+        DISMISSED_CACHE_KEY,
+        JSON.stringify(dismissedSignatures)
+      );
+    }
   } catch (error) {
     console.error("Failed to remove recent timer:", error);
   }

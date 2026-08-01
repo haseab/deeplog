@@ -36,6 +36,7 @@ interface RecentTimersPopoverProps {
   highlightedIndex: number;
   onHighlightedIndexChange: (index: number) => void;
   onTimersChange?: (timers: RecentTimerEntry[]) => void;
+  refreshRevision?: number;
   children: React.ReactNode;
 }
 
@@ -50,15 +51,18 @@ export function RecentTimersPopover({
   highlightedIndex,
   onHighlightedIndexChange,
   onTimersChange,
+  refreshRevision = 0,
   children,
 }: RecentTimersPopoverProps) {
   const [recentTimers, setRecentTimers] = React.useState<RecentTimerEntry[]>([]);
 
   const refreshTimers = React.useCallback(() => {
+    // Re-read local storage when a keyboard dismissal increments this revision.
+    void refreshRevision;
     const results = searchRecentTimers(searchQuery, maxResults);
     setRecentTimers(results);
     onTimersChange?.(results);
-  }, [searchQuery, maxResults, onTimersChange]);
+  }, [searchQuery, maxResults, onTimersChange, refreshRevision]);
 
   React.useEffect(() => {
     if (open) {
@@ -182,7 +186,8 @@ export function RecentTimersPopover({
                     removeRecentTimer(timer.description, timer.projectId, timer.tagIds);
                     refreshTimers();
                   }}
-                  title="Remove from recent timers"
+                  title="Remove from recent timers (Cmd/Ctrl+D)"
+                  aria-label="Remove from recent timers"
                 >
                   <X className="w-4 h-4" />
                 </button>

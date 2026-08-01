@@ -16,6 +16,7 @@ import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
 import { RecentTimersPopover } from "./recent-timers-popover";
+import { removeRecentTimer } from "@/lib/recent-timers-cache";
 
 const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
 const MARKDOWN_LIST_DETECTION_REGEX = /^\s*(?:[-+*]|\d+[.)])\s+/m;
@@ -84,6 +85,7 @@ export function ExpandableDescription({
   const [showRecentTimers, setShowRecentTimers] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const [recentTimersRevision, setRecentTimersRevision] = React.useState(0);
   const justSelectedTimerRef = React.useRef(false);
   const recentTimersRef = React.useRef<Array<{
     description: string;
@@ -206,7 +208,7 @@ export function ExpandableDescription({
     content: markdownToHtml(description),
     editorProps: {
       attributes: {
-        class: `prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border rounded-md resize-none leading-tight transition-all duration-200 ${
+        class: `description-editor prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24px] p-3 border rounded-md resize-none leading-tight transition-all duration-200 ${
           isOverLimit
             ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
             : "border-border/60 focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
@@ -252,6 +254,36 @@ export function ExpandableDescription({
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
             setHighlightedIndex((prev) => Math.max(0, prev - 1));
+            return true;
+          } else if (
+            event.key.toLowerCase() === "d" &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.shiftKey
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const selectedTimer = recentTimersRef.current[highlightedIndex];
+            if (selectedTimer) {
+              removeRecentTimer(
+                selectedTimer.description,
+                selectedTimer.projectId,
+                selectedTimer.tagIds
+              );
+
+              const remainingTimers = recentTimersRef.current.filter(
+                (_, index) => index !== highlightedIndex
+              );
+              recentTimersRef.current = remainingTimers;
+              setHighlightedIndex((currentIndex) =>
+                Math.min(currentIndex, Math.max(0, remainingTimers.length - 1))
+              );
+              setRecentTimersRevision((revision) => revision + 1);
+
+              if (remainingTimers.length === 0) {
+                setShowRecentTimers(false);
+              }
+            }
             return true;
           } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
             event.preventDefault();
@@ -562,6 +594,7 @@ export function ExpandableDescription({
         onTimersChange={(timers) => {
           recentTimersRef.current = timers;
         }}
+        refreshRevision={recentTimersRevision}
       >
         <div className="w-full editor-container" data-testid={dataTestId}>
           <div className="relative">

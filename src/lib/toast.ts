@@ -4,10 +4,18 @@ import { toast as sonnerToast } from "sonner";
 // Simple global deduplication for toasts
 let lastToast: { message: string; timestamp: number } | null = null;
 
-// Store current undo action for keyboard shortcut
-let currentUndoAction: ((event?: React.MouseEvent<HTMLButtonElement>) => void) | null = null;
-let currentSubmitAction: (() => void) | null = null;
-let currentToastId: string | number | null = null;
+type ToastId = string | number;
+
+type ActiveToastActions = {
+  undo: ((event?: React.MouseEvent<HTMLButtonElement>) => void) | null;
+  submit: (() => void) | null;
+};
+
+// Actions are owned by their toast. Keep the most recent actionable toast as
+// the keyboard target without allowing unrelated informational toasts to
+// erase an operation that is waiting to be submitted or undone.
+const activeToastActions = new Map<ToastId, ActiveToastActions>();
+let currentToastId: ToastId | null = null;
 
 type ToastOptions = NonNullable<Parameters<typeof sonnerToast>[1]> & {
   submitAction?: () => void;
@@ -38,20 +46,21 @@ export const toast = (
     shouldSubmitOnDismiss = false;
     ownedSubmitAction?.();
   };
-  currentSubmitAction = ownedSubmitAction ? runSubmitAction : null;
+
+  let wrappedUndoAction:
+    | ((event?: React.MouseEvent<HTMLButtonElement>) => void)
+    | null = null;
 
   // Store undo action if present
   if (toastOptions.action && typeof toastOptions.action === 'object' && 'onClick' in toastOptions.action && typeof toastOptions.action.onClick === 'function') {
     const originalOnClick = toastOptions.action.onClick;
-    const wrappedUndoAction = (event?: React.MouseEvent<HTMLButtonElement>) => {
+    wrappedUndoAction = (event?: React.MouseEvent<HTMLButtonElement>) => {
       // Undo and submit are mutually exclusive.
       shouldSubmitOnDismiss = false;
-      if (currentSubmitAction === runSubmitAction) {
-        currentSubmitAction = null;
-      }
+      activeToastActions.delete(toastId);
+      if (currentToastId === toastId) currentToastId = null;
       originalOnClick(event as React.MouseEvent<HTMLButtonElement>);
     };
-    currentUndoAction = wrappedUndoAction;
 
     toastOptions.action = {
       ...toastOptions.action,
@@ -63,8 +72,7 @@ export const toast = (
     const originalOnAutoClose = toastOptions.onAutoClose;
 
     toastOptions.onDismiss = (toast) => {
-      if (currentUndoAction === wrappedUndoAction) currentUndoAction = null;
-      if (currentSubmitAction === runSubmitAction) currentSubmitAction = null;
+      activeToastActions.delete(toastId);
       if (currentToastId === toastId) currentToastId = null;
       runSubmitAction();
       originalOnDismiss?.(toast);
@@ -72,58 +80,62 @@ export const toast = (
 
     toastOptions.onAutoClose = (toast) => {
       shouldSubmitOnDismiss = false;
-      if (currentUndoAction === wrappedUndoAction) currentUndoAction = null;
-      if (currentSubmitAction === runSubmitAction) currentSubmitAction = null;
+      activeToastActions.delete(toastId);
       if (currentToastId === toastId) currentToastId = null;
       originalOnAutoClose?.(toast);
     };
-  } else {
-    currentUndoAction = null;
   }
 
-  const toastId = sonnerToast(message, toastOptions);
-  if (currentUndoAction || ownedSubmitAction) currentToastId = toastId;
+  const toastId: ToastId = sonnerToast(message, toastOptions);
+  if (wrappedUndoAction || ownedSubmitAction) {
+    activeToastActions.set(toastId, {
+      undo: wrappedUndoAction,
+      submit: ownedSubmitAction ? runSubmitAction : null,
+    });
+    currentToastId = toastId;
+  }
   return toastId;
 };
 
 // Export function to trigger undo via keyboard
 export const triggerUndo = () => {
-  if (currentUndoAction) {
-    const action = currentUndoAction;
-    currentUndoAction = null;
-    currentSubmitAction = null;
-    action();
-    if (currentToastId !== null) sonnerToast.dismiss(currentToastId);
-    currentToastId = null;
-    return true;
-  }
+  if (currentToastId === null) return false;
 
-  return false;
+  const toastId = currentToastId;
+  const actions = activeToastActions.get(toastId);
+  if (!actions?.undo) return false;
+
+  activeToastActions.delete(toastId);
+  currentToastId = null;
+  actions.undo();
+  sonnerToast.dismiss(toastId);
+  return true;
 };
 
 // Submit the operation behind the active undo toast immediately.
 export const triggerToastSubmit = () => {
-  if (!currentSubmitAction) return false;
+  if (currentToastId === null) return false;
 
-  const action = currentSubmitAction;
-  currentSubmitAction = null;
-  currentUndoAction = null;
-  action();
-  if (currentToastId !== null) sonnerToast.dismiss(currentToastId);
+  const toastId = currentToastId;
+  const actions = activeToastActions.get(toastId);
+  if (!actions?.submit) return false;
+
+  activeToastActions.delete(toastId);
   currentToastId = null;
+  actions.submit();
+  sonnerToast.dismiss(toastId);
   return true;
 };
 
 // Export function to clear undo action without dismissing toast
 export const clearUndoAction = () => {
-  currentUndoAction = null;
-  currentSubmitAction = null;
+  activeToastActions.clear();
   currentToastId = null;
 };
 
 // Export function to check if there's an active toast
 export const hasActiveToast = () => {
-  return currentUndoAction !== null;
+  return currentToastId !== null && activeToastActions.has(currentToastId);
 };
 
 // Re-export other toast methods

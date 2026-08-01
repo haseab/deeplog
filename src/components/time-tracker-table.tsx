@@ -1812,10 +1812,6 @@ const MemoizedTableRow = React.memo(
       (prevEntry.tag_ids || []).every((id, i) => id === (nextEntry.tag_ids || [])[i]);
 
     const rowIndexEqual = prevProps.rowIndex === nextProps.rowIndex;
-    // Only require rowIndex to be equal if this row is selected (selection state already checked above)
-    // For unselected rows, rowIndex changes don't require rerender since click handlers will be updated via reconciliation
-    const rowIndexChangeRequiresRerender =
-      nextSelectedInThisRow && !rowIndexEqual;
 
     const prevEntryEndEqual = prevProps.prevEntryEnd === nextProps.prevEntryEnd;
     const nextEntryStartEqual =
@@ -1869,7 +1865,7 @@ const MemoizedTableRow = React.memo(
 
     const shouldNotRerender =
       entryEqual &&
-      !rowIndexChangeRequiresRerender &&
+      rowIndexEqual &&
       prevEntryEndEqual &&
       nextEntryStartEqual &&
       isPinnedEqual &&
@@ -1909,8 +1905,7 @@ const MemoizedTableRow = React.memo(
     ) {
       const changedProps = [];
       if (!entryEqual) changedProps.push("entry");
-      if (rowIndexChangeRequiresRerender)
-        changedProps.push("rowIndex (selected)");
+      if (!rowIndexEqual) changedProps.push("rowIndex");
       if (!prevEntryEndEqual) changedProps.push("prevEntryEnd");
       if (!nextEntryStartEqual) changedProps.push("nextEntryStart");
       if (!isPinnedEqual) changedProps.push("isPinned");
@@ -2239,10 +2234,60 @@ export function TimeTrackerTable({
     new Set()
   );
   const selectedRowsRef = React.useRef(selectedRows);
+  // Keep stable entry identities for actions. Row indexes are presentation
+  // details and can change when pagination or optimistic updates mutate the
+  // array.
+  const selectedEntryIdsRef = React.useRef<Set<number>>(new Set());
+  const selectedCellEntryIdRef = React.useRef<number | null>(null);
+
   // Keep ref in sync with state
   React.useEffect(() => {
     selectedRowsRef.current = selectedRows;
+    selectedEntryIdsRef.current = new Set(
+      Array.from(selectedRows)
+        .map((rowIndex) => decryptedEntries[rowIndex]?.id)
+        .filter((entryId): entryId is number => entryId !== undefined)
+    );
+    // Selection identity should only be recaptured when the user changes the
+    // selection, not when the entry array is paginated or reordered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRows]);
+
+  React.useEffect(() => {
+    selectedCellEntryIdRef.current = selectedCell
+      ? decryptedEntries[selectedCell.rowIndex]?.id ?? null
+      : null;
+    // Preserve the selected entry across entry-array changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCell]);
+
+  const getSelectedEntries = React.useCallback(() => {
+    const selectedIds = selectedEntryIdsRef.current;
+
+    // The fallback covers an action fired in the same event turn as a
+    // selection update, before the synchronization effect has run.
+    if (selectedIds.size === 0 && selectedRows.size > 0) {
+      return Array.from(selectedRows)
+        .map((rowIndex) => decryptedEntries[rowIndex])
+        .filter((entry): entry is TimeEntry => entry !== undefined);
+    }
+
+    return decryptedEntries.filter((entry) => selectedIds.has(entry.id));
+  }, [selectedRows, decryptedEntries]);
+
+  const getSelectedCellEntry = React.useCallback(() => {
+    const selectedEntryId = selectedCellEntryIdRef.current;
+    if (selectedEntryId !== null) {
+      const selectedEntry = decryptedEntries.find(
+        (entry) => entry.id === selectedEntryId
+      );
+      if (selectedEntry) return selectedEntry;
+    }
+
+    return selectedCell
+      ? decryptedEntries[selectedCell.rowIndex] ?? null
+      : null;
+  }, [selectedCell, decryptedEntries]);
 
   // Hover state for showing checkboxes
   const [hoveredRowIndex, setHoveredRowIndex] = React.useState<number | null>(
@@ -3945,15 +3990,13 @@ export function TimeTrackerTable({
   const handleDeleteSelectedClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
 
-    const entriesToDelete = Array.from(selectedRows)
-      .map((rowIndex) => decryptedEntries[rowIndex])
-      .filter((entry): entry is TimeEntry => entry !== undefined);
+    const entriesToDelete = getSelectedEntries();
 
     if (entriesToDelete.length > 0) {
       setEntriesToDelete(entriesToDelete);
       setDeleteMultipleDialogOpen(true);
     }
-  }, [selectedRows, decryptedEntries]);
+  }, [selectedRows.size, getSelectedEntries]);
 
   const handleConfirmDeleteMultiple = React.useCallback(() => {
     if (entriesToDelete.length > 0) {
@@ -4098,15 +4141,13 @@ export function TimeTrackerTable({
   const handleAddTagClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
 
-    const entriesToTag = Array.from(selectedRows)
-      .map((rowIndex) => decryptedEntries[rowIndex])
-      .filter((entry): entry is TimeEntry => entry !== undefined);
+    const entriesToTag = getSelectedEntries();
 
     if (entriesToTag.length > 0) {
       setEntriesToTag(entriesToTag);
       setAddTagDialogOpen(true);
     }
-  }, [selectedRows, decryptedEntries]);
+  }, [selectedRows.size, getSelectedEntries]);
 
   const handleConfirmAddTags = React.useCallback(
     (tagNames: string[]) => {
@@ -4251,15 +4292,13 @@ export function TimeTrackerTable({
   const handleSetProjectClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
 
-    const entriesToSetProject = Array.from(selectedRows)
-      .map((rowIndex) => decryptedEntries[rowIndex])
-      .filter((entry): entry is TimeEntry => entry !== undefined);
+    const entriesToSetProject = getSelectedEntries();
 
     if (entriesToSetProject.length > 0) {
       setEntriesToSetProject(entriesToSetProject);
       setSetProjectDialogOpen(true);
     }
-  }, [selectedRows, decryptedEntries]);
+  }, [selectedRows.size, getSelectedEntries]);
 
   const handleConfirmSetProject = React.useCallback(
     (projectName: string) => {
@@ -4277,14 +4316,12 @@ export function TimeTrackerTable({
       return;
     }
 
-    const selectedEntries = Array.from(selectedRows)
-      .map((rowIndex) => decryptedEntries[rowIndex])
-      .filter(Boolean);
+    const selectedEntries = getSelectedEntries();
 
     setEntriesToCombineMultiple(selectedEntries);
     setIsReverseCombine(reverse);
     setCombineMultipleDialogOpen(true);
-  }, [selectedRows, decryptedEntries]);
+  }, [selectedRows.size, getSelectedEntries]);
 
   const handleCombineMultiple = React.useCallback(
     (entries: TimeEntry[], reverse = false) => {
@@ -6037,15 +6074,13 @@ export function TimeTrackerTable({
   }, [selectedCell, timeEntries, handleDelete]);
 
   const handleDeleteSelectedWithConfirmation = React.useCallback(() => {
-    if (selectedCell) {
-      const entry = decryptedEntries[selectedCell.rowIndex];
-      if (entry) {
-        setEntryToDelete(entry);
-        deleteDialogOpenRef.current = true;
-        setDeleteDialogOpen(true);
-      }
+    const entry = getSelectedCellEntry();
+    if (entry) {
+      setEntryToDelete(entry);
+      deleteDialogOpenRef.current = true;
+      setDeleteDialogOpen(true);
     }
-  }, [selectedCell, decryptedEntries]);
+  }, [getSelectedCellEntry]);
 
   const handleDeleteWithConfirmation = React.useCallback((entry: TimeEntry) => {
     setEntryToDelete(entry);
@@ -7124,7 +7159,7 @@ export function TimeTrackerTable({
             handleCombineClick(isReverse);
           } else if (selectedCell) {
             // Single entry combine (Option+C for reverse mode)
-            const entry = decryptedEntries[selectedCell.rowIndex];
+            const entry = getSelectedCellEntry();
             if (entry) {
               if (isReverse) {
                 handleCombineReverse(entry);
@@ -7138,7 +7173,7 @@ export function TimeTrackerTable({
         case "s":
           e.preventDefault();
           if (selectedCell) {
-            const entry = timeEntries[selectedCell.rowIndex];
+            const entry = getSelectedCellEntry();
             if (entry) {
               // Check if Alt/Option key is pressed
               if (e.altKey) {
@@ -7160,7 +7195,7 @@ export function TimeTrackerTable({
             // Set project for all selected entries
             handleSetProjectClick();
           } else if (selectedCell) {
-            const entry = timeEntries[selectedCell.rowIndex];
+            const entry = getSelectedCellEntry();
             if (entry) {
               const entryId = entry.id.toString();
               if (isPinned(entryId)) {
@@ -7179,7 +7214,7 @@ export function TimeTrackerTable({
             break;
           }
           if (selectedCell) {
-            const entry = decryptedEntries[selectedCell.rowIndex];
+            const entry = getSelectedCellEntry();
             if (entry) {
               handleSplit(entry);
             }
@@ -7236,6 +7271,7 @@ export function TimeTrackerTable({
     handleSelectAllDown,
     handleCheckboxToggle,
     handleCombineClick,
+    getSelectedCellEntry,
     multiSelectMenuOpen,
     setShowPinnedEntriesValue,
   ]);

@@ -38,7 +38,7 @@ export function SplitEntryDialog({
     e.target.select();
   };
 
-  const handleConfirm = (isReverse = false) => {
+  const handleConfirm = (splitFromStart = true) => {
     const minutes = parseInt(offsetMinutes);
 
     if (isNaN(minutes)) {
@@ -46,7 +46,7 @@ export function SplitEntryDialog({
       return;
     }
 
-    onConfirm(minutes, isReverse);
+    onConfirm(minutes, splitFromStart);
     onOpenChange(false);
     setOffsetMinutes("5");
     setError("");
@@ -67,13 +67,13 @@ export function SplitEntryDialog({
           <DialogTitle>Split Time Entry</DialogTitle>
           <DialogDescription>
             <span className="block mt-2">
-              How many minutes from the end do you want to split?
+              How many minutes from the start do you want to split?
             </span>
             <span className="block mt-1 text-xs text-muted-foreground">
               Enter a negative value (e.g., -7) to create a new entry starting at the end time and extending forward
             </span>
             <span className="block mt-1 text-xs text-muted-foreground">
-              Press Option+Enter to split from the start instead
+              Press Option+Enter to split from the end instead
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -120,7 +120,7 @@ export function SplitEntryDialog({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleConfirm(e.altKey);
+                  handleConfirm(!e.altKey);
                 }
               }}
               className="col-span-3"
@@ -138,7 +138,7 @@ export function SplitEntryDialog({
           >
             Cancel
           </Button>
-          <Button onClick={() => handleConfirm(false)}>
+          <Button onClick={() => handleConfirm(true)}>
             Split Entry
           </Button>
         </DialogFooter>
