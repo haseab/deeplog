@@ -81,7 +81,11 @@ export interface MemoizedTimeCellProps {
   ) => (startTime: string, endTime: string | null) => void;
   onTimeChangeWithForcePush: (
     entryId: number
-  ) => (startTime: string, endTime: string | null) => void;
+  ) => (
+    startTime: string,
+    endTime: string | null,
+    direction: "next" | "previous"
+  ) => void;
   setIsTimeEditorOpen: (open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToNextRow: () => void;

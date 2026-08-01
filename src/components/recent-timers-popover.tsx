@@ -36,6 +36,7 @@ interface RecentTimersPopoverProps {
   highlightedIndex: number;
   onHighlightedIndexChange: (index: number) => void;
   onTimersChange?: (timers: RecentTimerEntry[]) => void;
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
   refreshRevision?: number;
   children: React.ReactNode;
 }
@@ -51,6 +52,7 @@ export function RecentTimersPopover({
   highlightedIndex,
   onHighlightedIndexChange,
   onTimersChange,
+  onEscapeKeyDown,
   refreshRevision = 0,
   children,
 }: RecentTimersPopoverProps) {
@@ -105,6 +107,18 @@ export function RecentTimersPopover({
         align="start"
         side="bottom"
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          console.debug("[RecentTimersPopover] Radix handled Escape", {
+            defaultPrevented: event.defaultPrevented,
+            open,
+            recentTimerCount: recentTimers.length,
+          });
+
+          if (onEscapeKeyDown) {
+            event.preventDefault();
+            onEscapeKeyDown(event);
+          }
+        }}
         onInteractOutside={(e) => {
           // Don't close when interacting with the editor
           const target = e.target as HTMLElement;

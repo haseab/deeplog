@@ -534,8 +534,8 @@ const MemoizedTimeCell = React.memo(
           onSave={(startTime, endTime) =>
             onTimeChange(entry.id)(startTime, endTime)
           }
-          onSaveWithForcePush={(startTime, endTime) =>
-            onTimeChangeWithForcePush(entry.id)(startTime, endTime)
+          onSaveWithForcePush={(startTime, endTime, direction) =>
+            onTimeChangeWithForcePush(entry.id)(startTime, endTime, direction)
           }
           onEditingChange={setIsTimeEditorOpen}
           onNavigateNext={navigateToNextCell}
@@ -1281,7 +1281,11 @@ const MemoizedTableRow = React.memo(
     ) => (startTime: string, endTime: string | null) => void;
     onTimeChangeWithForcePush: (
       entryId: number
-    ) => (startTime: string, endTime: string | null) => void;
+    ) => (
+      startTime: string,
+      endTime: string | null,
+      direction: "next" | "previous"
+    ) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
     onDurationChangeWithStartTimeAdjustment: (
       entryId: number
@@ -1430,8 +1434,12 @@ const MemoizedTableRow = React.memo(
                       onSave={(startTime, endTime) =>
                         onTimeChange(entry.id)(startTime, endTime)
                       }
-                      onSaveWithForcePush={(startTime, endTime) =>
-                        onTimeChangeWithForcePush(entry.id)(startTime, endTime)
+                      onSaveWithForcePush={(startTime, endTime, direction) =>
+                        onTimeChangeWithForcePush(entry.id)(
+                          startTime,
+                          endTime,
+                          direction
+                        )
                       }
                       onEditingChange={setIsTimeEditorOpen}
                       onNavigateNext={navigateToNextCell}
@@ -3203,7 +3211,8 @@ export function TimeTrackerTable({
     (
       entryId: number,
       updateType: 'time' | 'duration-end' | 'duration-start',
-      newValues: { startTime?: string; endTime?: string | null; duration?: number }
+      newValues: { startTime?: string; endTime?: string | null; duration?: number },
+      alignmentDirection: "next" | "previous" | "overlap" = "overlap"
     ) => {
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
@@ -3267,8 +3276,24 @@ export function TimeTrackerTable({
         const prevOverlap = prevEntry && prevStop && newStart < prevStop;
         const nextOverlap = nextEntry && newEnd && nextStart && newEnd > nextStart; // newEnd is null for running timers
 
+        // Directional force saves align exactly one neighboring boundary,
+        // whether there is currently a gap or an overlap. The overlap mode is
+        // retained for callers that explicitly want the legacy behavior.
+        const shouldAdjustPrevious =
+          alignmentDirection === "previous"
+            ? Boolean(prevEntry)
+            : alignmentDirection === "next"
+            ? false
+            : Boolean(prevOverlap);
+        const shouldAdjustNext =
+          alignmentDirection === "next"
+            ? Boolean(nextEntry && newEnd)
+            : alignmentDirection === "previous"
+            ? false
+            : Boolean(nextOverlap);
+
         // Validate that force push won't create invalid entries (negative duration)
-        if (prevOverlap && prevEntry) {
+        if (shouldAdjustPrevious && prevEntry) {
           const prevStart = new Date(prevEntry.start);
           const wouldBeNegative = newStart <= prevStart;
           if (wouldBeNegative) {
@@ -3278,7 +3303,7 @@ export function TimeTrackerTable({
           }
         }
 
-        if (nextOverlap && nextEntry) {
+        if (shouldAdjustNext && nextEntry && newEnd) {
           const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
           const wouldBeNegative = nextStop && newEnd! >= nextStop;
           if (wouldBeNegative) {
@@ -3300,8 +3325,8 @@ export function TimeTrackerTable({
             };
           }
 
-          // Push previous entry's stop time backwards if overlap
-          if (prevOverlap && e.id === prevEntry.id) {
+          // Align the previous entry's end to the current entry's start.
+          if (shouldAdjustPrevious && prevEntry && e.id === prevEntry.id) {
             const prevStart = new Date(prevEntry.start);
             const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
             return {
@@ -3311,8 +3336,8 @@ export function TimeTrackerTable({
             };
           }
 
-          // Push next entry's start time forward if overlap
-          if (nextOverlap && e.id === nextEntry.id) {
+          // Align the next entry's start to the current entry's end.
+          if (shouldAdjustNext && nextEntry && newEnd && e.id === nextEntry.id) {
             const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
             const newNextDuration = nextStop
               ? Math.floor((nextStop.getTime() - newEnd!.getTime()) / 1000)
@@ -3330,10 +3355,12 @@ export function TimeTrackerTable({
         const sessionToken = localStorage.getItem("toggl_session_token");
 
         // Show toast with appropriate message
-        const message = prevOverlap || nextOverlap
+        const message = shouldAdjustPrevious || shouldAdjustNext
           ? updateType === 'time'
-            ? "Time updated, adjacent entry adjusted."
-            : prevOverlap
+            ? shouldAdjustPrevious
+              ? "Time updated, previous entry aligned."
+              : "Time updated, next entry aligned."
+            : shouldAdjustPrevious
             ? "Start time adjusted, previous entry adjusted."
             : "Duration updated, next entry adjusted."
           : updateType === 'time'
@@ -3368,7 +3395,7 @@ export function TimeTrackerTable({
             }
 
             // Update previous entry if needed
-            if (prevOverlap && prevEntry) {
+            if (shouldAdjustPrevious && prevEntry) {
               const prevStart = new Date(prevEntry.start);
               const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
 
@@ -3390,7 +3417,7 @@ export function TimeTrackerTable({
             }
 
             // Update next entry if needed
-            if (nextOverlap && nextEntry && newEnd) {
+            if (shouldAdjustNext && nextEntry && newEnd) {
               const nextStop = nextEntry.stop ? new Date(nextEntry.stop) : null;
               const newNextDuration = nextStop
                 ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
@@ -3522,8 +3549,17 @@ export function TimeTrackerTable({
   );
 
   const handleTimeChangeWithForcePush = React.useCallback(
-    (entryId: number) => (startTime: string, endTime: string | null) => {
-      handleForceUpdate(entryId, 'time', { startTime, endTime });
+    (entryId: number) => (
+      startTime: string,
+      endTime: string | null,
+      direction: "next" | "previous"
+    ) => {
+      handleForceUpdate(
+        entryId,
+        'time',
+        { startTime, endTime },
+        direction
+      );
     },
     [handleForceUpdate]
   );
@@ -3741,14 +3777,24 @@ export function TimeTrackerTable({
 
   const handleDurationChangeWithForcePush = React.useCallback(
     (entryId: number) => (newDuration: number) => {
-      handleForceUpdate(entryId, 'duration-end', { duration: newDuration });
+      handleForceUpdate(
+        entryId,
+        'duration-end',
+        { duration: newDuration },
+        "next"
+      );
     },
     [handleForceUpdate]
   );
 
   const handleDurationChangeWithStartTimeAdjustmentAndForcePush = React.useCallback(
     (entryId: number) => (newDuration: number) => {
-      handleForceUpdate(entryId, 'duration-start', { duration: newDuration });
+      handleForceUpdate(
+        entryId,
+        'duration-start',
+        { duration: newDuration },
+        "previous"
+      );
     },
     [handleForceUpdate]
   );
@@ -6304,6 +6350,29 @@ export function TimeTrackerTable({
   const awaitingPinnedNumberRef = React.useRef(false);
   const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Give instant submission priority over editor-level Cmd/Ctrl+Enter
+  // handlers. When there is no actionable toast, the event continues to the
+  // focused editor normally.
+  React.useEffect(() => {
+    const handleToastSubmitKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "Enter" &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        triggerToastSubmit()
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    document.addEventListener("keydown", handleToastSubmitKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleToastSubmitKeyDown, true);
+    };
+  }, []);
+
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Log ALL 'c' key presses to debug Option+C with comprehensive event properties
@@ -6330,19 +6399,6 @@ export function TimeTrackerTable({
         activeElement?.tagName === "TEXTAREA" ||
         (activeElement as HTMLElement)?.contentEditable === "true" ||
         activeElement?.getAttribute("role") === "textbox";
-
-      // While an undo toast is pending, Cmd+P submits it immediately. If there
-      // is no pending toast, the existing Pendant shortcut below still applies.
-      if (
-        e.key.toLowerCase() === "p" &&
-        (e.metaKey || e.ctrlKey) &&
-        !e.shiftKey &&
-        triggerToastSubmit()
-      ) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
 
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open

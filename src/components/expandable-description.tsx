@@ -93,6 +93,13 @@ export function ExpandableDescription({
     tagIds: number[];
   }>>([]);
 
+  const handleRecentTimersOpenChange = React.useCallback((open: boolean) => {
+    console.debug("[ExpandableDescription] Recent timers open changed", {
+      open,
+    });
+    setShowRecentTimers(open);
+  }, []);
+
   const MAX_CHARS = 3000;
 
   // Initialize Turndown service for HTML to markdown conversion
@@ -234,6 +241,14 @@ export function ExpandableDescription({
         return true;
       },
       handleKeyDown: (view, event) => {
+        if (event.key === "Escape") {
+          console.debug("[ExpandableDescription] TipTap received Escape", {
+            showRecentTimers,
+            showLinkDialog,
+            isEditing,
+          });
+        }
+
         // Handle arrow keys when recent timers popover is open
         if (showRecentTimers) {
           // Handle Cmd/Ctrl + Enter to save and exit even when popover is open
@@ -300,8 +315,8 @@ export function ExpandableDescription({
             return true;
           } else if (event.key === "Escape") {
             event.preventDefault();
-            setShowRecentTimers(false);
-            setHighlightedIndex(0);
+            event.stopPropagation();
+            cancelEditing();
             return true;
           } else if (event.key === "Tab") {
             event.preventDefault();
@@ -508,10 +523,18 @@ export function ExpandableDescription({
   };
 
   const cancelEditing = () => {
+    console.debug("[ExpandableDescription] Cancelling editor and dropdown", {
+      isEditing,
+      showRecentTimers,
+    });
     setIsEditing(false);
     setCurrentCharCount(description.length);
     // Reset to original content
     editor?.commands.setContent(markdownToHtml(description));
+    // setContent can synchronously run onUpdate while the previous editing
+    // state is still visible, so close the recent-timers UI after the reset.
+    setShowRecentTimers(false);
+    setHighlightedIndex(0);
   };
 
   const handleInsertLink = () => {
@@ -577,7 +600,7 @@ export function ExpandableDescription({
     return (
       <RecentTimersPopover
         open={showRecentTimers}
-        onOpenChange={setShowRecentTimers}
+        onOpenChange={handleRecentTimersOpenChange}
         searchQuery={searchQuery}
         projects={projects}
         availableTags={availableTags}
@@ -595,6 +618,18 @@ export function ExpandableDescription({
           recentTimersRef.current = timers;
         }}
         refreshRevision={recentTimersRevision}
+        onEscapeKeyDown={(event) => {
+          console.debug(
+            "[ExpandableDescription] Received Escape from recent timers portal",
+            {
+              isEditing,
+              showRecentTimers,
+              defaultPrevented: event.defaultPrevented,
+            }
+          );
+          event.stopPropagation();
+          cancelEditing();
+        }}
       >
         <div className="w-full editor-container" data-testid={dataTestId}>
           <div className="relative">

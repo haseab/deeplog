@@ -17,7 +17,11 @@ interface TimeEditorProps {
   startTime: string;
   endTime: string | null;
   onSave?: (startTime: string, endTime: string | null) => void;
-  onSaveWithForcePush?: (startTime: string, endTime: string | null) => void; // Force push adjacent entries if overlap
+  onSaveWithForcePush?: (
+    startTime: string,
+    endTime: string | null,
+    direction: "next" | "previous"
+  ) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
   onNavigateDown?: () => void;
@@ -233,7 +237,7 @@ export function TimeEditor({
     setError("");
   };
 
-  const handleSaveWithForcePush = () => {
+  const handleSaveWithForcePush = (direction: "next" | "previous") => {
     const finalStartDateTime = buildDateTime(
       startDateValue,
       startTimeHours,
@@ -266,22 +270,13 @@ export function TimeEditor({
       }
     }
 
-    // Check if anything actually changed
-    const originalStart = new Date(startTime);
-    const originalEnd = endTime ? new Date(endTime) : null;
-
-    const startChanged =
-      finalStartDateTime.getTime() !== originalStart.getTime();
-    const endChanged = finalEndDateTime
-      ? !originalEnd || finalEndDateTime.getTime() !== originalEnd.getTime()
-      : originalEnd !== null;
-
-    if (startChanged || endChanged) {
-      onSaveWithForcePush?.(
-        finalStartDateTime.toISOString(),
-        finalEndDateTime ? finalEndDateTime.toISOString() : null
-      );
-    }
+    // Force alignment is meaningful even when this entry's own values did
+    // not change: the chosen neighboring boundary may still need to snap.
+    onSaveWithForcePush?.(
+      finalStartDateTime.toISOString(),
+      finalEndDateTime ? finalEndDateTime.toISOString() : null,
+      direction
+    );
 
     setIsOpen(false);
     setError("");
@@ -484,9 +479,11 @@ export function TimeEditor({
     if (e.key === "Enter") {
       e.preventDefault();
 
-      // Cmd+Shift+Enter: force push adjacent entries if overlap
+      // Cmd+Shift+Enter aligns the next entry to this entry's end.
+      // Adding Option reverses the direction and aligns the previous entry's
+      // end to this entry's start.
       if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-        handleSaveWithForcePush();
+        handleSaveWithForcePush(e.altKey ? "previous" : "next");
       } else {
         handleSave();
         if (e.metaKey || e.ctrlKey) {
