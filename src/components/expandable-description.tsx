@@ -83,6 +83,7 @@ export function ExpandableDescription({
   const [linkText, setLinkText] = React.useState("");
   const [triggerPosition, setTriggerPosition] = React.useState({ x: 0, y: 0 });
   const [currentCharCount, setCurrentCharCount] = React.useState(0);
+  const [isCaretOnFirstLine, setIsCaretOnFirstLine] = React.useState(true);
   const [showRecentTimers, setShowRecentTimers] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
@@ -196,6 +197,50 @@ export function ExpandableDescription({
 
   const isOverLimit = currentCharCount > MAX_CHARS;
   const remainingChars = MAX_CHARS - currentCharCount;
+
+  const updateCaretLine = React.useCallback((currentEditor: Editor) => {
+    const { selection } = currentEditor.state;
+
+    // A selection is not a typing caret, so keep the counter available while
+    // the user is selecting text.
+    if (!selection.empty) {
+      setIsCaretOnFirstLine(false);
+      return;
+    }
+
+    try {
+      const editorElement = currentEditor.view.dom;
+      const domSelection = window.getSelection();
+      const anchorNode = domSelection?.anchorNode;
+
+      if (
+        !domSelection?.rangeCount ||
+        !anchorNode ||
+        !editorElement.contains(anchorNode)
+      ) {
+        setIsCaretOnFirstLine(true);
+        return;
+      }
+
+      const editorStyles = window.getComputedStyle(editorElement);
+      const caretRect = domSelection.getRangeAt(0).getBoundingClientRect();
+      const editorRect = editorElement.getBoundingClientRect();
+      const computedLineHeight = Number.parseFloat(editorStyles.lineHeight);
+      const lineHeight = Number.isFinite(computedLineHeight)
+        ? computedLineHeight
+        : 20;
+      const paddingTop = Number.parseFloat(editorStyles.paddingTop) || 0;
+      const firstLineTop = editorRect.top + paddingTop;
+
+      setIsCaretOnFirstLine(
+        Math.abs(caretRect.top - firstLineTop) < lineHeight / 2
+      );
+    } catch {
+      // Hide the counter until TipTap has mounted enough DOM to measure the
+      // caret. Selection updates will recalculate it immediately afterward.
+      setIsCaretOnFirstLine(true);
+    }
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -434,6 +479,35 @@ export function ExpandableDescription({
     // Remove onBlur - we handle closing via click outside detection now
   });
 
+  React.useEffect(() => {
+    if (!editor || !isEditing) return;
+
+    let animationFrame: number | null = null;
+    const scheduleMeasurement = () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      animationFrame = window.requestAnimationFrame(() => {
+        updateCaretLine(editor);
+      });
+    };
+
+    // TipTap's transaction callbacks run before soft-wrapped text has its
+    // final layout. Native selection/input events plus an animation frame give
+    // us the caret's rendered line after layout settles.
+    document.addEventListener("selectionchange", scheduleMeasurement);
+    editor.view.dom.addEventListener("input", scheduleMeasurement);
+    scheduleMeasurement();
+
+    return () => {
+      document.removeEventListener("selectionchange", scheduleMeasurement);
+      editor.view.dom.removeEventListener("input", scheduleMeasurement);
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [editor, isEditing, updateCaretLine]);
+
   // Handle refocusing when popover closes
   React.useEffect(() => {
     // If popover closes due to no results, refocus the editor ONLY if still in editing mode
@@ -496,6 +570,7 @@ export function ExpandableDescription({
       setTimeout(() => {
         editor?.commands.focus("end");
         updateCharCount();
+        if (editor) updateCaretLine(editor);
       }, 100);
     }
   };
@@ -639,17 +714,20 @@ export function ExpandableDescription({
             />
 
           {/* Character Counter */}
-          <div
-            className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none ${
-              isOverLimit
-                ? "text-red-600 bg-red-50/90 dark:bg-red-900/20 dark:text-red-400"
-                : remainingChars < 100
-                ? "text-amber-600 bg-amber-50/90 dark:bg-amber-900/20 dark:text-amber-400"
-                : "text-muted-foreground bg-background/90"
-            }`}
-          >
-            {remainingChars >= 0 ? remainingChars : remainingChars}
-          </div>
+          {!isCaretOnFirstLine && (
+            <div
+              data-testid="description-character-counter"
+              className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none ${
+                isOverLimit
+                  ? "text-red-600 bg-red-50/90 dark:bg-red-900/20 dark:text-red-400"
+                  : remainingChars < 100
+                  ? "text-amber-600 bg-amber-50/90 dark:bg-amber-900/20 dark:text-amber-400"
+                  : "text-muted-foreground bg-background/90"
+              }`}
+            >
+              {remainingChars}
+            </div>
+          )}
 
           {/* Link Dialog */}
           <Popover open={showLinkDialog} onOpenChange={setShowLinkDialog}>

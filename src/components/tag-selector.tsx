@@ -46,6 +46,7 @@ export function TagSelector({
   const [isCreating, setIsCreating] = React.useState(false);
   const [newTagName, setNewTagName] = React.useState("");
   const [isCreatingTag, setIsCreatingTag] = React.useState(false);
+  const [isMetaPressed, setIsMetaPressed] = React.useState(false);
 
   // Use controlled state if provided, otherwise use internal state
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
@@ -87,6 +88,38 @@ export function TagSelector({
     return [...selectedTags, ...unselectedTags];
   }, [availableTags, searchTerm, currentTags]);
 
+  const trimmedSearchTerm = searchTerm.trim();
+  const canCreateSearchTag =
+    trimmedSearchTerm.length > 0 &&
+    !availableTags.some(
+      (tag) => tag.name.toLowerCase() === trimmedSearchTerm.toLowerCase()
+    );
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      setIsMetaPressed(false);
+      return;
+    }
+
+    const handleModifierDown = (event: KeyboardEvent) => {
+      if (event.key === "Meta") setIsMetaPressed(true);
+    };
+    const handleModifierUp = (event: KeyboardEvent) => {
+      if (event.key === "Meta") setIsMetaPressed(false);
+    };
+    const handleWindowBlur = () => setIsMetaPressed(false);
+
+    window.addEventListener("keydown", handleModifierDown);
+    window.addEventListener("keyup", handleModifierUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("keydown", handleModifierDown);
+      window.removeEventListener("keyup", handleModifierUp);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [isOpen]);
+
   // Reset highlighted index when options change
   React.useEffect(() => {
     setHighlightedIndex(0);
@@ -126,8 +159,9 @@ export function TagSelector({
     setIsChanging(false);
   };
 
-  const handleCreateTag = async () => {
-    if (!newTagName.trim()) {
+  const createTag = async (tagName: string) => {
+    const normalizedTagName = tagName.trim();
+    if (!normalizedTagName) {
       toast.error("Tag name is required");
       return;
     }
@@ -142,7 +176,7 @@ export function TagSelector({
           "x-toggl-session-token": sessionToken || "",
         },
         body: JSON.stringify({
-          name: newTagName.trim(),
+          name: normalizedTagName,
         }),
       });
 
@@ -166,6 +200,8 @@ export function TagSelector({
       // Reset creation state
       setIsCreating(false);
       setNewTagName("");
+      setSearchTerm("");
+      setHighlightedIndex(0);
     } catch (error) {
       console.error("Error creating tag:", error);
       toast.error("Failed to create tag");
@@ -173,6 +209,8 @@ export function TagSelector({
       setIsCreatingTag(false);
     }
   };
+
+  const handleCreateTag = () => createTag(newTagName);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen) return;
@@ -190,7 +228,9 @@ export function TagSelector({
         break;
       case "Enter":
         e.preventDefault();
-        if (allOptions[highlightedIndex]) {
+        if (e.metaKey && canCreateSearchTag && !isCreatingTag) {
+          void createTag(trimmedSearchTerm);
+        } else if (allOptions[highlightedIndex]) {
           handleToggleTag(allOptions[highlightedIndex].name);
         }
         break;
@@ -247,7 +287,7 @@ export function TagSelector({
           <div className="flex items-center w-full min-h-[20px]">
             <TagIcon className="mr-2 h-3 w-3 opacity-50 group-hover:opacity-70 transition-opacity shrink-0" />
             {currentTags.length > 0 ? (
-              <div className="flex flex-wrap gap-1 flex-1 mr-2">
+              <div className="flex flex-wrap justify-center gap-1 flex-1 mr-2">
                 {currentTags.slice(0, 3).map((tag) => (
                   <span
                     key={tag}
@@ -270,7 +310,7 @@ export function TagSelector({
                 )}
               </div>
             ) : (
-              <span className="text-muted-foreground flex-1 text-sm">
+              <span className="text-muted-foreground flex-1 text-center text-sm">
                 No tags
               </span>
             )}
@@ -355,11 +395,29 @@ export function TagSelector({
               <div className="border-t border-border/40 p-2">
                 <Button
                   variant="ghost"
-                  className="w-full justify-start text-sm"
-                  onClick={() => setIsCreating(true)}
+                  className={cn(
+                    "w-full justify-start text-sm",
+                    isMetaPressed && canCreateSearchTag &&
+                      "bg-primary/10 text-primary"
+                  )}
+                  onClick={() => {
+                    setNewTagName(canCreateSearchTag ? trimmedSearchTerm : "");
+                    setIsCreating(true);
+                  }}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Create New Tag
+                  {isMetaPressed && canCreateSearchTag ? (
+                    <>
+                      <span className="truncate">
+                        Create &quot;{trimmedSearchTerm}&quot;
+                      </span>
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        Press Enter
+                      </span>
+                    </>
+                  ) : (
+                    "Create New Tag"
+                  )}
                 </Button>
               </div>
             </>
@@ -372,7 +430,7 @@ export function TagSelector({
                   onChange={(e) => setNewTagName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      handleCreateTag();
+                      void handleCreateTag();
                     } else if (e.key === "Escape") {
                       setIsCreating(false);
                       setNewTagName("");
@@ -385,7 +443,7 @@ export function TagSelector({
               <div className="flex gap-2">
                 <Button
                   size="sm"
-                  onClick={handleCreateTag}
+                  onClick={() => void handleCreateTag()}
                   disabled={isCreatingTag}
                   className="flex-1"
                 >
