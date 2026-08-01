@@ -8,6 +8,25 @@ export type RecentTimerEntry = {
 
 const CACHE_KEY = "deeplog_recent_timers";
 const DISMISSED_CACHE_KEY = "deeplog_dismissed_recent_timers";
+const MAX_RECENT_TIMER_SEGMENT_LENGTH = 50;
+
+export function getRecentTimerDescription(description: string): string | null {
+  const segments = description
+    .split("-")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const eligibleSegments: string[] = [];
+
+  for (const segment of segments) {
+    if (segment.length >= MAX_RECENT_TIMER_SEGMENT_LENGTH) {
+      break;
+    }
+
+    eligibleSegments.push(segment);
+  }
+
+  return eligibleSegments.length > 0 ? eligibleSegments.join(" - ") : null;
+}
 
 function getTimerSignature(
   description: string,
@@ -53,21 +72,55 @@ export function getRecentTimers(): RecentTimerEntry[] {
     const cached = localStorage.getItem(CACHE_KEY);
     if (!cached) return [];
     const timers = JSON.parse(cached) as RecentTimerEntry[];
+    const normalizedTimers: RecentTimerEntry[] = [];
 
-    // Migrate old entries without usageCount
-    return timers
-      .filter(
-        (timer) =>
-          !isRecentTimerDismissed(
-            timer.description,
-            timer.projectId,
-            timer.tagIds
-          )
-      )
-      .map((timer) => ({
+    // Normalize existing cache entries to the current description policy and
+    // collapse any entries that now resolve to the same suggestion.
+    for (const timer of timers) {
+      const description = getRecentTimerDescription(timer.description);
+      if (!description) continue;
+
+      const normalizedTimer = {
         ...timer,
+        description,
         usageCount: timer.usageCount ?? 0,
-      }));
+      };
+
+      if (
+        isRecentTimerDismissed(
+          normalizedTimer.description,
+          normalizedTimer.projectId,
+          normalizedTimer.tagIds
+        )
+      ) {
+        continue;
+      }
+
+      const signature = getTimerSignature(
+        normalizedTimer.description,
+        normalizedTimer.projectId,
+        normalizedTimer.tagIds
+      );
+      const duplicate = normalizedTimers.find(
+        (candidate) =>
+          getTimerSignature(
+            candidate.description,
+            candidate.projectId,
+            candidate.tagIds
+          ) === signature
+      );
+
+      if (duplicate) {
+        duplicate.usageCount = Math.max(
+          duplicate.usageCount,
+          normalizedTimer.usageCount
+        );
+      } else {
+        normalizedTimers.push(normalizedTimer);
+      }
+    }
+
+    return normalizedTimers;
   } catch (error) {
     console.error("Failed to load recent timers cache:", error);
     return [];
@@ -76,8 +129,17 @@ export function getRecentTimers(): RecentTimerEntry[] {
 
 export function addToRecentTimers(entry: RecentTimerEntry): void {
   try {
+    const description = getRecentTimerDescription(entry.description);
+    if (!description) return;
+
+    const normalizedEntry = { ...entry, description };
+
     if (
-      isRecentTimerDismissed(entry.description, entry.projectId, entry.tagIds)
+      isRecentTimerDismissed(
+        normalizedEntry.description,
+        normalizedEntry.projectId,
+        normalizedEntry.tagIds
+      )
     ) {
       return;
     }
@@ -87,10 +149,14 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
     // First check if this exact combination (description, project, tags) already exists
     const duplicateIndex = timers.findIndex(
       (t) =>
-        t.description === entry.description &&
-        t.projectId === entry.projectId &&
+        t.description === normalizedEntry.description &&
+        t.projectId === normalizedEntry.projectId &&
         getTimerSignature(t.description, t.projectId, t.tagIds) ===
-          getTimerSignature(entry.description, entry.projectId, entry.tagIds)
+          getTimerSignature(
+            normalizedEntry.description,
+            normalizedEntry.projectId,
+            normalizedEntry.tagIds
+          )
     );
 
     if (duplicateIndex !== -1) {
@@ -100,7 +166,7 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
       const existingTimer = timers[duplicateIndex];
       const preservedUsageCount = Math.max(
         existingTimer.usageCount ?? 0,
-        entry.usageCount ?? 0
+        normalizedEntry.usageCount ?? 0
       );
 
       if (existingTimer.usageCount !== preservedUsageCount) {
@@ -112,19 +178,19 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
     }
 
     // Check if this entry ID already exists with different data (corrected entry)
-    const existingIdIndex = timers.findIndex((t) => t.id === entry.id);
+    const existingIdIndex = timers.findIndex((t) => t.id === normalizedEntry.id);
     if (existingIdIndex !== -1) {
       // Remove the old version of this entry
       timers.splice(existingIdIndex, 1);
     }
 
     // Ensure usageCount is set (default to 0 if not provided)
-    if (entry.usageCount === undefined) {
-      entry.usageCount = 0;
+    if (normalizedEntry.usageCount === undefined) {
+      normalizedEntry.usageCount = 0;
     }
 
     // Add to the beginning
-    timers.unshift(entry);
+    timers.unshift(normalizedEntry);
 
     localStorage.setItem(CACHE_KEY, JSON.stringify(timers));
   } catch (error) {
@@ -149,9 +215,15 @@ export function updateRecentTimersCache(
       return true;
     }
 
-    // Entry exists in fetch - check if data matches
+    const fetchedDescription = getRecentTimerDescription(
+      fetchedEntry.description
+    );
+    if (!fetchedDescription) return false;
+
+    // Entry exists in fetch - compare the normalized suggestion, not the full
+    // source description that may contain a discarded long segment.
     const dataMatches =
-      cachedEntry.description === fetchedEntry.description &&
+      cachedEntry.description === fetchedDescription &&
       cachedEntry.projectId === fetchedEntry.project_id &&
       getTimerSignature(
         cachedEntry.description,
@@ -159,7 +231,7 @@ export function updateRecentTimersCache(
         cachedEntry.tagIds
       ) ===
         getTimerSignature(
-          fetchedEntry.description,
+          fetchedDescription,
           fetchedEntry.project_id,
           fetchedEntry.tag_ids || []
         );
@@ -171,10 +243,12 @@ export function updateRecentTimersCache(
   // Save cleaned cache
   localStorage.setItem(CACHE_KEY, JSON.stringify(cleanedTimers));
 
-  // Now filter entries with descriptions under 60 characters
-  const validEntries = entries.filter(
-    (e) => e.description && e.description.length > 0 && e.description.length < 60
-  );
+  // Normalize each fetched description by keeping the segments before the
+  // first segment that is 50 or more characters long.
+  const validEntries = entries.flatMap((entry) => {
+    const description = getRecentTimerDescription(entry.description);
+    return description ? [{ ...entry, description }] : [];
+  });
 
   // Add each valid entry to the cache, preserving existing usage counts
   validEntries.forEach((entry) => {
