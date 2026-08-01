@@ -11,6 +11,7 @@ import {
 import {
   hasActiveToast,
   toast,
+  triggerToastSubmit,
   triggerUndo,
 } from "@/lib/toast";
 import type { PinnedEntry, SyncStatus } from "@/types";
@@ -2375,9 +2376,14 @@ export function TimeTrackerTable({
 
       let toastDismissed = false;
       const state = { apiCallStarted: false };
+      const submitNow = () => {
+        if (toastDismissed || state.apiCallStarted) return;
+        clearTimeout(timeoutId);
+        void submitOperation();
+      };
       const toastId: string | number | undefined = toast(message, {
         action: {
-          label: "Undo (Z)",
+          label: "Undo (⌘Z)",
           onClick: () => {
             toastDismissed = true;
             // Clear retry function since user is undoing
@@ -2386,18 +2392,11 @@ export function TimeTrackerTable({
           },
         },
         duration: Infinity, // Keep toast until API completes
-        onDismiss: () => {
-          // If toast is manually dismissed before API call starts, cancel the operation
-          if (!state.apiCallStarted) {
-            toastDismissed = true;
-            entryRetryFunctions.current.delete(entryId);
-          }
-          // If API call already started, do nothing - let it complete and toast will be dismissed programmatically
-        },
+        submitAction: submitNow,
       });
 
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
-      setTimeout(async () => {
+      const submitOperation = async () => {
         if (toastDismissed) {
           return;
         }
@@ -2458,7 +2457,9 @@ export function TimeTrackerTable({
           // Don't call undoAction() - keep the optimistic update visible with error indicator
           // Retry function is already stored in entryRetryFunctions
         }
-      }, toastDuration);
+      };
+
+      const timeoutId = setTimeout(submitNow, toastDuration);
     },
     [toastDuration]
   );
@@ -3811,13 +3812,18 @@ export function TimeTrackerTable({
       // Show toast with undo functionality
       let toastDismissed = false;
       const state = { apiCallStarted: false };
+      const submitNow = () => {
+        if (toastDismissed || state.apiCallStarted) return;
+        clearTimeout(timeoutId);
+        void submitOperation();
+      };
       const toastId: string | number | undefined = toast(
         `Deleted ${entriesToDelete.length} time ${
           entriesToDelete.length === 1 ? "entry" : "entries"
         }`,
         {
           action: {
-            label: "Undo (Z)",
+            label: "Undo (⌘Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -3836,16 +3842,12 @@ export function TimeTrackerTable({
             },
           },
           duration: Infinity, // Keep toast until API completes
-          onDismiss: () => {
-            if (!state.apiCallStarted) {
-              toastDismissed = true;
-            }
-          },
+          submitAction: submitNow,
         }
       );
 
       // Queue all delete API calls with rate limiting
-      setTimeout(async () => {
+      const submitOperation = async () => {
         if (toastDismissed) {
           return;
         }
@@ -3900,7 +3902,9 @@ export function TimeTrackerTable({
             `Failed to delete ${errors.length} of ${entriesToDelete.length} entries`
           );
         }
-      }, toastDuration);
+      };
+
+      const timeoutId = setTimeout(submitNow, toastDuration);
 
       // Adjust selector position if needed
       if (selectedCell) {
@@ -3985,6 +3989,11 @@ export function TimeTrackerTable({
       // Show toast with undo functionality
       let toastDismissed = false;
       const state = { apiCallStarted: false };
+      const submitNow = () => {
+        if (toastDismissed || state.apiCallStarted) return;
+        clearTimeout(timeoutId);
+        void submitOperation();
+      };
       const tagText =
         tagsToAdd.length === 1
           ? `tag "${tagsToAdd[0]}"`
@@ -3995,7 +4004,7 @@ export function TimeTrackerTable({
         }`,
         {
           action: {
-            label: "Undo (Z)",
+            label: "Undo (⌘Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -4014,16 +4023,12 @@ export function TimeTrackerTable({
             },
           },
           duration: Infinity,
-          onDismiss: () => {
-            if (!state.apiCallStarted) {
-              toastDismissed = true;
-            }
-          },
+          submitAction: submitNow,
         }
       );
 
       // Queue all tag update API calls with rate limiting
-      setTimeout(async () => {
+      const submitOperation = async () => {
         if (toastDismissed) {
           return;
         }
@@ -4083,7 +4088,9 @@ export function TimeTrackerTable({
             `Failed to add tags to ${errors.length} of ${entriesToUpdate.length} entries`
           );
         }
-      }, toastDuration);
+      };
+
+      const timeoutId = setTimeout(submitNow, toastDuration);
     },
     [timeEntries, toastDuration]
   );
@@ -4142,13 +4149,18 @@ export function TimeTrackerTable({
       // Show toast with undo functionality
       let toastDismissed = false;
       const state = { apiCallStarted: false };
+      const submitNow = () => {
+        if (toastDismissed || state.apiCallStarted) return;
+        clearTimeout(timeoutId);
+        void submitOperation();
+      };
       const toastId: string | number | undefined = toast(
         `Set project "${projectName}" for ${entriesToUpdate.length} ${
           entriesToUpdate.length === 1 ? "entry" : "entries"
         }`,
         {
           action: {
-            label: "Undo (Z)",
+            label: "Undo (⌘Z)",
             onClick: () => {
               toastDismissed = true;
               // Restore all entries
@@ -4167,16 +4179,12 @@ export function TimeTrackerTable({
             },
           },
           duration: Infinity,
-          onDismiss: () => {
-            if (!state.apiCallStarted) {
-              toastDismissed = true;
-            }
-          },
+          submitAction: submitNow,
         }
       );
 
       // Queue all project update API calls with rate limiting
-      setTimeout(async () => {
+      const submitOperation = async () => {
         if (toastDismissed) {
           return;
         }
@@ -4233,7 +4241,9 @@ export function TimeTrackerTable({
             `Failed to set project for ${errors.length} of ${entriesToUpdate.length} entries`
           );
         }
-      }, toastDuration);
+      };
+
+      const timeoutId = setTimeout(submitNow, toastDuration);
     },
     [timeEntries, projects, toastDuration]
   );
@@ -4373,14 +4383,24 @@ export function TimeTrackerTable({
       lastSelectionDirectionRef.current = null;
 
       // Show toast with undo functionality
+      let undone = false;
+      const state = { apiCallStarted: false };
+      const submitNow = () => {
+        if (undone || state.apiCallStarted) return;
+        clearTimeout(timeoutId);
+        void submitOperation();
+      };
       const toastId = toast(`Combined ${entries.length} entries`, {
         description: hasRunningEntry
           ? `${reverse ? "Latest" : "Earliest"} entry is now running`
           : `Extended to ${format(new Date(newStop), "h:mm a")}`,
-        duration: 5000,
+        duration: Infinity,
+        submitAction: submitNow,
         action: {
-          label: "Undo (Z)",
+          label: "Undo (⌘Z)",
           onClick: () => {
+            undone = true;
+            clearTimeout(timeoutId);
             setTimeEntries(originalEntries);
             toast.dismiss(toastId);
             toast("Combine undone", { duration: 2000 });
@@ -4389,7 +4409,9 @@ export function TimeTrackerTable({
       });
 
       // Execute API calls with rate limiting
-      setTimeout(async () => {
+      const submitOperation = async () => {
+        if (undone) return;
+        state.apiCallStarted = true;
         const sessionToken = localStorage.getItem("toggl_session_token");
         const errors: string[] = [];
 
@@ -4500,7 +4522,9 @@ export function TimeTrackerTable({
           toast.error("Failed to combine entries. Reverting changes.");
           setTimeEntries(originalEntries);
         }
-      }, toastDuration);
+      };
+
+      const timeoutId = setTimeout(submitNow, toastDuration);
     },
     [toastDuration]
   );
@@ -6272,6 +6296,19 @@ export function TimeTrackerTable({
         (activeElement as HTMLElement)?.contentEditable === "true" ||
         activeElement?.getAttribute("role") === "textbox";
 
+      // While an undo toast is pending, Cmd+P submits it immediately. If there
+      // is no pending toast, the existing Pendant shortcut below still applies.
+      if (
+        e.key.toLowerCase() === "p" &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        triggerToastSubmit()
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
       // Note: 'p' with Cmd/Ctrl is NOT an action shortcut (it's for Pendant/Retrace navigation)
@@ -6388,9 +6425,14 @@ export function TimeTrackerTable({
         return;
       }
 
-      if (e.key.toLowerCase() === "z" && !isInInput) {
+      if (
+        e.key.toLowerCase() === "z" &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        triggerUndo()
+      ) {
         e.preventDefault();
-        triggerUndo();
+        e.stopPropagation();
         return;
       }
 
