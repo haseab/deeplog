@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/popover";
 import {
   searchRecentTimers,
-  incrementTimerUsage,
   resetRecentTimerRanking,
   type RecentTimerEntry,
 } from "@/lib/recent-timers-cache";
@@ -153,9 +152,6 @@ export function RecentTimersPopover({
                 <div
                   className="flex-1 min-w-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 -m-2.5 p-2.5 rounded-md active:scale-[0.98] transition-all duration-150"
                   onClick={() => {
-                    // Increment usage count
-                    incrementTimerUsage(timer.description, timer.projectId, timer.tagIds);
-
                     onSelect({
                       description: timer.description,
                       projectId: timer.projectId,

@@ -13,6 +13,7 @@ import { Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import MarkdownIt from "markdown-it";
 import * as React from "react";
+import { flushSync } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
 import { RecentTimersPopover } from "./recent-timers-popover";
@@ -257,7 +258,7 @@ export function ExpandableDescription({
             event.stopPropagation();
             setShowRecentTimers(false);
             setHighlightedIndex(0);
-            saveAndExit();
+            saveAndExit(true);
             return true;
           } else if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -342,7 +343,7 @@ export function ExpandableDescription({
           event.preventDefault();
           event.stopPropagation();
 
-          saveAndExit();
+          saveAndExit(true);
 
           // Add a subtle flash effect for the keyboard shortcut
           const editorElement = view.dom.closest(".editor-container");
@@ -499,7 +500,7 @@ export function ExpandableDescription({
     }
   };
 
-  const saveAndExit = async () => {
+  const saveAndExit = async (synchronous = false) => {
     if (editor) {
       const currentContent = getMarkdownContent();
 
@@ -507,7 +508,17 @@ export function ExpandableDescription({
       if (currentContent !== description) {
         onSave?.(currentContent);
       }
-      setIsEditing(false);
+      if (synchronous) {
+        // Cmd/Ctrl+Enter is commonly followed immediately by Tab. Flush both
+        // editing states now so the table can handle that next key instead of
+        // allowing native focus to fall through to the page body.
+        flushSync(() => {
+          setIsEditing(false);
+          onEditingChange?.(false);
+        });
+      } else {
+        setIsEditing(false);
+      }
     }
   };
 

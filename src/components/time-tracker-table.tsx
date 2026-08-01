@@ -342,23 +342,25 @@ const MemoizedDescriptionCell = React.memo(
           projects={projects}
           availableTags={availableTags}
           onRecentTimerSelect={(selected) => {
-            incrementTimerUsage(
-              selected.description,
-              selected.projectId,
-              selected.tagIds
-            );
-
             const tagNames = availableTags
               .filter((tag) => selected.tagIds.includes(tag.id))
               .map((tag) => tag.name);
 
             const project = projects.find((p) => p.id === selected.projectId);
 
-            onBulkEntryUpdateByRowIndex(entry.id)({
-              description: selected.description,
-              projectName: project?.name,
-              tags: tagNames,
-            });
+            onBulkEntryUpdateByRowIndex(entry.id)(
+              {
+                description: selected.description,
+                projectName: project?.name,
+                tags: tagNames,
+              },
+              () =>
+                incrementTimerUsage(
+                  selected.description,
+                  selected.projectId,
+                  selected.tagIds
+                )
+            );
           }}
           data-testid="expandable-description"
         />
@@ -712,6 +714,50 @@ const MemoizedActionsCell = React.memo(
   }
 );
 
+function useAlternatingDateRangeSelection(
+  date: DateRange | undefined,
+  setDate: (date: DateRange | undefined) => void
+) {
+  const [draftRange, setDraftRange] = React.useState<DateRange | undefined>(
+    date
+  );
+  const [selectionStep, setSelectionStep] = React.useState<"start" | "end">(
+    "start"
+  );
+
+  React.useEffect(() => {
+    if (selectionStep === "start") {
+      setDraftRange(date);
+    }
+  }, [date, selectionStep]);
+
+  const handleDayClick = React.useCallback(
+    (clickedDay: Date) => {
+      const clickedDate = startOfDay(clickedDay);
+
+      if (selectionStep === "start" || !draftRange?.from) {
+        // Keep the first click local to the calendar. Updating the parent date
+        // here would trigger a fetch before the range is complete.
+        setDraftRange({ from: clickedDate, to: undefined });
+        setSelectionStep("end");
+        return;
+      }
+
+      const draftStart = startOfDay(draftRange.from);
+      const from = clickedDate < draftStart ? clickedDate : draftStart;
+      const to = clickedDate < draftStart ? draftStart : clickedDate;
+      const completedRange = { from, to: endOfDay(to) };
+
+      setDraftRange(completedRange);
+      setSelectionStep("start");
+      setDate(completedRange);
+    },
+    [draftRange, selectionStep, setDate]
+  );
+
+  return { draftRange, handleDayClick };
+}
+
 // Memoized date picker row components to prevent re-renders when table data changes
 const MemoizedDatePickerRow = React.memo(
   function MemoizedDatePickerRow({
@@ -731,6 +777,9 @@ const MemoizedDatePickerRow = React.memo(
     handleFullscreenToggle,
     handleNewEntryClick,
   }: MemoizedDatePickerRowProps) {
+    const { draftRange, handleDayClick } =
+      useAlternatingDateRangeSelection(date, setDate);
+
     return (
       <div
         className="hidden md:flex items-center justify-between mt-6"
@@ -769,14 +818,10 @@ const MemoizedDatePickerRow = React.memo(
               <Calendar
                 mode="range"
                 defaultMonth={date?.from}
-                selected={date}
-                onSelect={(selectedRange) => {
-                  if (selectedRange?.from && selectedRange?.to) {
-                    // Set end date to end of day
-                    const endOfDayTo = endOfDay(selectedRange.to);
-                    setDate({ from: selectedRange.from, to: endOfDayTo });
-                  }
-                }}
+                selected={draftRange}
+                onSelect={(_selectedRange, clickedDay) =>
+                  handleDayClick(clickedDay)
+                }
                 numberOfMonths={2}
                 className="rounded-md border-0"
               />
@@ -890,6 +935,9 @@ const MemoizedMobileDatePickerRow = React.memo(
     date,
     setDate,
   }: MemoizedMobileDatePickerRowProps) {
+    const { draftRange, handleDayClick } =
+      useAlternatingDateRangeSelection(date, setDate);
+
     return (
       <div className="flex items-center">
         <Popover>
@@ -921,14 +969,10 @@ const MemoizedMobileDatePickerRow = React.memo(
             <Calendar
               mode="range"
               defaultMonth={date?.from}
-              selected={date}
-              onSelect={(selectedRange) => {
-                if (selectedRange?.from && selectedRange?.to) {
-                  // Set end date to end of day
-                  const endOfDayTo = endOfDay(selectedRange.to);
-                  setDate({ from: selectedRange.from, to: endOfDayTo });
-                }
-              }}
+              selected={draftRange}
+              onSelect={(_selectedRange, clickedDay) =>
+                handleDayClick(clickedDay)
+              }
               numberOfMonths={1}
               className="rounded-md border-0"
             />
@@ -1283,11 +1327,14 @@ const MemoizedTableRow = React.memo(
     }) => void;
     onBulkEntryUpdateByRowIndex: (
       capturedId: number
-    ) => (updates: {
-      description?: string;
-      projectName?: string;
-      tags?: string[];
-    }) => void;
+    ) => (
+      updates: {
+        description?: string;
+        projectName?: string;
+        tags?: string[];
+      },
+      onCommit?: () => void
+    ) => void;
     onTimeChange: (
       entryId: number
     ) => (startTime: string, endTime: string | null) => void;
@@ -1396,13 +1443,6 @@ const MemoizedTableRow = React.memo(
                     projects={projects}
                     availableTags={availableTags}
                     onRecentTimerSelect={(selected) => {
-                      // Increment usage count
-                      incrementTimerUsage(
-                        selected.description,
-                        selected.projectId,
-                        selected.tagIds
-                      );
-
                       const tagNames = availableTags
                         .filter((tag) => selected.tagIds.includes(tag.id))
                         .map((tag) => tag.name);
@@ -1411,11 +1451,19 @@ const MemoizedTableRow = React.memo(
                         (p) => p.id === selected.projectId
                       );
 
-                      onBulkEntryUpdateByRowIndex(entry.id)({
-                        description: selected.description,
-                        projectName: project?.name,
-                        tags: tagNames,
-                      });
+                      onBulkEntryUpdateByRowIndex(entry.id)(
+                        {
+                          description: selected.description,
+                          projectName: project?.name,
+                          tags: tagNames,
+                        },
+                        () =>
+                          incrementTimerUsage(
+                            selected.description,
+                            selected.projectId,
+                            selected.tagIds
+                          )
+                      );
                     }}
                     data-testid="expandable-description"
                   />
@@ -2411,6 +2459,23 @@ export function TimeTrackerTable({
 
   // Sync queue manager for handling operations on temp IDs
   const syncQueueRef = React.useRef<SyncQueueManager>(new SyncQueueManager());
+  const activeSyncAbortControllerRef = React.useRef<AbortController | null>(
+    null
+  );
+  const clientMutationGenerationRef = React.useRef(0);
+
+  const beginClientMutation = React.useCallback(() => {
+    clientMutationGenerationRef.current += 1;
+
+    const activeSync = activeSyncAbortControllerRef.current;
+    if (activeSync) {
+      activeSyncAbortControllerRef.current = null;
+      activeSync.abort();
+      setSyncStatus("synced");
+      setLoading(false);
+      setIsLoadingMore(false);
+    }
+  }, []);
 
   // Keep ref in sync with state
   React.useEffect(() => {
@@ -2431,13 +2496,17 @@ export function TimeTrackerTable({
       message: string,
       entryId: number,
       undoAction: () => void,
-      apiCall: () => Promise<void>
+      apiCall: () => Promise<void>,
+      onCommit?: () => void
     ) => {
       // Store the retry function for this entry
       const existingRetry = entryRetryFunctions.current.get(entryId);
       if (existingRetry) {
       }
-      entryRetryFunctions.current.set(entryId, apiCall);
+      entryRetryFunctions.current.set(entryId, async () => {
+        await apiCall();
+        onCommit?.();
+      });
 
       let toastDismissed = false;
       const state = { apiCallStarted: false };
@@ -2478,6 +2547,13 @@ export function TimeTrackerTable({
 
         try {
           await apiCall();
+
+          // Usage ranking is part of the mutation transaction. Only publish
+          // it after the server accepts the change, and never if Undo was
+          // pressed while the request was in flight.
+          if (!toastDismissed) {
+            onCommit?.();
+          }
 
           // Mark as synced and clear retry function
           setEntrySyncStatus((prev) => {
@@ -2937,11 +3013,21 @@ export function TimeTrackerTable({
 
   const handleBulkEntryUpdate = React.useCallback(
     (entryId: number) =>
-      (updates: {
-        description?: string;
-        projectName?: string;
-        tags?: string[];
-      }) => {
+      (
+        updates: {
+          description?: string;
+          projectName?: string;
+          tags?: string[];
+        },
+        onCommit?: () => void
+      ) => {
+        let hasCommitted = false;
+        const commitOnce = () => {
+          if (hasCommitted) return;
+          hasCommitted = true;
+          onCommit?.();
+        };
+
         // Encrypt description if E2EE is enabled
         let finalDescription = updates.description;
         if (
@@ -3064,7 +3150,9 @@ export function TimeTrackerTable({
                 throw new Error(`Failed to update entry (${response.status})`);
               }
 
-              return response.json();
+              const result = await response.json();
+              commitOnce();
+              return result;
             },
           };
 
@@ -3171,7 +3259,8 @@ export function TimeTrackerTable({
               }
 
               await response.json();
-            }
+            },
+            commitOnce
           );
 
           return updatedEntries;
@@ -3183,11 +3272,14 @@ export function TimeTrackerTable({
   // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)
   const handleBulkEntryUpdateByRowIndex = React.useCallback(
     (capturedId: number) =>
-      (updates: {
-        description?: string;
-        projectName?: string;
-        tags?: string[];
-      }) => {
+      (
+        updates: {
+          description?: string;
+          projectName?: string;
+          tags?: string[];
+        },
+        onCommit?: () => void
+      ) => {
         // Find the entry - it might still have the temp ID or it might have been updated to real ID
         let currentEntry = timeEntriesRef.current.find(
           (e) => e.id === capturedId
@@ -3213,7 +3305,7 @@ export function TimeTrackerTable({
         }
 
         // Call the actual bulk update with the CURRENT entry ID
-        handleBulkEntryUpdate(currentEntry.id)(updates);
+        handleBulkEntryUpdate(currentEntry.id)(updates, onCommit);
       },
     [handleBulkEntryUpdate]
   );
@@ -4652,6 +4744,8 @@ export function TimeTrackerTable({
 
       // Generate temp ID for the second entry
       const tempId = -Date.now();
+      const shouldTransferSelectedCell =
+        selectedCellEntryIdRef.current === entryToSplit.id;
 
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
@@ -4731,6 +4825,14 @@ export function TimeTrackerTable({
         }
       });
 
+      // A split keeps the original ID on the earlier segment and gives the
+      // later segment a new ID. Since the table is newest-first, the later
+      // segment occupies the row that remains visibly selected. Keep shortcut
+      // actions pointed at that same row instead of the now-older original.
+      if (shouldTransferSelectedCell) {
+        selectedCellEntryIdRef.current = tempId;
+      }
+
       // Set initial sync status for the temp entry
       setEntrySyncStatus((prev) => new Map(prev).set(tempId, "pending"));
 
@@ -4766,6 +4868,10 @@ export function TimeTrackerTable({
           if (createdEntry && createdEntry.id) {
             const realId = createdEntry.id;
 
+            if (selectedCellEntryIdRef.current === tempId) {
+              selectedCellEntryIdRef.current = realId;
+            }
+
             // Register ID mapping for the sync queue
             const syncQueue = syncQueueRef.current;
             syncQueue.registerIdMapping(tempId, realId);
@@ -4773,18 +4879,15 @@ export function TimeTrackerTable({
             // Swap temp ID with real ID in encrypted entries tracking
             encryption.swapEncryptedEntryId(tempId, realId);
 
-            // Replace the temporary entry with the real one from the server
-            // Use the full server data, not just the client-side optimistic data
+            // Reconcile server identity without overwriting newer optimistic
+            // commands that may have changed either split segment meanwhile.
             setTimeEntries((prev) =>
               prev.map((entry) => {
                 if (entry.id === tempId) {
-                  // Use server response data with proper denormalization
                   return {
                     ...createdEntry,
-                    project_name: entry.project_name, // Keep denormalized fields
-                    project_color: entry.project_color,
-                    tags: entry.tags || [],
-                    tag_ids: createdEntry.tag_ids || [],
+                    ...entry,
+                    id: realId,
                     tempId,
                     syncStatus: "syncing" as SyncStatus,
                   } as TimeEntry;
@@ -4793,10 +4896,8 @@ export function TimeTrackerTable({
                 if (!isNegativeSplit && entry.id === entryToSplit.id && updatedEntry) {
                   return {
                     ...updatedEntry,
-                    project_name: entry.project_name,
-                    project_color: entry.project_color,
-                    tags: entry.tags || [],
-                    tag_ids: updatedEntry.tag_ids || [],
+                    ...entry,
+                    id: updatedEntry.id,
                   } as TimeEntry;
                 }
                 return entry;
@@ -4848,6 +4949,9 @@ export function TimeTrackerTable({
         .catch((error) => {
           console.error("Failed to split time entry:", error);
           toast.error("Failed to split entry. Reverting changes.");
+          if (selectedCellEntryIdRef.current === tempId) {
+            selectedCellEntryIdRef.current = entryToSplit.id;
+          }
           setTimeEntries(originalEntries);
         });
     },
@@ -4891,28 +4995,65 @@ export function TimeTrackerTable({
   const handleConfirmCombine = React.useCallback(() => {
     if (!entryToCombine) return;
 
+    const syncQueue = syncQueueRef.current;
+    const resolveEntryId = (entryId: number) =>
+      syncQueue.getRealId(entryId) ?? entryId;
+    const resolveCurrentEntry = (entry: TimeEntry) => {
+      const resolvedId = resolveEntryId(entry.id);
+
+      return (
+        timeEntries.find((candidate) => candidate.id === resolvedId) ??
+        timeEntries.find((candidate) => candidate.tempId === entry.id) ??
+        null
+      );
+    };
+
+    // The split request may finish while this confirmation dialog is open,
+    // replacing its temporary entry ID with the server ID. Resolve the dialog
+    // snapshot back to the current list entry before applying the combine.
+    const currentEntry = resolveCurrentEntry(entryToCombine);
+    if (!currentEntry) {
+      toast.error("The selected entry is no longer available");
+      return;
+    }
+
     // Find the older entry again (chronologically previous, at higher index)
     const currentIndex = timeEntries.findIndex(
-      (e) => e.id === entryToCombine.id
+      (e) => e.id === currentEntry.id
     );
-    if (currentIndex === timeEntries.length - 1) {
+    if (currentIndex < 0 || currentIndex === timeEntries.length - 1) {
       toast.error("Cannot combine the last entry (oldest entry)");
       return;
     }
 
     const olderEntry = timeEntries[currentIndex + 1];
-    const syncQueue = syncQueueRef.current;
-    const currentIsTempId = syncQueue.isTempId(entryToCombine.id);
-    const olderIsTempId = syncQueue.isTempId(olderEntry.id);
+    const currentApiId = resolveEntryId(currentEntry.id);
+    const olderApiId = resolveEntryId(olderEntry.id);
+    const currentIsTempId = syncQueue.isTempId(currentApiId);
+    const olderIsTempId = syncQueue.isTempId(olderApiId);
 
     const isCurrentEntryRunning =
-      !entryToCombine.stop || entryToCombine.duration === -1;
+      !currentEntry.stop || currentEntry.duration === -1;
 
     let originalEntries: TimeEntry[] = [];
 
     // Determine which entry's metadata to keep based on reverse mode
-    const entryToKeep = isReverseCombineSingle ? entryToCombine : olderEntry;
-    const entryToDelete = isReverseCombineSingle ? olderEntry : entryToCombine;
+    const entryToKeep = isReverseCombineSingle ? currentEntry : olderEntry;
+    const entryToDelete = isReverseCombineSingle ? olderEntry : currentEntry;
+
+    // Two unresolved creations need a dependency-aware multi-ID operation,
+    // which this queue does not support yet.
+    if (currentIsTempId && olderIsTempId) {
+      toast.error("Cannot combine two entries that haven't been synced yet");
+      return;
+    }
+
+    const selectedCellIdBeforeCombine = selectedCellEntryIdRef.current;
+    const entryToKeepSelectionId = resolveEntryId(entryToKeep.id);
+    const selectedEntryIsBeingDeleted =
+      selectedCellIdBeforeCombine !== null &&
+      resolveEntryId(selectedCellIdBeforeCombine) ===
+        resolveEntryId(entryToDelete.id);
 
     // Optimistically update UI
     setTimeEntries((currentEntries) => {
@@ -4938,14 +5079,14 @@ export function TimeTrackerTable({
             } else {
               // Extend kept entry to latest stop time with kept entry's metadata
               const start = new Date(olderEntry.start);  // Always use earliest start
-              const stop = new Date(entryToCombine.stop!);
+              const stop = new Date(currentEntry.stop!);
               const newDuration = Math.floor(
                 (stop.getTime() - start.getTime()) / 1000
               );
               return {
                 ...entryToKeep,  // Use entryToKeep's metadata (description, project, tags)
                 start: olderEntry.start,  // Always use earliest start
-                stop: entryToCombine.stop!,
+                stop: currentEntry.stop!,
                 duration: newDuration,
                 syncStatus:
                   currentIsTempId || olderIsTempId
@@ -4960,33 +5101,29 @@ export function TimeTrackerTable({
       return updatedEntries;
     });
 
+    if (selectedEntryIsBeingDeleted) {
+      selectedCellEntryIdRef.current = entryToKeepSelectionId;
+    }
+
     const sessionToken = localStorage.getItem("toggl_session_token");
 
     // If either entry has a temp ID, queue the operation
     if (currentIsTempId || olderIsTempId) {
-      // If both are temp IDs, we can't execute yet - need both to have real IDs
-      if (currentIsTempId && olderIsTempId) {
-        toast.error("Cannot combine two entries that haven't been synced yet");
-        // Revert optimistic UI update
-        setTimeEntries(originalEntries);
-        return;
-      }
-
       // Only one is a temp ID - queue it
       const operation: QueuedOperation = {
         type: "COMBINE",
-        tempId: currentIsTempId ? entryToCombine.id : olderEntry.id,
+        tempId: currentIsTempId ? currentApiId : olderApiId,
         payload: {
-          currentEntryId: entryToCombine.id,
-          olderEntryId: olderEntry.id,
+          currentEntryId: currentApiId,
+          olderEntryId: olderApiId,
           isCurrentEntryRunning,
         },
         retryCount: 0,
         timestamp: Date.now(),
         execute: async (realId: number) => {
           // Determine which ID to use - replace the temp ID with the real ID
-          const finalCurrentId = currentIsTempId ? realId : entryToCombine.id;
-          const finalOlderId = olderIsTempId ? realId : olderEntry.id;
+          const finalCurrentId = currentIsTempId ? realId : currentApiId;
+          const finalOlderId = olderIsTempId ? realId : olderApiId;
 
           const response = await fetch("/api/time-entries/combine", {
             method: "POST",
@@ -5069,8 +5206,8 @@ export function TimeTrackerTable({
         "x-toggl-session-token": sessionToken || "",
       },
       body: JSON.stringify({
-        currentEntryId: entryToCombine.id,
-        olderEntryId: olderEntry.id,
+        currentEntryId: currentApiId,
+        olderEntryId: olderApiId,
         reverse: isReverseCombineSingle,
       }),
     })
@@ -5103,6 +5240,12 @@ export function TimeTrackerTable({
       .catch((error) => {
         console.error("Failed to combine time entries:", error);
         toast.error("Failed to combine entries. Reverting changes.");
+        if (
+          selectedEntryIsBeingDeleted &&
+          selectedCellEntryIdRef.current === entryToKeepSelectionId
+        ) {
+          selectedCellEntryIdRef.current = selectedCellIdBeforeCombine;
+        }
         setTimeEntries(originalEntries);
         // Reset reverse mode flag on error too
         setIsReverseCombineSingle(false);
@@ -5118,6 +5261,10 @@ export function TimeTrackerTable({
       stopTime?: string
     ) => {
       console.log("========== START NEW TIME ENTRY ==========");
+      // A response from a sync that started before this mutation must never
+      // replace the optimistic entry with its older server snapshot.
+      beginClientMutation();
+
       let originalEntries: TimeEntry[] = [];
       let newEntry: TimeEntry | null = null;
       let runningEntry: TimeEntry | null = null;
@@ -5185,6 +5332,15 @@ export function TimeTrackerTable({
             : currentEntries;
 
         return [newEntry, ...updatedEntries];
+      });
+
+      // Protect the optimistic entry from both automatic and manual resyncs
+      // during the Undo window, before the delayed POST has even started.
+      setEntrySyncStatus((prev) => {
+        const next = new Map(prev);
+        next.set(tempId, "pending");
+        entrySyncStatusRef.current = next;
+        return next;
       });
 
       // Select the new entry for immediate editing (description cell)
@@ -5261,19 +5417,47 @@ export function TimeTrackerTable({
             // Swap temp ID with real ID in encrypted entries tracking
             encryption.swapEncryptedEntryId(tempId, realId);
 
-            // Update the entry's ID from temp to real, preserving any optimistic updates made to the entry
-            setTimeEntries((prev) =>
-              prev.map((entry) =>
-                entry.id === tempId
-                  ? ({
-                      ...entry,
-                      id: realId,
-                      tempId,
-                      syncStatus: "syncing" as SyncStatus,
-                    } as TimeEntry)
-                  : entry
-              )
-            );
+            // Replace the temp ID while preserving optimistic edits. If an
+            // older code path or response removed the temp row, restore it
+            // instead of allowing the successful creation to remain hidden.
+            setTimeEntries((prev) => {
+              const tempEntry = prev.find((entry) => entry.id === tempId);
+
+              if (tempEntry) {
+                return prev.map((entry) =>
+                  entry.id === tempId
+                    ? ({
+                        ...entry,
+                        id: realId,
+                        tempId,
+                        syncStatus: "syncing" as SyncStatus,
+                      } as TimeEntry)
+                    : entry
+                );
+              }
+
+              if (prev.some((entry) => entry.id === realId)) {
+                return prev;
+              }
+
+              const restoredEntry: TimeEntry = {
+                id: realId,
+                tempId,
+                description,
+                project_id: createdEntry.project_id ?? project_id,
+                project_name: projectName,
+                project_color: projectColor,
+                start: createdEntry.start ?? now,
+                stop:
+                  createdEntry.stop ?? (isRunning ? "" : stopTime || now),
+                duration: createdEntry.duration ?? (isRunning ? -1 : 0),
+                tags: createdEntry.tags ?? tags,
+                tag_ids: createdEntry.tag_ids ?? tag_ids,
+                syncStatus: "syncing",
+              };
+
+              return [restoredEntry, ...prev];
+            });
 
             // Move sync status from temp ID to real ID
             setEntrySyncStatus((prev) => {
@@ -5283,6 +5467,7 @@ export function TimeTrackerTable({
               if (tempStatus) {
                 newMap.set(realId, "syncing");
               }
+              entrySyncStatusRef.current = newMap;
               return newMap;
             });
 
@@ -5322,6 +5507,12 @@ export function TimeTrackerTable({
 
       const undoAction = () => {
         setTimeEntries(originalEntries);
+        setEntrySyncStatus((prev) => {
+          const next = new Map(prev);
+          next.delete(tempId);
+          entrySyncStatusRef.current = next;
+          return next;
+        });
 
         // If the API call succeeded, delete the created entry
         if (createdEntryId) {
@@ -5345,7 +5536,14 @@ export function TimeTrackerTable({
         apiCall
       );
     },
-    [projects, availableTags, showUpdateToast, encryption, isFullscreen]
+    [
+      projects,
+      availableTags,
+      showUpdateToast,
+      encryption,
+      isFullscreen,
+      beginClientMutation,
+    ]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
@@ -5420,9 +5618,6 @@ export function TimeTrackerTable({
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
-  const activeSyncAbortControllerRef = React.useRef<AbortController | null>(
-    null
-  );
   const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
 
   const handleCancelSync = React.useCallback(() => {
@@ -5462,6 +5657,7 @@ export function TimeTrackerTable({
       activeSyncAbortControllerRef.current?.abort();
       const syncAbortController = new AbortController();
       activeSyncAbortControllerRef.current = syncAbortController;
+      const mutationGenerationAtStart = clientMutationGenerationRef.current;
 
       // Only show main loading state for initial loads, not infinite scroll
       if (showLoadingState && resetData) setLoading(true);
@@ -5507,7 +5703,8 @@ export function TimeTrackerTable({
 
         if (
           syncAbortController.signal.aborted ||
-          activeSyncAbortControllerRef.current !== syncAbortController
+          activeSyncAbortControllerRef.current !== syncAbortController ||
+          clientMutationGenerationRef.current !== mutationGenerationAtStart
         ) {
           return;
         }
@@ -5522,41 +5719,44 @@ export function TimeTrackerTable({
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
 
-            // Preserve entries that have errors - don't overwrite with server data
+            // Reconcile server data without discarding optimistic mutations.
+            // Pending/syncing entries may not exist in Toggl's response yet,
+            // while errored/recently-synced entries still represent the local
+            // version the user expects to see.
             setTimeEntries((prevEntries) => {
-              const erroredEntryIds = Array.from(
-                entrySyncStatusRef.current.entries()
-              )
-                .filter(([, status]) => status === "error")
-                .map(([id]) => id);
+              const protectedEntryIds = new Set(
+                entrySyncStatusRef.current.keys()
+              );
 
-              // If no errored entries, just use the new data
-              if (erroredEntryIds.length === 0) {
+              if (protectedEntryIds.size === 0) {
                 return data.timeEntries;
               }
 
-              // Keep errored entries from previous state, use server data for rest
-              const erroredEntries = prevEntries.filter((entry) =>
-                erroredEntryIds.includes(entry.id)
+              const protectedEntries = prevEntries.filter((entry) =>
+                protectedEntryIds.has(entry.id)
               );
 
-              // Merge: use server data, but override with errored entries
               const serverEntryIds = new Set(
                 data.timeEntries.map((e: TimeEntry) => e.id)
               );
               const mergedEntries = [
                 ...data.timeEntries.map((serverEntry: TimeEntry) => {
-                  // If this entry has an error, use the local version instead
-                  const erroredVersion = erroredEntries.find(
+                  const protectedVersion = protectedEntries.find(
                     (e) => e.id === serverEntry.id
                   );
-                  return erroredVersion || serverEntry;
+                  return protectedVersion || serverEntry;
                 }),
-                // Add any errored entries that aren't in the server response
-                ...erroredEntries.filter((e) => !serverEntryIds.has(e.id)),
+                ...protectedEntries.filter(
+                  (entry) => !serverEntryIds.has(entry.id)
+                ),
               ];
 
-              return mergedEntries;
+              // Missing optimistic entries are added locally, so restore the
+              // table's normal newest-first ordering after reconciliation.
+              return mergedEntries.sort(
+                (a, b) =>
+                  new Date(b.start).getTime() - new Date(a.start).getTime()
+              );
             });
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = retainedPage;
@@ -6497,12 +6697,23 @@ export function TimeTrackerTable({
         e.key.toLowerCase()
       ) && !(e.metaKey || e.ctrlKey);
 
+      // Cmd/Ctrl+Enter unmounts the description editor immediately, while the
+      // parent editing flag can remain true until React flushes the effect.
+      // If Tab lands in that gap, treat it as navigation from the description
+      // instead of letting the browser move focus to the page body.
+      const descriptionCellIndex = isFullscreen ? 2 : 1;
+      const isTabLeavingJustClosedDescription =
+        e.key === "Tab" &&
+        isEditingCell &&
+        selectedCell?.cellIndex === descriptionCellIndex &&
+        !document.querySelector(".editor-container .ProseMirror");
+
       if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
         console.log('[Global KeyDown] After checks - isInInput:', isInInput, 'isEditingCell:', isEditingCell, 'isActionShortcut:', isActionShortcut, 'will return:', (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen || (isActionsMenuOpen && !isActionShortcut)));
       }
 
       if (
-        isEditingCell ||
+        (isEditingCell && !isTabLeavingJustClosedDescription) ||
         isProjectSelectorOpen ||
         isTagSelectorOpen ||
         isTimeEditorOpen ||
@@ -7385,6 +7596,8 @@ export function TimeTrackerTable({
     isTagSelectorOpen,
     isActionsMenuOpen,
     isTimeEditorOpen,
+    isFullscreen,
+    router,
     pinnedEntries,
     timeEntries,
     deleteDialogOpen,

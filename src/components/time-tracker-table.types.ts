@@ -48,11 +48,14 @@ export interface MemoizedDescriptionCellProps {
   availableTags: Tag[];
   onBulkEntryUpdateByRowIndex: (
     capturedId: number
-  ) => (updates: {
-    description?: string;
-    projectName?: string;
-    tags?: string[];
-  }) => void;
+  ) => (
+    updates: {
+      description?: string;
+      projectName?: string;
+      tags?: string[];
+    },
+    onCommit?: () => void
+  ) => void;
 }
 
 export interface MemoizedCheckboxCellProps {
