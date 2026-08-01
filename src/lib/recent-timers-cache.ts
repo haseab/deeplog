@@ -94,16 +94,28 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
     );
 
     if (duplicateIndex !== -1) {
-      // Remove the duplicate and add the new one at the front
-      // This ensures we have the latest ID and data
-      timers.splice(duplicateIndex, 1);
-    } else {
-      // Check if this entry ID already exists with different data (corrected entry)
-      const existingIdIndex = timers.findIndex((t) => t.id === entry.id);
-      if (existingIdIndex !== -1) {
-        // Remove the old version of this entry
-        timers.splice(existingIdIndex, 1);
+      // Keep the existing representative ID for this suggestion. A newer time
+      // entry with the same description/project/tags should not make cache
+      // invalidation depend on a different, otherwise equivalent entry.
+      const existingTimer = timers[duplicateIndex];
+      const preservedUsageCount = Math.max(
+        existingTimer.usageCount ?? 0,
+        entry.usageCount ?? 0
+      );
+
+      if (existingTimer.usageCount !== preservedUsageCount) {
+        existingTimer.usageCount = preservedUsageCount;
+        localStorage.setItem(CACHE_KEY, JSON.stringify(timers));
       }
+
+      return;
+    }
+
+    // Check if this entry ID already exists with different data (corrected entry)
+    const existingIdIndex = timers.findIndex((t) => t.id === entry.id);
+    if (existingIdIndex !== -1) {
+      // Remove the old version of this entry
+      timers.splice(existingIdIndex, 1);
     }
 
     // Ensure usageCount is set (default to 0 if not provided)
