@@ -82,6 +82,35 @@ curl -X POST http://localhost:3000/api/cron/extract-tasks \
   -H "Content-Type: application/json"
 ```
 
+### Synthetic Transcript Dry Run
+
+Pass `testTranscript` to exercise the same keyword matching and OpenAI
+extraction pipeline without fetching Limitless transcripts, creating Todoist
+tasks, or advancing the processed timestamp:
+
+```bash
+curl -X POST http://localhost:3000/api/cron/extract-tasks \
+  -H "Authorization: Bearer your-cron-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"testTranscript":"Remind me to send Alex the revised contract tomorrow morning."}'
+```
+
+The response includes `dryRun: true` and an `extractedTasks` array. Synthetic
+transcripts are limited to 20,000 characters.
+
+To create real Todoist tasks from the synthetic transcript, explicitly pass
+`createTestTasks: true`:
+
+```bash
+curl -X POST http://localhost:3000/api/cron/extract-tasks \
+  -H "Authorization: Bearer your-cron-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"testTranscript":"Remind me to verify the DeepLog task extractor.","createTestTasks":true}'
+```
+
+This still does not fetch Limitless transcripts or advance the processed
+timestamp, but it creates tasks using the production Todoist settings.
+
 ### With External Cron Services
 
 #### 1. **EasyCron** (https://www.easycron.com/)

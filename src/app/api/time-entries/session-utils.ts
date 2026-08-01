@@ -23,6 +23,7 @@ export async function setupSessionApi(
       Accept: "application/json",
       Authorization: `Bearer ${sessionToken}`,
     },
+    signal: request.signal,
   });
 
   if (!meResponse.ok) {
@@ -44,6 +45,7 @@ export async function setupSessionApi(
         Accept: "application/json",
         Authorization: `Bearer ${sessionToken}`,
       },
+      signal: request.signal,
     }
   );
 

@@ -147,6 +147,7 @@ export interface MemoizedDatePickerRowProps {
   lastSyncTime: Date | undefined;
   handleReauthenticate: () => void;
   fetchData: () => void;
+  handleCancelSync: () => void;
   encryption: ReturnType<typeof useEncryptionContext>;
   handleLockEncryption: () => void;
   handleUnlockEncryption: () => void;
@@ -173,6 +174,7 @@ export interface MemoizedMobileButtonsRowProps {
   lastSyncTime: Date | undefined;
   handleReauthenticate: () => void;
   fetchData: () => void;
+  handleCancelSync: () => void;
   encryption: ReturnType<typeof useEncryptionContext>;
   handleLockEncryption: () => void;
   handleUnlockEncryption: () => void;

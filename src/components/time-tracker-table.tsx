@@ -722,6 +722,7 @@ const MemoizedDatePickerRow = React.memo(
     lastSyncTime,
     handleReauthenticate,
     fetchData,
+    handleCancelSync,
     encryption,
     handleLockEncryption,
     handleUnlockEncryption,
@@ -794,11 +795,16 @@ const MemoizedDatePickerRow = React.memo(
           </Popover>
           <SyncStatusBadge
             status={
-              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
+              syncStatus === "syncing"
+                ? "syncing"
+                : hasLoadedMoreEntries
+                ? "sync_paused"
+                : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
+            onCancelSync={handleCancelSync}
           />
           <EncryptionStatus
             isE2EEEnabled={encryption.isE2EEEnabled}
@@ -960,6 +966,7 @@ const MemoizedMobileButtonsRow = React.memo(
     lastSyncTime,
     handleReauthenticate,
     fetchData,
+    handleCancelSync,
     encryption,
     handleLockEncryption,
     handleUnlockEncryption,
@@ -973,11 +980,16 @@ const MemoizedMobileButtonsRow = React.memo(
         <div className="flex items-center gap-2">
           <SyncStatusBadge
             status={
-              hasLoadedMoreEntries ? "sync_paused" : syncStatus || "synced"
+              syncStatus === "syncing"
+                ? "syncing"
+                : hasLoadedMoreEntries
+                ? "sync_paused"
+                : syncStatus || "synced"
             }
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
+            onCancelSync={handleCancelSync}
           />
           <EncryptionStatus
             isE2EEEnabled={encryption.isE2EEEnabled}
@@ -5408,10 +5420,29 @@ export function TimeTrackerTable({
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
+  const activeSyncAbortControllerRef = React.useRef<AbortController | null>(
+    null
+  );
   const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
 
+  const handleCancelSync = React.useCallback(() => {
+    const controller = activeSyncAbortControllerRef.current;
+    if (!controller) return false;
+
+    activeSyncAbortControllerRef.current = null;
+    controller.abort();
+    setSyncStatus("synced");
+    setLoading(false);
+    setIsLoadingMore(false);
+    return true;
+  }, []);
+
   const fetchData = React.useCallback(
-    async (showLoadingState = true, resetData = true) => {
+    async (
+      showLoadingState = true,
+      resetData = true,
+      preservePagination = false
+    ) => {
       if (!date?.from || !date?.to) return;
 
       // Global debouncing to prevent rapid consecutive fetches
@@ -5426,13 +5457,23 @@ export function TimeTrackerTable({
       }
       lastFetchTimeRef.current = now;
 
+      // Only one data sync should own the result state. Starting a newer one
+      // invalidates the older request and prevents it from applying stale data.
+      activeSyncAbortControllerRef.current?.abort();
+      const syncAbortController = new AbortController();
+      activeSyncAbortControllerRef.current = syncAbortController;
+
       // Only show main loading state for initial loads, not infinite scroll
       if (showLoadingState && resetData) setLoading(true);
       const fromISO = date.from.toISOString();
       const toISO = date.to.toISOString();
 
-      // Use consistent limit to avoid pagination issues
-      const limit = 100;
+      // A manual resync refreshes every page the user has already loaded in
+      // one request. Normal resets (such as a date change) still start at one
+      // page, and subsequent Load More requests remain 100 entries each.
+      const retainedPage = preservePagination ? currentPageRef.current : 0;
+      const limit =
+        resetData && preservePagination ? (retainedPage + 1) * 100 : 100;
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
 
       // Get credentials from localStorage
@@ -5443,11 +5484,13 @@ export function TimeTrackerTable({
         // Get user's timezone offset in minutes
         const timezoneOffset = new Date().getTimezoneOffset();
         const response = await fetch(
-          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}&timezone_offset=${timezoneOffset}`,
+          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}&timezone_offset=${timezoneOffset}&sync_nonce=${now}`,
           {
+            cache: "no-store",
             headers: {
               "x-toggl-session-token": sessionToken || "",
             },
+            signal: syncAbortController.signal,
           }
         );
 
@@ -5462,12 +5505,19 @@ export function TimeTrackerTable({
 
         const data = await response.json();
 
+        if (
+          syncAbortController.signal.aborted ||
+          activeSyncAbortControllerRef.current !== syncAbortController
+        ) {
+          return;
+        }
+
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
-            // Reset the flag when resetting data
-            hasLoadedMoreEntriesRef.current = false;
-            setHasLoadedMoreEntries(false);
+            const hasRetainedPagination = retainedPage > 0;
+            hasLoadedMoreEntriesRef.current = hasRetainedPagination;
+            setHasLoadedMoreEntries(hasRetainedPagination);
 
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
@@ -5509,7 +5559,7 @@ export function TimeTrackerTable({
               return mergedEntries;
             });
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
-            currentPageRef.current = 0;
+            currentPageRef.current = retainedPage;
             // Set tags from the response - only update if they actually changed
             if (data.tags) {
               setAvailableTags((currentTags) => {
@@ -5571,6 +5621,22 @@ export function TimeTrackerTable({
           }
         }
       } catch (error) {
+        const wasAborted =
+          syncAbortController.signal.aborted ||
+          (error instanceof Error && error.name === "AbortError");
+        if (wasAborted) {
+          if (activeSyncAbortControllerRef.current === syncAbortController) {
+            activeSyncAbortControllerRef.current = null;
+            setSyncStatus("synced");
+          }
+          return;
+        }
+
+        // Ignore failures from a request that was superseded by a newer sync.
+        if (activeSyncAbortControllerRef.current !== syncAbortController) {
+          return;
+        }
+
         console.error("API Error:", error);
 
         // Set appropriate sync status based on error
@@ -5607,7 +5673,18 @@ export function TimeTrackerTable({
           throw error;
         }
       } finally {
-        if (showLoadingState && resetData) setLoading(false);
+        const isCurrentRequest =
+          activeSyncAbortControllerRef.current === syncAbortController;
+        if (isCurrentRequest) {
+          activeSyncAbortControllerRef.current = null;
+        }
+        if (
+          showLoadingState &&
+          resetData &&
+          (isCurrentRequest || activeSyncAbortControllerRef.current === null)
+        ) {
+          setLoading(false);
+        }
       }
     },
     [date]
@@ -6101,12 +6178,9 @@ export function TimeTrackerTable({
 
   const handleRefreshData = React.useCallback(() => {
     if (date?.from && date?.to) {
-      currentPageRef.current = 0;
-      setHasMore(true);
-      // Reset the flag when user manually refreshes
-      hasLoadedMoreEntriesRef.current = false;
-      setHasLoadedMoreEntries(false);
-      fetchData(false, true); // Reset data but don't show loading spinner - just show syncing badge
+      // Replace the current data while retaining the number of pages already
+      // loaded. The next Load More request will continue from that boundary.
+      void fetchData(false, true, true);
     }
   }, [date, fetchData]);
 
@@ -6349,6 +6423,22 @@ export function TimeTrackerTable({
   // Keyboard navigation
   const awaitingPinnedNumberRef = React.useRef(false);
   const pinnedTimeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Escape cancels an active data sync before dialogs or editors consume it.
+  // With no active sync, Escape continues through the existing UI handlers.
+  React.useEffect(() => {
+    const handleSyncCancelKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && handleCancelSync()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    document.addEventListener("keydown", handleSyncCancelKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleSyncCancelKeyDown, true);
+    };
+  }, [handleCancelSync]);
 
   // Give instant submission priority over editor-level Cmd/Ctrl+Enter
   // handlers. When there is no actionable toast, the event continues to the
@@ -7610,7 +7700,8 @@ export function TimeTrackerTable({
                 hasLoadedMoreEntries={hasLoadedMoreEntries}
                 lastSyncTime={lastSyncTime}
                 handleReauthenticate={handleReauthenticate}
-                fetchData={fetchData}
+                fetchData={handleRefreshData}
+                handleCancelSync={handleCancelSync}
                 encryption={encryption}
                 handleLockEncryption={handleLockEncryption}
                 handleUnlockEncryption={handleUnlockEncryption}
@@ -7628,7 +7719,8 @@ export function TimeTrackerTable({
                   hasLoadedMoreEntries={hasLoadedMoreEntries}
                   lastSyncTime={lastSyncTime}
                   handleReauthenticate={handleReauthenticate}
-                  fetchData={fetchData}
+                  fetchData={handleRefreshData}
+                  handleCancelSync={handleCancelSync}
                   encryption={encryption}
                   handleLockEncryption={handleLockEncryption}
                   handleUnlockEncryption={handleUnlockEncryption}

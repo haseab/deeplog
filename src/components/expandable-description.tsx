@@ -16,7 +16,7 @@ import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
 import { RecentTimersPopover } from "./recent-timers-popover";
-import { removeRecentTimer } from "@/lib/recent-timers-cache";
+import { resetRecentTimerRanking } from "@/lib/recent-timers-cache";
 
 const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
 const MARKDOWN_LIST_DETECTION_REGEX = /^\s*(?:[-+*]|\d+[.)])\s+/m;
@@ -280,24 +280,13 @@ export function ExpandableDescription({
 
             const selectedTimer = recentTimersRef.current[highlightedIndex];
             if (selectedTimer) {
-              removeRecentTimer(
+              resetRecentTimerRanking(
                 selectedTimer.description,
                 selectedTimer.projectId,
                 selectedTimer.tagIds
               );
-
-              const remainingTimers = recentTimersRef.current.filter(
-                (_, index) => index !== highlightedIndex
-              );
-              recentTimersRef.current = remainingTimers;
-              setHighlightedIndex((currentIndex) =>
-                Math.min(currentIndex, Math.max(0, remainingTimers.length - 1))
-              );
+              setHighlightedIndex(0);
               setRecentTimersRevision((revision) => revision + 1);
-
-              if (remainingTimers.length === 0) {
-                setShowRecentTimers(false);
-              }
             }
             return true;
           } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {

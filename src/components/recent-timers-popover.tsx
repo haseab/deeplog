@@ -8,7 +8,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { searchRecentTimers, incrementTimerUsage, removeRecentTimer, type RecentTimerEntry } from "@/lib/recent-timers-cache";
+import {
+  searchRecentTimers,
+  incrementTimerUsage,
+  resetRecentTimerRanking,
+  type RecentTimerEntry,
+} from "@/lib/recent-timers-cache";
 
 type Project = {
   id: number;
@@ -59,7 +64,7 @@ export function RecentTimersPopover({
   const [recentTimers, setRecentTimers] = React.useState<RecentTimerEntry[]>([]);
 
   const refreshTimers = React.useCallback(() => {
-    // Re-read local storage when a keyboard dismissal increments this revision.
+    // Re-read local storage when a keyboard ranking reset increments this revision.
     void refreshRevision;
     const results = searchRecentTimers(searchQuery, maxResults);
     setRecentTimers(results);
@@ -197,11 +202,16 @@ export function RecentTimersPopover({
                   )}
                   onClick={(e) => {
                     e.stopPropagation();
-                    removeRecentTimer(timer.description, timer.projectId, timer.tagIds);
+                    resetRecentTimerRanking(
+                      timer.description,
+                      timer.projectId,
+                      timer.tagIds
+                    );
+                    onHighlightedIndexChange(0);
                     refreshTimers();
                   }}
-                  title="Remove from recent timers (Cmd/Ctrl+D)"
-                  aria-label="Remove from recent timers"
+                  title="Reset recent timer ranking (Cmd/Ctrl+D)"
+                  aria-label="Reset recent timer ranking"
                 >
                   <X className="w-4 h-4" />
                 </button>

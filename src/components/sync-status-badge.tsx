@@ -7,7 +7,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { AlertCircle, CheckCircle2, RefreshCw, WifiOff } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  RefreshCw,
+  Square,
+  WifiOff,
+} from "lucide-react";
 import React from "react";
 
 type SyncStatus =
@@ -23,6 +29,7 @@ interface SyncStatusBadgeProps {
   lastSyncTime?: Date;
   onReauthenticate?: () => void;
   onRetry?: () => void;
+  onCancelSync?: () => void;
   className?: string;
 }
 
@@ -31,6 +38,7 @@ export function SyncStatusBadge({
   lastSyncTime,
   onReauthenticate,
   onRetry,
+  onCancelSync,
   className,
 }: SyncStatusBadgeProps) {
   const [isHovered, setIsHovered] = React.useState(false);
@@ -111,7 +119,9 @@ export function SyncStatusBadge({
   const Icon = config.icon;
 
   const handleClick = () => {
-    if (status === "session_expired" && onReauthenticate) {
+    if (status === "syncing" && onCancelSync) {
+      onCancelSync();
+    } else if (status === "session_expired" && onReauthenticate) {
       onReauthenticate();
     } else if (status === "error" && onRetry) {
       onRetry();
@@ -121,7 +131,8 @@ export function SyncStatusBadge({
   };
 
   const showRefreshOnHover = status === "synced" || status === "sync_paused";
-  const isClickable = config.actionable || showRefreshOnHover;
+  const showStopOnHover = status === "syncing" && Boolean(onCancelSync);
+  const isClickable = config.actionable || showRefreshOnHover || showStopOnHover;
 
   const badge = (
     <div
@@ -143,7 +154,9 @@ export function SyncStatusBadge({
       <div
         className={cn(
           "flex items-center gap-2 transition-all duration-200",
-          showRefreshOnHover && isHovered && "blur-sm opacity-0"
+          (showRefreshOnHover || showStopOnHover) &&
+            isHovered &&
+            "blur-sm opacity-0"
         )}
       >
         <Icon className={cn("w-4 h-4", config.animate && "animate-spin")} />
@@ -159,6 +172,18 @@ export function SyncStatusBadge({
         >
           <RefreshCw className="w-4 h-4" />
           <span>Refresh (R)</span>
+        </div>
+      )}
+
+      {showStopOnHover && (
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center gap-2 transition-all duration-200",
+            isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <Square className="w-3.5 h-3.5 fill-current" />
+          <span>Stop (Esc)</span>
         </div>
       )}
     </div>

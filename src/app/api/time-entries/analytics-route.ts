@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
           Accept: "application/json",
           Authorization: `Bearer ${sessionToken}`,
         },
+        signal: request.signal,
       }
     );
 
@@ -77,6 +78,7 @@ export async function GET(request: NextRequest) {
             Accept: "application/json",
             Authorization: `Bearer ${sessionToken}`,
           },
+          signal: request.signal,
         }
       );
 
@@ -163,6 +165,7 @@ export async function GET(request: NextRequest) {
           Authorization: `Bearer ${sessionToken}`,
         },
         body: JSON.stringify(analyticsPayload),
+        signal: request.signal,
       }
     );
 
@@ -193,50 +196,97 @@ export async function GET(request: NextRequest) {
     const currentTaskResponse = await fetch(
       "https://track.toggl.com/api/v9/me/time_entries/current",
       {
+        cache: "no-store",
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${sessionToken}`,
         },
+        signal: request.signal,
       }
     );
 
-    if (currentTaskResponse.ok) {
-      const currentTask = await currentTaskResponse.json();
+    console.log("[API] Current time entry response:", {
+      status: currentTaskResponse.status,
+      statusText: currentTaskResponse.statusText,
+      ok: currentTaskResponse.ok,
+    });
 
-      // If there's a running task, handle it properly
-      if (currentTask && currentTask.id) {
-        // REMOVE any matching entry from Analytics API (it's stale/cached)
-        enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
+    if (!currentTaskResponse.ok) {
+      console.error("[API] Failed to fetch current time entry:", {
+        status: currentTaskResponse.status,
+        statusText: currentTaskResponse.statusText,
+      });
 
-        // Check if the running task's start time is within the requested date range
-        const taskStartDate = new Date(currentTask.start);
-        const rangeStartDate = new Date(startDate);
-        const rangeEndDate = new Date(endDate);
+      if (currentTaskResponse.status === 401) {
+        return createErrorResponse(
+          "Session expired - please reauthenticate",
+          401
+        );
+      }
 
-        // Only include the running task if it started within the date range
-        if (taskStartDate >= rangeStartDate && taskStartDate <= rangeEndDate) {
-          // Find project info for the current task
-          const project = currentTask.project_id
-            ? activeProjects.find((p) => p.id === currentTask.project_id)
-            : null;
+      return createErrorResponse(
+        `Failed to fetch current time entry from Toggl (${currentTaskResponse.status})`,
+        502
+      );
+    }
 
-          // Create the running entry with v9 API data (source of truth)
-          const runningEntry = {
-            id: currentTask.id,
-            description: currentTask.description || "",
-            project_id: currentTask.project_id,
-            project_name: project?.name || "",
-            project_color: project?.color || "#6b7280",
-            start: currentTask.start,
-            stop: null, // Running tasks have no stop time
-            duration: -1, // Always use -1 for running tasks
-            tags: currentTask.tags || [],
-            tag_ids: currentTask.tag_ids || [],
-          };
+    const currentTask = await currentTaskResponse.json();
 
-          // Add the v9 current entry only if it's within date range
-          enrichedEntries.unshift(runningEntry);
-        }
+    console.log("[API] Current time entry payload:", {
+      hasCurrentTask: Boolean(currentTask?.id),
+      id: currentTask?.id ?? null,
+      start: currentTask?.start ?? null,
+      stop: currentTask?.stop ?? null,
+      duration: currentTask?.duration ?? null,
+      descriptionLength:
+        typeof currentTask?.description === "string"
+          ? currentTask.description.length
+          : 0,
+    });
+
+    // If there's a running task, handle it properly
+    if (currentTask && currentTask.id) {
+      // REMOVE any matching entry from Analytics API (it's stale/cached)
+      enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
+
+      // Check if the running task's start time is within the requested date range
+      const taskStartDate = new Date(currentTask.start);
+      const rangeStartDate = new Date(startDate);
+      const rangeEndDate = new Date(endDate);
+      const isCurrentTaskInRange =
+        taskStartDate >= rangeStartDate && taskStartDate <= rangeEndDate;
+
+      console.log("[API] Current time entry range check:", {
+        id: currentTask.id,
+        taskStart: taskStartDate.toISOString(),
+        rangeStart: rangeStartDate.toISOString(),
+        rangeEnd: rangeEndDate.toISOString(),
+        isCurrentTaskInRange,
+      });
+
+      // Only include the running task if it started within the date range
+      if (isCurrentTaskInRange) {
+        // Find project info for the current task
+        const project = currentTask.project_id
+          ? activeProjects.find((p) => p.id === currentTask.project_id)
+          : null;
+
+        // Create the running entry with v9 API data (source of truth)
+        const runningEntry = {
+          id: currentTask.id,
+          description: currentTask.description || "",
+          project_id: currentTask.project_id,
+          project_name: project?.name || "",
+          project_color: project?.color || "#6b7280",
+          start: currentTask.start,
+          stop: null, // Running tasks have no stop time
+          duration: -1, // Always use -1 for running tasks
+          tags: currentTask.tags || [],
+          tag_ids: currentTask.tag_ids || [],
+        };
+
+        // Add the v9 current entry only if it's within date range
+        enrichedEntries.unshift(runningEntry);
       }
     }
 
@@ -265,7 +315,10 @@ export async function GET(request: NextRequest) {
       }),
       {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, max-age=0",
+        },
       }
     );
   } catch (error) {

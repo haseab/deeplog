@@ -7,7 +7,6 @@ export type RecentTimerEntry = {
 };
 
 const CACHE_KEY = "deeplog_recent_timers";
-const DISMISSED_CACHE_KEY = "deeplog_dismissed_recent_timers";
 const MAX_RECENT_TIMER_SEGMENT_LENGTH = 50;
 
 export function getRecentTimerDescription(description: string): string | null {
@@ -48,38 +47,11 @@ function readRecentTimersCache(): RecentTimerEntry[] {
   return Array.isArray(timers) ? (timers as RecentTimerEntry[]) : [];
 }
 
-function getDismissedTimerSignatureSet(): Set<string> {
-  try {
-    const cached = localStorage.getItem(DISMISSED_CACHE_KEY);
-    if (!cached) return new Set();
-
-    const signatures = JSON.parse(cached);
-    return new Set(
-      Array.isArray(signatures)
-        ? signatures.filter(
-            (signature): signature is string => typeof signature === "string"
-          )
-        : []
-    );
-  } catch (error) {
-    console.error("Failed to load dismissed recent timers:", error);
-    return new Set();
-  }
-}
-
 export function getRecentTimers(): RecentTimerEntry[] {
   try {
-    const dismissedSignatures = getDismissedTimerSignatureSet();
-
     // Cache entries are normalized and deduplicated during reconciliation.
     // Reads stay linear so searching on each keystroke remains inexpensive.
     return readRecentTimersCache()
-      .filter(
-        (timer) =>
-          !dismissedSignatures.has(
-            getTimerSignature(timer.description, timer.projectId, timer.tagIds)
-          )
-      )
       .map((timer) => ({
         ...timer,
         usageCount: timer.usageCount ?? 0,
@@ -101,18 +73,7 @@ export function addToRecentTimers(entry: RecentTimerEntry): void {
       normalizedEntry.projectId,
       normalizedEntry.tagIds
     );
-    const dismissedSignatures = getDismissedTimerSignatureSet();
-
-    if (dismissedSignatures.has(normalizedSignature)) {
-      return;
-    }
-
-    const timers = readRecentTimersCache().filter(
-      (timer) =>
-        !dismissedSignatures.has(
-          getTimerSignature(timer.description, timer.projectId, timer.tagIds)
-        )
-    );
+    const timers = readRecentTimersCache();
 
     // First check if this exact combination (description, project, tags) already exists
     const duplicateIndex = timers.findIndex(
@@ -169,7 +130,6 @@ export function updateRecentTimersCache(
   }>
 ): void {
   try {
-    const dismissedSignatures = getDismissedTimerSignatureSet();
     const fetchedEntriesById = new Map(entries.map((entry) => [entry.id, entry]));
     const reconciledTimers: RecentTimerEntry[] = [];
     const timerIndexBySignature = new Map<string, number>();
@@ -190,8 +150,6 @@ export function updateRecentTimersCache(
         normalizedTimer.projectId,
         normalizedTimer.tagIds
       );
-
-      if (dismissedSignatures.has(signature)) continue;
 
       const fetchedEntry = fetchedEntriesById.get(normalizedTimer.id);
       if (fetchedEntry) {
@@ -233,10 +191,7 @@ export function updateRecentTimersCache(
         entry.project_id,
         entry.tag_ids || []
       );
-      if (
-        dismissedSignatures.has(signature) ||
-        timerIndexBySignature.has(signature)
-      ) {
+      if (timerIndexBySignature.has(signature)) {
         continue;
       }
 
@@ -352,43 +307,38 @@ export function searchRecentTimers(
       };
     })
     .filter((item) => item.matches)
-    .sort((a, b) => b.score - a.score) // Sort by fuzzy score first
-    .slice(0, limit) // Take top N matches
-    .sort((a, b) => b.usageCount - a.usageCount); // Then sort by usage count
+    .sort((a, b) => {
+      const scoreDifference = b.score - a.score;
+      return scoreDifference !== 0
+        ? scoreDifference
+        : b.usageCount - a.usageCount;
+    })
+    .slice(0, limit);
 
   return scoredMatches.map((item) => item.timer);
 }
 
-export function removeRecentTimer(
+export function resetRecentTimerRanking(
   description: string,
   projectId: number | null,
   tagIds: number[]
 ): void {
   try {
-    const timers = getRecentTimers();
+    const timers = readRecentTimersCache();
     const signature = getTimerSignature(description, projectId, tagIds);
-
-    // Find and remove the matching timer
-    const filteredTimers = timers.filter(
-      (t) =>
-        !(
-          t.description === description &&
-          t.projectId === projectId &&
-          getTimerSignature(t.description, t.projectId, t.tagIds) === signature
-        )
+    const timer = timers.find(
+      (candidate) =>
+        getTimerSignature(
+          candidate.description,
+          candidate.projectId,
+          candidate.tagIds
+        ) === signature
     );
+    if (!timer || (timer.usageCount ?? 0) === 0) return;
 
-    localStorage.setItem(CACHE_KEY, JSON.stringify(filteredTimers));
-
-    const dismissedSignatures = getDismissedTimerSignatureSet();
-    if (!dismissedSignatures.has(signature)) {
-      dismissedSignatures.add(signature);
-      localStorage.setItem(
-        DISMISSED_CACHE_KEY,
-        JSON.stringify(Array.from(dismissedSignatures))
-      );
-    }
+    timer.usageCount = 0;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(timers));
   } catch (error) {
-    console.error("Failed to remove recent timer:", error);
+    console.error("Failed to reset recent timer ranking:", error);
   }
 }

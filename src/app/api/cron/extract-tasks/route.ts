@@ -143,17 +143,21 @@ async function processUserTasks(
   openaiApiKey: string,
   todoistApiKey: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  testTranscript?: string,
+  createTestTasks = false
 ) {
   console.log(`=== TASK EXTRACTION STARTED at ${new Date().toISOString()} ===`);
 
-  const shouldPersistState = !startDate && !endDate;
+  const isSyntheticTest = testTranscript !== undefined;
+  const isDryRun = isSyntheticTest && !createTestTasks;
+  const shouldPersistState = !startDate && !endDate && !isSyntheticTest;
 
   const end = endDate || new Date().toISOString();
   const endMs = Date.parse(end);
 
   let state: ProcessedState | null = null;
-  if (!startDate) {
+  if (!startDate && !isSyntheticTest) {
     state = await loadProcessedState();
     console.log("Loaded state:", state);
   }
@@ -161,6 +165,7 @@ async function processUserTasks(
   // Use provided dates or fall back to state tracking
   let start =
     startDate ||
+    (isSyntheticTest ? end : undefined) ||
     state?.lastProcessedTimestamp ||
     getFallbackStartTimestamp(Number.isNaN(endMs) ? Date.now() : endMs);
 
@@ -177,17 +182,36 @@ async function processUserTasks(
 
   console.log(`Date range: ${start} to ${end}`);
 
-  // Fetch ALL transcripts in the date range
-  const allTranscripts = await fetchAllTranscripts(limitlessApiKey, start, end);
+  // A synthetic transcript exercises the same extraction pipeline without
+  // fetching Limitless data, creating Todoist tasks, or advancing state.
+  const allTranscripts: Transcript[] = isSyntheticTest
+    ? [
+        {
+          id: "synthetic-test-transcript",
+          startTime: start,
+          contents: [
+            {
+              type: "blockquote",
+              content: testTranscript,
+              startTime: start,
+              endTime: end,
+            },
+          ],
+        },
+      ]
+    : await fetchAllTranscripts(limitlessApiKey, start, end);
 
   console.log(`Found ${allTranscripts.length} total transcripts`);
 
   if (allTranscripts.length === 0) {
     return {
+      syntheticTest: isSyntheticTest,
+      dryRun: isDryRun,
       totalTranscripts: 0,
       potentialTasks: 0,
       createdTasks: 0,
       tasks: [],
+      extractedTasks: [],
       processedRange: {
         start,
         end,
@@ -296,10 +320,13 @@ async function processUserTasks(
       await saveProcessedState({ lastProcessedTimestamp: end });
     }
     return {
+      syntheticTest: isSyntheticTest,
+      dryRun: isDryRun,
       totalTranscripts: allTranscripts.length,
       potentialTasks: 0,
       createdTasks: 0,
       tasks: [],
+      extractedTasks: [],
       processedRange: {
         start,
         end,
@@ -383,16 +410,20 @@ async function processUserTasks(
   console.log(`Deduplicated to ${deduplicatedTasks.length} unique tasks`);
 
   // Create tasks in Todoist
-  console.log("=== Creating Todoist tasks ===");
+  console.log(
+    isDryRun
+      ? "=== Dry run: skipping Todoist task creation ==="
+      : "=== Creating Todoist tasks ==="
+  );
   const createdTasks = [];
 
-  for (let i = 0; i < deduplicatedTasks.length; i++) {
+  for (let i = 0; !isDryRun && i < deduplicatedTasks.length; i++) {
     const taskContent = deduplicatedTasks[i];
     console.log(`Creating task ${i + 1}: "${taskContent}"`);
 
     try {
       const todoistResponse = await fetch(
-        "https://api.todoist.com/rest/v2/tasks",
+        "https://api.todoist.com/api/v1/tasks",
         {
           method: "POST",
           headers: {
@@ -436,10 +467,13 @@ async function processUserTasks(
   console.log(`Created ${createdTasks.length} tasks in Todoist`);
 
   return {
+    syntheticTest: isSyntheticTest,
+    dryRun: isDryRun,
     totalTranscripts: allTranscripts.length,
     potentialTasks: aiTasks.length,
     createdTasks: createdTasks.length,
     tasks: createdTasks,
+    extractedTasks: deduplicatedTasks,
     processedRange: {
       start,
       end,
@@ -478,13 +512,48 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const startDate = body.startDate;
     const endDate = body.endDate;
+    const hasTestTranscript = Object.prototype.hasOwnProperty.call(
+      body,
+      "testTranscript"
+    );
+    const testTranscript =
+      typeof body.testTranscript === "string"
+        ? body.testTranscript.trim()
+        : undefined;
+
+    if (hasTestTranscript && !testTranscript) {
+      return new Response(
+        JSON.stringify({ error: "testTranscript must be a non-empty string" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    if (testTranscript && testTranscript.length > 20_000) {
+      return new Response(
+        JSON.stringify({ error: "testTranscript must be 20,000 characters or fewer" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const createTestTasks = body.createTestTasks === true;
+
+    if (createTestTasks && !testTranscript) {
+      return new Response(
+        JSON.stringify({
+          error: "createTestTasks requires a valid testTranscript",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const result = await processUserTasks(
       limitlessApiKey,
       openaiApiKey,
       todoistApiKey,
       startDate,
-      endDate
+      endDate,
+      testTranscript,
+      createTestTasks
     );
 
     return new Response(
