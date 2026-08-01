@@ -11,14 +11,21 @@ import {
 import Link from "@tiptap/extension-link";
 import { Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import MarkdownIt from "markdown-it";
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import TurndownService from "turndown";
 import { RecentTimersPopover } from "./recent-timers-popover";
 
-const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g;
 const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
+const MARKDOWN_LIST_DETECTION_REGEX = /^\s*(?:[-+*]|\d+[.)])\s+/m;
 const MARKDOWN_ESCAPE_REGEX = /\\([\\`*_[\]{}()#+\-.!])/g;
+
+const markdownParser = new MarkdownIt({
+  breaks: true,
+  html: false,
+  linkify: false,
+});
 
 function decodeMarkdownEscapes(text: string): string {
   let decoded = text;
@@ -113,28 +120,7 @@ export function ExpandableDescription({
   const markdownToHtml = React.useCallback((markdown: string): string => {
     if (!markdown) return "";
 
-    // Simple markdown to HTML conversion
-    const html = markdown
-      // Convert links: [text](url) or [text](url "title")
-      .replace(
-        MARKDOWN_LINK_REGEX,
-        (_match, text, url, title) => {
-          const titleAttr = title
-            ? ` title="${decodeMarkdownEscapes(title)}"`
-            : "";
-          return `<a href="${url}"${titleAttr}>${decodeMarkdownEscapes(text)}</a>`;
-        }
-      )
-      // Convert bold: **text** or __text__
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/__(.*?)__/g, "<strong>$1</strong>")
-      // Convert italic: *text* or _text_
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/_(.*?)_/g, "<em>$1</em>")
-      // Convert line breaks
-      .replace(/\n/g, "<br>");
-
-    return html;
+    return markdownParser.render(markdown);
   }, []);
 
   // Create a ref for the editor to avoid dependency issues
@@ -232,7 +218,8 @@ export function ExpandableDescription({
         if (
           !editor ||
           !pastedText ||
-          !MARKDOWN_LINK_DETECTION_REGEX.test(pastedText.trim())
+          (!MARKDOWN_LINK_DETECTION_REGEX.test(pastedText.trim()) &&
+            !MARKDOWN_LIST_DETECTION_REGEX.test(pastedText))
         ) {
           return false;
         }
@@ -723,6 +710,12 @@ export function ExpandableDescription({
               <strong className="font-semibold">{children}</strong>
             ),
             em: ({ children }) => <em className="italic">{children}</em>,
+            ul: ({ children }) => (
+              <ul className="list-disc list-inside">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal list-inside">{children}</ol>
+            ),
           }}
         >
           {description.split("\n")[0]}
