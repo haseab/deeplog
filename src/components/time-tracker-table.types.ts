@@ -17,7 +17,7 @@ export interface MemoizedProjectCellProps {
   setIsProjectSelectorOpen: (open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
-  navigateToNextRow: () => void;
+  navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   onProjectCreated: (project: Project) => void;
 }
 
@@ -32,6 +32,7 @@ export interface MemoizedTagCellProps {
   setIsTagSelectorOpen: (open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
+  navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   onTagCreated: (tag: Tag) => void;
 }
 
@@ -44,6 +45,7 @@ export interface MemoizedDescriptionCellProps {
   onDescriptionSave: (entryId: number) => (newDescription: string) => void;
   setIsEditingCell: (editing: boolean) => void;
   navigateToNextCell: () => void;
+  navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   projects: Project[];
   availableTags: Tag[];
   onBulkEntryUpdateByRowIndex: (
@@ -91,7 +93,7 @@ export interface MemoizedTimeCellProps {
   ) => void;
   setIsTimeEditorOpen: (open: boolean) => void;
   navigateToNextCell: () => void;
-  navigateToNextRow: () => void;
+  navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   navigateToPrevCell: () => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
@@ -113,7 +115,7 @@ export interface MemoizedDurationCellProps {
     entryId: number
   ) => (newDuration: number) => void;
   setIsEditingCell: (editing: boolean) => void;
-  navigateToNextRow: () => void;
+  navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
 }

@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
+import { isRunningTimeEntry } from "@/lib/time-entry-state";
 import { Merge } from "lucide-react";
 import React from "react";
 import type { TimeEntry } from "../types";
@@ -131,7 +132,7 @@ export function CombineConfirmationDialog({
   const entryToKeep = reverse ? latestEntry : earliestEntry;
 
   // Check if any entry is running
-  const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
+  const hasRunningEntry = entries.some(isRunningTimeEntry);
 
   // Find the latest stop time among all entries
   let latestStopTime: string | null = null;

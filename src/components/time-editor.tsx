@@ -24,8 +24,8 @@ interface TimeEditorProps {
   ) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
-  onNavigateDown?: () => void;
   onNavigatePrev?: () => void;
+  onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
   nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
   "data-testid"?: string;
@@ -38,8 +38,8 @@ export function TimeEditor({
   onSaveWithForcePush,
   onEditingChange,
   onNavigateNext,
-  onNavigateDown,
   onNavigatePrev,
+  onNavigateVertical,
   prevEntryEnd,
   nextEntryStart,
   "data-testid": dataTestId,
@@ -183,7 +183,7 @@ export function TimeEditor({
     return date;
   };
 
-  const handleSave = () => {
+  const handleSave = (): boolean => {
     const finalStartDateTime = buildDateTime(
       startDateValue,
       startTimeHours,
@@ -193,7 +193,7 @@ export function TimeEditor({
 
     if (!finalStartDateTime) {
       setError("Invalid start time");
-      return;
+      return false;
     }
 
     let finalEndDateTime: Date | null = null;
@@ -207,12 +207,12 @@ export function TimeEditor({
 
       if (!finalEndDateTime) {
         setError("Invalid end time");
-        return;
+        return false;
       }
 
       if (finalEndDateTime < finalStartDateTime) {
         setError("End time must be at or after start time");
-        return;
+        return false;
       }
     }
 
@@ -235,6 +235,7 @@ export function TimeEditor({
 
     setIsOpen(false);
     setError("");
+    return true;
   };
 
   const handleSaveWithForcePush = (direction: "next" | "previous") => {
@@ -395,6 +396,28 @@ export function TimeEditor({
       | "startDate"
       | "endDate"
   ) => {
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(e.key)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (handleSave()) {
+        onNavigateVertical?.(
+          e.key === "ArrowDown"
+            ? "down"
+            : e.key === "ArrowUp"
+              ? "up"
+              : e.key === "ArrowRight"
+                ? "right"
+                : "left"
+        );
+      }
+      return;
+    }
+
     // Shift both times: Option+Left/Right
     if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       if (e.key === "ArrowLeft") {
@@ -479,16 +502,12 @@ export function TimeEditor({
     if (e.key === "Enter") {
       e.preventDefault();
 
-      // Cmd+Shift+Enter aligns the next entry to this entry's end.
-      // Adding Option reverses the direction and aligns the previous entry's
-      // end to this entry's start.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+      // Cmd+Enter overwrites the next boundary. Adding Option reverses the
+      // overwrite direction and aligns the previous entry's end instead.
+      if (e.metaKey || e.ctrlKey) {
         handleSaveWithForcePush(e.altKey ? "previous" : "next");
       } else {
         handleSave();
-        if (e.metaKey || e.ctrlKey) {
-          onNavigateDown?.();
-        }
       }
     } else if (e.key === "Tab") {
       if (e.shiftKey) {
@@ -853,7 +872,9 @@ export function TimeEditor({
             <div className="text-xs text-muted-foreground space-y-1">
               <div>• Tab to move between fields</div>
               <div>• Arrows to adjust time/date</div>
-              <div>• Enter to save, Cmd+Enter to move down</div>
+              <div>• Cmd+arrows to save and move one cell</div>
+              <div>• Enter to save, Cmd+Enter to overwrite next</div>
+              <div>• Cmd+Option+Enter to overwrite previous</div>
             </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={handleSave} className="flex-1">

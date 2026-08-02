@@ -57,6 +57,7 @@ interface ExpandableDescriptionProps {
   onSave?: (newDescription: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
+  onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   projects?: Project[];
   availableTags?: Tag[];
   onRecentTimerSelect?: (entry: {
@@ -72,6 +73,7 @@ export function ExpandableDescription({
   onSave,
   onEditingChange,
   onNavigateNext,
+  onNavigateVertical,
   projects = [],
   availableTags = [],
   onRecentTimerSelect,
@@ -287,6 +289,33 @@ export function ExpandableDescription({
         return true;
       },
       handleKeyDown: (view, event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          !event.shiftKey &&
+          !event.altKey &&
+          ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(
+            event.key
+          )
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          setShowRecentTimers(false);
+          setHighlightedIndex(0);
+          saveAndExit(true);
+          setTimeout(() => {
+            onNavigateVertical?.(
+              event.key === "ArrowDown"
+                ? "down"
+                : event.key === "ArrowUp"
+                  ? "up"
+                  : event.key === "ArrowRight"
+                    ? "right"
+                    : "left"
+            );
+          }, 0);
+          return true;
+        }
+
         if (event.key === "Escape") {
           console.debug("[ExpandableDescription] TipTap received Escape", {
             showRecentTimers,

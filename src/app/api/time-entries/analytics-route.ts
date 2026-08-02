@@ -4,6 +4,10 @@ import {
   setupSessionApi,
   transformAnalyticsData,
 } from "./session-utils";
+import {
+  isRunningTimeEntry,
+  stopTimeEntryAt,
+} from "@/lib/time-entry-state";
 
 type Project = {
   id: number;
@@ -16,6 +20,34 @@ type Tag = {
   id: number;
   name: string;
 };
+
+// A single app process may receive several start requests when multiple Undo
+// toasts expire together. Keep each user's stop-then-create transaction in
+// order so two requests cannot both observe the same current timer.
+const startQueues = new Map<number, Promise<void>>();
+
+async function serializeTimerStart<T>(
+  userId: number,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = startQueues.get(userId) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const currentGate = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const queuedGate = previous.catch(() => undefined).then(() => currentGate);
+  startQueues.set(userId, queuedGate);
+
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (startQueues.get(userId) === queuedGate) {
+      startQueues.delete(userId);
+    }
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -232,6 +264,32 @@ export async function GET(request: NextRequest) {
 
     const currentTask = await currentTaskResponse.json();
 
+    // Analytics can lag behind the v9 current-entry endpoint. Only the ID
+    // reported by that endpoint is allowed to remain live; every other
+    // running-looking Analytics row is historical and must be normalized.
+    const currentTaskId = currentTask?.id ?? null;
+    const currentTaskStart = currentTask?.start as string | undefined;
+    enrichedEntries = enrichedEntries
+      .filter((entry) => entry.id !== currentTaskId)
+      .map((entry) => {
+        if (!isRunningTimeEntry(entry)) return entry;
+
+        let stopTime = entry.start;
+        if (
+          currentTaskStart &&
+          new Date(entry.start).getTime() <=
+            new Date(currentTaskStart).getTime()
+        ) {
+          stopTime = currentTaskStart;
+        } else if (entry.duration >= 0) {
+          stopTime = new Date(
+            new Date(entry.start).getTime() + entry.duration * 1000
+          ).toISOString();
+        }
+
+        return stopTimeEntryAt(entry, stopTime);
+      });
+
     console.log("[API] Current time entry payload:", {
       hasCurrentTask: Boolean(currentTask?.id),
       id: currentTask?.id ?? null,
@@ -246,9 +304,6 @@ export async function GET(request: NextRequest) {
 
     // If there's a running task, handle it properly
     if (currentTask && currentTask.id) {
-      // REMOVE any matching entry from Analytics API (it's stale/cached)
-      enrichedEntries = enrichedEntries.filter(e => e.id !== currentTask.id);
-
       // Check if the running task's start time is within the requested date range
       const taskStartDate = new Date(currentTask.start);
       const rangeStartDate = new Date(startDate);
@@ -348,12 +403,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { sessionToken, workspaceId } = await setupSessionApi(request);
+    const { sessionToken, workspaceId, userId } = await setupSessionApi(request);
     const body = await request.json();
     const { description, start, project_name, tag_ids } = body;
 
-    // First, get the current running time entry
-    const currentEntryResponse = await fetch(
+    return await serializeTimerStart(userId, async () => {
+      let stoppedEntry: Record<string, unknown> | null = null;
+
+      // First, get the current running time entry
+      const currentEntryResponse = await fetch(
       "https://track.toggl.com/api/v9/me/time_entries/current",
       {
         headers: {
@@ -379,10 +437,10 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to fetch current time entry from Toggl");
     }
 
-    const currentEntry = await currentEntryResponse.json();
+      const currentEntry = await currentEntryResponse.json();
 
     // If there's a current entry, stop it using the dedicated stop endpoint
-    if (currentEntry) {
+      if (currentEntry?.id) {
       const stopResponse = await fetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${currentEntry.id}/stop`,
         {
@@ -394,7 +452,7 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      if (!stopResponse.ok) {
+        if (!stopResponse.ok) {
         if (stopResponse.status === 401) {
           return createErrorResponse(
             "Session expired - please reauthenticate",
@@ -404,8 +462,9 @@ export async function POST(request: NextRequest) {
         const errorText = await stopResponse.text();
         console.error("Stop entry error:", stopResponse.status, errorText);
         throw new Error("Failed to stop current time entry");
+        }
+        stoppedEntry = await stopResponse.json().catch(() => null);
       }
-    }
 
     // If project_name is provided, find the project_id
     let project_id: number | undefined;
@@ -484,9 +543,10 @@ export async function POST(request: NextRequest) {
 
     const createdEntry = await createResponse.json();
 
-    return new Response(JSON.stringify(createdEntry), {
-      status: 201,
-      headers: { "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ createdEntry, stoppedEntry }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
     });
   } catch (error) {
     console.error("Error creating time entry:", error);

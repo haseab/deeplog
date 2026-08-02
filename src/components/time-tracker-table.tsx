@@ -9,6 +9,7 @@ import {
   type QueuedOperation,
 } from "@/lib/sync-queue";
 import {
+  getLatestUndoToastId,
   hasActiveToast,
   toast,
   triggerToastSubmit,
@@ -66,6 +67,11 @@ import {
   incrementTimerUsage,
   updateRecentTimersCache,
 } from "@/lib/recent-timers-cache";
+import {
+  enforceSingleRunningTimeEntry,
+  isRunningTimeEntry,
+  stopTimeEntryAt,
+} from "@/lib/time-entry-state";
 import { cn } from "@/lib/utils";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
@@ -182,7 +188,7 @@ const MemoizedProjectCell = React.memo(
     setIsProjectSelectorOpen,
     navigateToNextCell,
     navigateToPrevCell,
-    navigateToNextRow,
+    navigateToAdjacentRow,
     onProjectCreated,
   }: MemoizedProjectCellProps) {
     const cellIndex = isFullscreen ? 1 : 2;
@@ -209,7 +215,7 @@ const MemoizedProjectCell = React.memo(
           onOpenChange={setIsProjectSelectorOpen}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
-          onNavigateDown={navigateToNextRow}
+          onNavigateVertical={navigateToAdjacentRow}
           onProjectCreated={onProjectCreated}
           data-testid="project-selector"
         />
@@ -251,6 +257,7 @@ const MemoizedTagCell = React.memo(
     setIsTagSelectorOpen,
     navigateToNextCell,
     navigateToPrevCell,
+    navigateToAdjacentRow,
     onTagCreated,
   }: MemoizedTagCellProps) {
     const cellIndex = isFullscreen ? 3 : 3;
@@ -274,6 +281,7 @@ const MemoizedTagCell = React.memo(
           onOpenChange={setIsTagSelectorOpen}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
+          onNavigateVertical={navigateToAdjacentRow}
           onTagCreated={onTagCreated}
           data-testid="tag-selector"
         />
@@ -314,6 +322,7 @@ const MemoizedDescriptionCell = React.memo(
     onDescriptionSave,
     setIsEditingCell,
     navigateToNextCell,
+    navigateToAdjacentRow,
     projects,
     availableTags,
     onBulkEntryUpdateByRowIndex,
@@ -339,6 +348,7 @@ const MemoizedDescriptionCell = React.memo(
           }
           onEditingChange={setIsEditingCell}
           onNavigateNext={navigateToNextCell}
+          onNavigateVertical={navigateToAdjacentRow}
           projects={projects}
           availableTags={availableTags}
           onRecentTimerSelect={(selected) => {
@@ -511,7 +521,7 @@ const MemoizedTimeCell = React.memo(
     onTimeChangeWithForcePush,
     setIsTimeEditorOpen,
     navigateToNextCell,
-    navigateToNextRow,
+    navigateToAdjacentRow,
     navigateToPrevCell,
     prevEntryEnd,
     nextEntryStart,
@@ -541,7 +551,7 @@ const MemoizedTimeCell = React.memo(
           }
           onEditingChange={setIsTimeEditorOpen}
           onNavigateNext={navigateToNextCell}
-          onNavigateDown={navigateToNextRow}
+          onNavigateVertical={navigateToAdjacentRow}
           onNavigatePrev={navigateToPrevCell}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
@@ -580,7 +590,7 @@ const MemoizedDurationCell = React.memo(
     onDurationChangeWithForcePush,
     onDurationChangeWithStartTimeAdjustmentAndForcePush,
     setIsEditingCell,
-    navigateToNextRow,
+    navigateToAdjacentRow,
     prevEntryEnd,
     nextEntryStart,
   }: MemoizedDurationCellProps) {
@@ -613,7 +623,7 @@ const MemoizedDurationCell = React.memo(
             onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
           }
           onEditingChange={setIsEditingCell}
-          onNavigateDown={navigateToNextRow}
+          onNavigateVertical={navigateToAdjacentRow}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
           data-testid="duration-editor"
@@ -687,7 +697,7 @@ const MemoizedActionsCell = React.memo(
           onOpenChange={setIsActionsMenuOpen}
           onNavigateNext={navigateToNextCell}
           isSelected={isSelected}
-          isRunning={!entry.stop || entry.duration === -1}
+          isRunning={isRunningTimeEntry(entry)}
           data-testid="actions-menu"
         />
       </TableCell>
@@ -1337,7 +1347,7 @@ const MemoizedTableRow = React.memo(
     setIsTimeEditorOpen,
     navigateToNextCell,
     navigateToPrevCell,
-    navigateToNextRow,
+    navigateToAdjacentRow,
     isNewlyLoaded,
     syncStatus,
     onRetrySync,
@@ -1414,7 +1424,9 @@ const MemoizedTableRow = React.memo(
     setIsTimeEditorOpen: (open: boolean) => void;
     navigateToNextCell: () => void;
     navigateToPrevCell: () => void;
-    navigateToNextRow: () => void;
+    navigateToAdjacentRow: (
+      direction: "up" | "down" | "left" | "right"
+    ) => void;
     isNewlyLoaded: boolean;
     syncStatus?: SyncStatus;
     onRetrySync: (entryId: number) => void;
@@ -1479,6 +1491,7 @@ const MemoizedTableRow = React.memo(
                     }
                     onEditingChange={setIsEditingCell}
                     onNavigateNext={navigateToNextCell}
+                    onNavigateVertical={navigateToAdjacentRow}
                     projects={projects}
                     availableTags={availableTags}
                     onRecentTimerSelect={(selected) => {
@@ -1521,7 +1534,7 @@ const MemoizedTableRow = React.memo(
                       onOpenChange={setIsProjectSelectorOpen}
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
-                      onNavigateDown={navigateToNextRow}
+                      onNavigateVertical={navigateToAdjacentRow}
                       onProjectCreated={onProjectCreated}
                       data-testid="project-selector"
                     />
@@ -1542,8 +1555,8 @@ const MemoizedTableRow = React.memo(
                       }
                       onEditingChange={setIsTimeEditorOpen}
                       onNavigateNext={navigateToNextCell}
-                      onNavigateDown={navigateToNextRow}
                       onNavigatePrev={navigateToPrevCell}
+                      onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
                       nextEntryStart={nextEntryStart}
                       data-testid="time-editor"
@@ -1563,6 +1576,7 @@ const MemoizedTableRow = React.memo(
                       onOpenChange={setIsTagSelectorOpen}
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
+                      onNavigateVertical={navigateToAdjacentRow}
                       onTagCreated={onTagCreated}
                       data-testid="tag-selector"
                     />
@@ -1587,7 +1601,7 @@ const MemoizedTableRow = React.memo(
                         onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
                       }
                       onEditingChange={setIsEditingCell}
-                      onNavigateDown={navigateToNextRow}
+                      onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
                       nextEntryStart={nextEntryStart}
                       data-testid="duration-editor"
@@ -1604,7 +1618,7 @@ const MemoizedTableRow = React.memo(
                       onOpenChange={setIsActionsMenuOpen}
                       onNavigateNext={navigateToNextCell}
                       isSelected={false}
-                      isRunning={!entry.stop || entry.duration === -1}
+                      isRunning={isRunningTimeEntry(entry)}
                       data-testid="actions-menu"
                     />
                   </div>
@@ -1709,7 +1723,7 @@ const MemoizedTableRow = React.memo(
                 setIsProjectSelectorOpen={setIsProjectSelectorOpen}
                 navigateToNextCell={navigateToNextCell}
                 navigateToPrevCell={navigateToPrevCell}
-                navigateToNextRow={navigateToNextRow}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 onProjectCreated={onProjectCreated}
               />
               <MemoizedDescriptionCell
@@ -1721,6 +1735,7 @@ const MemoizedTableRow = React.memo(
                 onDescriptionSave={onDescriptionSave}
                 setIsEditingCell={setIsEditingCell}
                 navigateToNextCell={navigateToNextCell}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 projects={projects}
                 availableTags={availableTags}
                 onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
@@ -1736,6 +1751,7 @@ const MemoizedTableRow = React.memo(
                 setIsTagSelectorOpen={setIsTagSelectorOpen}
                 navigateToNextCell={navigateToNextCell}
                 navigateToPrevCell={navigateToPrevCell}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 onTagCreated={onTagCreated}
               />
             </>
@@ -1750,6 +1766,7 @@ const MemoizedTableRow = React.memo(
                 onDescriptionSave={onDescriptionSave}
                 setIsEditingCell={setIsEditingCell}
                 navigateToNextCell={navigateToNextCell}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 projects={projects}
                 availableTags={availableTags}
                 onBulkEntryUpdateByRowIndex={onBulkEntryUpdateByRowIndex}
@@ -1765,7 +1782,7 @@ const MemoizedTableRow = React.memo(
                 setIsProjectSelectorOpen={setIsProjectSelectorOpen}
                 navigateToNextCell={navigateToNextCell}
                 navigateToPrevCell={navigateToPrevCell}
-                navigateToNextRow={navigateToNextRow}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 onProjectCreated={onProjectCreated}
               />
               <MemoizedTagCell
@@ -1779,6 +1796,7 @@ const MemoizedTableRow = React.memo(
                 setIsTagSelectorOpen={setIsTagSelectorOpen}
                 navigateToNextCell={navigateToNextCell}
                 navigateToPrevCell={navigateToPrevCell}
+                navigateToAdjacentRow={navigateToAdjacentRow}
                 onTagCreated={onTagCreated}
               />
             </>
@@ -1792,8 +1810,8 @@ const MemoizedTableRow = React.memo(
             onTimeChangeWithForcePush={onTimeChangeWithForcePush}
             setIsTimeEditorOpen={setIsTimeEditorOpen}
             navigateToNextCell={navigateToNextCell}
-            navigateToNextRow={navigateToNextRow}
             navigateToPrevCell={navigateToPrevCell}
+            navigateToAdjacentRow={navigateToAdjacentRow}
             prevEntryEnd={prevEntryEnd}
             nextEntryStart={nextEntryStart}
           />
@@ -1811,7 +1829,7 @@ const MemoizedTableRow = React.memo(
               onDurationChangeWithStartTimeAdjustmentAndForcePush
             }
             setIsEditingCell={setIsEditingCell}
-            navigateToNextRow={navigateToNextRow}
+            navigateToAdjacentRow={navigateToAdjacentRow}
             prevEntryEnd={prevEntryEnd}
             nextEntryStart={nextEntryStart}
           />
@@ -1962,8 +1980,8 @@ const MemoizedTableRow = React.memo(
       prevProps.navigateToNextCell === nextProps.navigateToNextCell;
     const navigateToPrevCellEqual =
       prevProps.navigateToPrevCell === nextProps.navigateToPrevCell;
-    const navigateToNextRowEqual =
-      prevProps.navigateToNextRow === nextProps.navigateToNextRow;
+    const navigateToAdjacentRowEqual =
+      prevProps.navigateToAdjacentRow === nextProps.navigateToAdjacentRow;
     const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
     const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
     const isFullscreenEqual = prevProps.isFullscreen === nextProps.isFullscreen;
@@ -1998,7 +2016,7 @@ const MemoizedTableRow = React.memo(
       setIsTimeEditorOpenEqual &&
       navigateToNextCellEqual &&
       navigateToPrevCellEqual &&
-      navigateToNextRowEqual &&
+      navigateToAdjacentRowEqual &&
       syncStatusEqual &&
       onRetrySyncEqual &&
       isFullscreenEqual &&
@@ -2040,7 +2058,8 @@ const MemoizedTableRow = React.memo(
       if (!setIsTimeEditorOpenEqual) changedProps.push("setIsTimeEditorOpen");
       if (!navigateToNextCellEqual) changedProps.push("navigateToNextCell");
       if (!navigateToPrevCellEqual) changedProps.push("navigateToPrevCell");
-      if (!navigateToNextRowEqual) changedProps.push("navigateToNextRow");
+      if (!navigateToAdjacentRowEqual)
+        changedProps.push("navigateToAdjacentRow");
       if (!syncStatusEqual) changedProps.push("syncStatus");
       if (!onRetrySyncEqual) changedProps.push("onRetrySync");
       if (!isFullscreenEqual) changedProps.push("isFullscreen");
@@ -2196,6 +2215,12 @@ export function TimeTrackerTable({
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
 
+  // Keep the imperative draft snapshot current before later effects (such as
+  // editor-close submission) read it.
+  React.useEffect(() => {
+    timeEntriesRef.current = timeEntries;
+  }, [timeEntries]);
+
   // Cache decrypted entries by ID to survive array reordering
   const decryptedEntriesById = React.useRef<
     Map<number, { entry: TimeEntry; hash: string }>
@@ -2278,6 +2303,13 @@ export function TimeTrackerTable({
   // State version for reactive badge updates
   const [hasLoadedMoreEntries, setHasLoadedMoreEntries] = React.useState(false);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
+  const submitNavigationHistoryRef = React.useRef<
+    Array<{
+      origin: NonNullable<SelectedCell>;
+      target: NonNullable<SelectedCell>;
+      toastId: string | number | null;
+    }>
+  >([]);
   const isRowActivationCell = React.useCallback((cellIndex: number) => {
     return cellIndex >= 1 && cellIndex <= 5;
   }, []);
@@ -2387,6 +2419,23 @@ export function TimeTrackerTable({
 
   // Track last selection direction for toggle behavior
   const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
+  const activeEditorEntryIdRef = React.useRef<number | null>(null);
+  const pendingCreateEntryIdsRef = React.useRef<Set<number>>(new Set());
+  const pendingCreateToastControllersRef = React.useRef<
+    Map<number, { submit: () => boolean; cancel: () => boolean }>
+  >(new Map());
+  const pendingCreateToastFactoriesRef = React.useRef<
+    Map<number, () => void>
+  >(new Map());
+  const pendingCreateCommitCallbacksRef = React.useRef<
+    Map<number, Set<() => void>>
+  >(new Map());
+  const previousRowEditorStatesRef = React.useRef({
+    descriptionOrDuration: false,
+    project: false,
+    tags: false,
+    time: false,
+  });
 
   const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
@@ -2399,6 +2448,50 @@ export function TimeTrackerTable({
   const [isTimeEditorOpen, setIsTimeEditorOpen] = React.useState(false);
   const isAnyRowEditorActive =
     isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen;
+
+  React.useEffect(() => {
+    const previous = previousRowEditorStatesRef.current;
+    const current = {
+      descriptionOrDuration: isEditingCell,
+      project: isProjectSelectorOpen,
+      tags: isTagSelectorOpen,
+      time: isTimeEditorOpen,
+    };
+    const editorKeys = Object.keys(current) as Array<keyof typeof current>;
+    const editorClosed = editorKeys.some(
+      (key) => previous[key] && !current[key]
+    );
+    const editorOpened = editorKeys.some(
+      (key) => !previous[key] && current[key]
+    );
+    const previouslyEditedEntryId = activeEditorEntryIdRef.current;
+
+    // Closing/submitting an editor starts a fresh quiet-period toast even if
+    // that editor did not change a value. This is only a candidate commit;
+    // opening the next editor cancels it without discarding the draft.
+    if (editorClosed && previouslyEditedEntryId !== null) {
+      pendingCreateToastFactoriesRef.current
+        .get(previouslyEditedEntryId)?.();
+    }
+
+    if (editorOpened) {
+      const openedEntryId = selectedCellEntryIdRef.current;
+      activeEditorEntryIdRef.current = openedEntryId;
+      if (openedEntryId !== null) {
+        pendingCreateToastControllersRef.current.get(openedEntryId)?.cancel();
+      }
+    } else if (!isAnyRowEditorActive) {
+      activeEditorEntryIdRef.current = null;
+    }
+
+    previousRowEditorStatesRef.current = current;
+  }, [
+    isAnyRowEditorActive,
+    isEditingCell,
+    isProjectSelectorOpen,
+    isTagSelectorOpen,
+    isTimeEditorOpen,
+  ]);
 
   React.useEffect(() => {
     if (typeof document !== "undefined") {
@@ -2479,6 +2572,8 @@ export function TimeTrackerTable({
     null
   );
   const clientMutationGenerationRef = React.useRef(0);
+  const startRequestChainRef = React.useRef<Promise<void>>(Promise.resolve());
+  const lastStartTempIdRef = React.useRef(0);
 
   const beginClientMutation = React.useCallback(() => {
     clientMutationGenerationRef.current += 1;
@@ -2527,9 +2622,10 @@ export function TimeTrackerTable({
       let toastDismissed = false;
       const state = { apiCallStarted: false };
       const submitNow = () => {
-        if (toastDismissed || state.apiCallStarted) return;
+        if (toastDismissed || state.apiCallStarted) return true;
         clearTimeout(timeoutId);
         void submitOperation();
+        return true;
       };
       const toastId: string | number | undefined = toast(message, {
         action: {
@@ -2617,6 +2713,16 @@ export function TimeTrackerTable({
       };
 
       const timeoutId = setTimeout(submitNow, toastDuration);
+      const cancel = () => {
+        if (toastDismissed || state.apiCallStarted) return false;
+        toastDismissed = true;
+        clearTimeout(timeoutId);
+        if (toastId !== undefined) {
+          toast.dismiss(toastId);
+        }
+        return true;
+      };
+      return { submit: submitNow, cancel };
     },
     [toastDuration]
   );
@@ -2632,6 +2738,26 @@ export function TimeTrackerTable({
     ): boolean => {
       const syncQueue = syncQueueRef.current;
       const isTempId = syncQueue.isTempId(entryId);
+
+      if (isTempId && pendingCreateEntryIdsRef.current.has(entryId)) {
+        // The entry has not been POSTed yet. Fold this mutation directly into
+        // the local creation draft so the eventual POST contains the latest
+        // state and no follow-up PATCH needs to be queued.
+        setTimeEntries((currentEntries) => {
+          const updatedEntries = currentEntries.map((entry) =>
+            entry.id === entryId
+              ? {
+                  ...entry,
+                  ...optimisticUpdate(entry),
+                  syncStatus: "pending" as SyncStatus,
+                }
+              : entry
+          );
+          return updatedEntries;
+        });
+        setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
+        return true;
+      }
 
       if (isTempId) {
         // Apply optimistic update
@@ -3104,7 +3230,7 @@ export function TimeTrackerTable({
               }
             }
 
-            return currentEntries.map((e) =>
+            const updatedEntries = currentEntries.map((e) =>
               e.id === entryId
                 ? {
                     ...e,
@@ -3117,10 +3243,25 @@ export function TimeTrackerTable({
                     project_color: projectColor,
                     tags: updates.tags !== undefined ? updates.tags : e.tags,
                     syncStatus: "pending" as SyncStatus,
-                  }
+                }
                 : e
             );
+            return updatedEntries;
           });
+
+          if (pendingCreateEntryIdsRef.current.has(entryId)) {
+            if (onCommit) {
+              const callbacks =
+                pendingCreateCommitCallbacksRef.current.get(entryId) ??
+                new Set<() => void>();
+              callbacks.add(commitOnce);
+              pendingCreateCommitCallbacksRef.current.set(entryId, callbacks);
+            }
+            setEntrySyncStatus((prev) =>
+              new Map(prev).set(entryId, "pending")
+            );
+            return;
+          }
 
           // Queue the operation
           const operation: QueuedOperation = {
@@ -3342,7 +3483,7 @@ export function TimeTrackerTable({
         const entry = currentEntries[entryIndex];
         if (!entry) return currentEntries;
 
-        const isRunning = !entry.stop || entry.duration === -1;
+        const isRunning = isRunningTimeEntry(entry);
 
         // Calculate the new times based on update type
         let newStart: Date;
@@ -3688,7 +3829,7 @@ export function TimeTrackerTable({
     (entryId: number) => (newDuration: number) => {
       // Need to check if entry is running before queueing
       const entry = timeEntriesRef.current.find((e) => e.id === entryId);
-      const isRunning = entry && (!entry.stop || entry.duration === -1);
+      const isRunning = entry && isRunningTimeEntry(entry);
 
       // For running timers, send new start time instead of duration
       const payload = isRunning
@@ -3824,7 +3965,7 @@ export function TimeTrackerTable({
         const entry = currentEntries.find((e) => e.id === entryId);
         if (!entry) return currentEntries;
 
-        const isRunning = !entry.stop || entry.duration === -1;
+        const isRunning = isRunningTimeEntry(entry);
 
         // Create updated entries - ALWAYS adjust start time
         const updatedEntries = currentEntries.map((entry) => {
@@ -4513,7 +4654,7 @@ export function TimeTrackerTable({
       });
 
       // Check if any are running
-      const hasRunningEntry = entries.some((e) => !e.stop || e.duration === -1);
+      const hasRunningEntry = entries.some(isRunningTimeEntry);
 
       // Find the latest stop time among all entries
       let latestStopTime: string | null = null;
@@ -4750,7 +4891,7 @@ export function TimeTrackerTable({
       if (!entryToSplit) return;
 
       let originalEntries: TimeEntry[] = [];
-      const isRunning = !entryToSplit.stop || entryToSplit.duration === -1;
+      const isRunning = isRunningTimeEntry(entryToSplit);
       const startTime = new Date(entryToSplit.start);
       const endTime = isRunning ? new Date() : new Date(entryToSplit.stop!);
       const offsetMs = offsetMinutes * 60 * 1000;
@@ -5048,8 +5189,7 @@ export function TimeTrackerTable({
     const currentIsTempId = syncQueue.isTempId(currentApiId);
     const olderIsTempId = syncQueue.isTempId(olderApiId);
 
-    const isCurrentEntryRunning =
-      !currentEntry.stop || currentEntry.duration === -1;
+    const isCurrentEntryRunning = isRunningTimeEntry(currentEntry);
 
     let originalEntries: TimeEntry[] = [];
 
@@ -5285,8 +5425,12 @@ export function TimeTrackerTable({
       let newEntry: TimeEntry | null = null;
       let runningEntry: TimeEntry | null = null;
 
-      // CRITICAL: Generate temp ID ONCE before any callbacks to ensure consistency
-      const tempId = -Date.now();
+      // Generate a monotonic temp ID so two starts in the same millisecond
+      // cannot collapse onto the same optimistic row.
+      const timeBasedTempId = -Date.now();
+      const tempId = Math.min(timeBasedTempId, lastStartTempIdRef.current - 1);
+      lastStartTempIdRef.current = tempId;
+      pendingCreateEntryIdsRef.current.add(tempId);
       console.log(`[New Entry] Creating entry with temp ID: ${tempId}`);
 
       // Create timestamp once at the start
@@ -5310,8 +5454,8 @@ export function TimeTrackerTable({
 
         // Use the temp ID generated above (NOT -Date.now() again!)
 
-        // Find currently running entry (no stop time) for UI feedback
-        runningEntry = currentEntries.find((entry) => !entry.stop) || null;
+        const runningEntries = currentEntries.filter(isRunningTimeEntry);
+        runningEntry = runningEntries[0] || null;
 
         newEntry = {
           id: tempId,
@@ -5327,27 +5471,24 @@ export function TimeTrackerTable({
           tag_ids,
         };
 
-        // Optimistically stop the previous running timer and add new entry (only if new entry is running)
+        // Repair every locally-running row before introducing the new
+        // canonical timer. Stopping only the first row lets stale duplicates
+        // survive every subsequent start.
         const updatedEntries =
-          isRunning && runningEntry
-            ? currentEntries.map((entry) => {
-                if (runningEntry && entry.id === runningEntry.id) {
-                  const startDate = new Date(entry.start);
-                  const stopDate = new Date(now);
-                  const calculatedDuration = Math.floor(
-                    (stopDate.getTime() - startDate.getTime()) / 1000
-                  );
-                  return {
-                    ...entry,
-                    stop: now,
-                    duration: calculatedDuration,
-                  };
-                }
-                return entry;
-              })
+          isRunning && runningEntries.length > 0
+            ? currentEntries.map((entry) =>
+                isRunningTimeEntry(entry)
+                  ? stopTimeEntryAt(entry, now)
+                  : entry
+              )
             : currentEntries;
 
-        return [newEntry, ...updatedEntries];
+        const nextEntries = enforceSingleRunningTimeEntry(
+          [newEntry, ...updatedEntries],
+          isRunning ? tempId : undefined
+        );
+        timeEntriesRef.current = nextEntries;
+        return nextEntries;
       });
 
       // Protect the optimistic entry from both automatic and manual resyncs
@@ -5372,15 +5513,30 @@ export function TimeTrackerTable({
 
       const apiCall = async () => {
         try {
-          // Encrypt description if E2EE is enabled and unlocked
-          let finalDescription = description;
+          const latestEntry =
+            timeEntriesRef.current.find((entry) => entry.id === tempId) ??
+            newEntry;
+          if (!latestEntry) {
+            throw new Error("Pending time entry is no longer available");
+          }
 
-          if (encryption.isE2EEEnabled && encryption.isUnlocked) {
+          pendingCreateEntryIdsRef.current.delete(tempId);
+          pendingCreateToastControllersRef.current.delete(tempId);
+          pendingCreateToastFactoriesRef.current.delete(tempId);
+
+          // Encrypt description if E2EE is enabled and unlocked
+          let finalDescription = latestEntry.description;
+
+          if (
+            encryption.isE2EEEnabled &&
+            encryption.isUnlocked &&
+            !encryption.isEntryEncrypted(tempId)
+          ) {
             const sessionKey = encryption.getSessionKey();
             if (sessionKey) {
               try {
                 finalDescription = encryptDescription(
-                  description,
+                  latestEntry.description,
                   sessionKey,
                   tempId
                 );
@@ -5392,35 +5548,52 @@ export function TimeTrackerTable({
             }
           }
 
-          const response = await fetch("/api/time-entries", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-toggl-session-token": sessionToken || "",
-            },
-            body: JSON.stringify({
-              description: finalDescription,
-              start: now,
-              ...(stopTime !== undefined && { stop: stopTime || now }),
-              project_name: projectName,
-              tag_ids: tags
-                .map((tagName) => {
-                  const tag = availableTagsRef.current.find(
-                    (t) => t.name === tagName
-                  );
-                  return tag ? tag.id : null;
-                })
-                .filter((id): id is number => id !== null),
-            }),
-          });
+          const executeStartRequest = async () => {
+            const response = await fetch("/api/time-entries", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-toggl-session-token": sessionToken || "",
+              },
+              body: JSON.stringify({
+                description: finalDescription,
+                start: latestEntry.start,
+                ...(latestEntry.stop && { stop: latestEntry.stop }),
+                project_name: latestEntry.project_name,
+                tag_ids: latestEntry.tags
+                  .map((tagName) => {
+                    const tag = availableTagsRef.current.find(
+                      (t) => t.name === tagName
+                    );
+                    return tag ? tag.id : null;
+                  })
+                  .filter((id): id is number => id !== null),
+              }),
+            });
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("API Error:", response.status, errorText);
-            throw new Error("Failed to create entry");
-          }
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+              throw new Error("Failed to create entry");
+            }
 
-          const createdEntry = await response.json();
+            return response.json();
+          };
+
+          // Multiple Undo toasts may expire together. Serialize their starts
+          // so the next request observes and stops the timer created by the
+          // preceding request instead of both reading the same old current ID.
+          const queuedStart = startRequestChainRef.current
+            .catch(() => undefined)
+            .then(executeStartRequest);
+          startRequestChainRef.current = queuedStart.then(
+            () => undefined,
+            () => undefined
+          );
+
+          const createResult = await queuedStart;
+          const createdEntry = createResult.createdEntry ?? createResult;
+          const stoppedEntry = createResult.stoppedEntry ?? null;
           createdEntryId = createdEntry.id;
 
           // Register ID mapping for the sync queue
@@ -5438,41 +5611,59 @@ export function TimeTrackerTable({
             // instead of allowing the successful creation to remain hidden.
             setTimeEntries((prev) => {
               const tempEntry = prev.find((entry) => entry.id === tempId);
+              let reconciledEntries = prev.map((entry) => {
+                if (stoppedEntry && entry.id === stoppedEntry.id) {
+                  const stoppedVersion = stopTimeEntryAt(
+                    entry,
+                    stoppedEntry.stop || createdEntry.start || latestEntry.start
+                  );
+                  return {
+                    ...stoppedVersion,
+                    duration:
+                      typeof stoppedEntry.duration === "number" &&
+                      stoppedEntry.duration >= 0
+                        ? stoppedEntry.duration
+                        : stoppedVersion.duration,
+                  };
+                }
 
-              if (tempEntry) {
-                return prev.map((entry) =>
-                  entry.id === tempId
-                    ? ({
-                        ...entry,
-                        id: realId,
-                        tempId,
-                        syncStatus: "syncing" as SyncStatus,
-                      } as TimeEntry)
-                    : entry
-                );
+                if (entry.id === tempId) {
+                  return {
+                    ...entry,
+                    id: realId,
+                    tempId,
+                    syncStatus: "syncing" as SyncStatus,
+                  } as TimeEntry;
+                }
+
+                return entry;
+              });
+
+              if (!tempEntry && !prev.some((entry) => entry.id === realId)) {
+                const restoredEntry: TimeEntry = {
+                  id: realId,
+                  tempId,
+                  description: latestEntry.description,
+                  project_id:
+                    createdEntry.project_id ?? latestEntry.project_id,
+                  project_name: latestEntry.project_name,
+                  project_color: latestEntry.project_color,
+                  start: createdEntry.start ?? latestEntry.start,
+                  stop: createdEntry.stop ?? latestEntry.stop,
+                  duration: createdEntry.duration ?? latestEntry.duration,
+                  tags: createdEntry.tags ?? latestEntry.tags,
+                  tag_ids: createdEntry.tag_ids ?? latestEntry.tag_ids,
+                  syncStatus: "syncing",
+                };
+
+                reconciledEntries = [restoredEntry, ...reconciledEntries];
               }
 
-              if (prev.some((entry) => entry.id === realId)) {
-                return prev;
-              }
-
-              const restoredEntry: TimeEntry = {
-                id: realId,
-                tempId,
-                description,
-                project_id: createdEntry.project_id ?? project_id,
-                project_name: projectName,
-                project_color: projectColor,
-                start: createdEntry.start ?? now,
-                stop:
-                  createdEntry.stop ?? (isRunning ? "" : stopTime || now),
-                duration: createdEntry.duration ?? (isRunning ? -1 : 0),
-                tags: createdEntry.tags ?? tags,
-                tag_ids: createdEntry.tag_ids ?? tag_ids,
-                syncStatus: "syncing",
-              };
-
-              return [restoredEntry, ...prev];
+              const normalizedEntries = enforceSingleRunningTimeEntry(
+                reconciledEntries
+              );
+              timeEntriesRef.current = normalizedEntries;
+              return normalizedEntries;
             });
 
             // Move sync status from temp ID to real ID
@@ -5496,6 +5687,11 @@ export function TimeTrackerTable({
 
             // Flush any queued operations for this entry
             const results = await syncQueue.flushOperations(tempId, realId);
+
+            const pendingCommitCallbacks =
+              pendingCreateCommitCallbacksRef.current.get(tempId);
+            pendingCommitCallbacks?.forEach((commit) => commit());
+            pendingCreateCommitCallbacksRef.current.delete(tempId);
 
             const allSucceeded = results.every((r) => r.success);
 
@@ -5522,6 +5718,10 @@ export function TimeTrackerTable({
       };
 
       const undoAction = () => {
+        pendingCreateEntryIdsRef.current.delete(tempId);
+        pendingCreateToastControllersRef.current.delete(tempId);
+        pendingCreateToastFactoriesRef.current.delete(tempId);
+        pendingCreateCommitCallbacksRef.current.delete(tempId);
         setTimeEntries(originalEntries);
         setEntrySyncStatus((prev) => {
           const next = new Map(prev);
@@ -5543,14 +5743,25 @@ export function TimeTrackerTable({
         }
       };
 
-      showUpdateToast(
-        runningEntry
-          ? "Stopped previous timer and started new one"
-          : "New time entry started",
-        tempId,
-        undoAction,
-        apiCall
-      );
+      const armCreateToast = () => {
+        if (!pendingCreateEntryIdsRef.current.has(tempId)) return;
+
+        // A draft has exactly one active countdown. Re-arming it represents a
+        // new quiet period after the latest editor interaction.
+        pendingCreateToastControllersRef.current.get(tempId)?.cancel();
+        const controller = showUpdateToast(
+          runningEntry
+            ? "Stopped previous timer and started new one"
+            : "New time entry started",
+          tempId,
+          undoAction,
+          apiCall
+        );
+        pendingCreateToastControllersRef.current.set(tempId, controller);
+      };
+
+      pendingCreateToastFactoriesRef.current.set(tempId, armCreateToast);
+      armCreateToast();
     },
     [
       projects,
@@ -5602,6 +5813,25 @@ export function TimeTrackerTable({
     const durationInSeconds = Math.floor(
       (now.getTime() - start.getTime()) / 1000
     );
+    const stop = now.toISOString();
+
+    const wasQueued = handleUpdateWithQueue(
+      entry.id,
+      { stop },
+      "STOP",
+      () => ({ stop, duration: durationInSeconds }),
+      (realId, sessionToken) =>
+        fetch(`/api/time-entries/${realId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-toggl-session-token": sessionToken,
+          },
+          body: JSON.stringify({ stop }),
+        })
+    );
+
+    if (wasQueued) return;
 
     try {
       const sessionToken = localStorage.getItem("toggl_session_token");
@@ -5612,7 +5842,7 @@ export function TimeTrackerTable({
           "x-toggl-session-token": sessionToken || "",
         },
         body: JSON.stringify({
-          stop: now.toISOString(),
+          stop,
         }),
       });
 
@@ -5622,7 +5852,7 @@ export function TimeTrackerTable({
       setTimeEntries((prev) =>
         prev.map((e) =>
           e.id === entry.id
-            ? { ...e, stop: now.toISOString(), duration: durationInSeconds }
+            ? { ...e, stop, duration: durationInSeconds }
             : e
         )
       );
@@ -5630,7 +5860,7 @@ export function TimeTrackerTable({
       console.error("Error stopping timer:", error);
       toast.error("Failed to stop timer");
     }
-  }, []);
+  }, [handleUpdateWithQueue]);
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
@@ -5745,7 +5975,11 @@ export function TimeTrackerTable({
               );
 
               if (protectedEntryIds.size === 0) {
-                return data.timeEntries;
+                const normalizedEntries = enforceSingleRunningTimeEntry(
+                  data.timeEntries as TimeEntry[]
+                );
+                timeEntriesRef.current = normalizedEntries;
+                return normalizedEntries;
               }
 
               const protectedEntries = prevEntries.filter((entry) =>
@@ -5769,10 +6003,15 @@ export function TimeTrackerTable({
 
               // Missing optimistic entries are added locally, so restore the
               // table's normal newest-first ordering after reconciliation.
-              return mergedEntries.sort(
+              const sortedEntries = mergedEntries.sort(
                 (a, b) =>
                   new Date(b.start).getTime() - new Date(a.start).getTime()
               );
+              const normalizedEntries = enforceSingleRunningTimeEntry(
+                sortedEntries
+              );
+              timeEntriesRef.current = normalizedEntries;
+              return normalizedEntries;
             });
             setNewlyLoadedEntries(new Set()); // Clear new entries on reset
             currentPageRef.current = retainedPage;
@@ -5810,7 +6049,12 @@ export function TimeTrackerTable({
               hasLoadedMoreEntriesRef.current = true;
               setHasLoadedMoreEntries(true);
 
-              return [...prev, ...newEntries];
+              const normalizedEntries = enforceSingleRunningTimeEntry([
+                ...prev,
+                ...newEntries,
+              ]);
+              timeEntriesRef.current = normalizedEntries;
+              return normalizedEntries;
             });
             currentPageRef.current = pageToFetch;
           }
@@ -6127,33 +6371,58 @@ export function TimeTrackerTable({
     });
   }, []);
 
-  const navigateToNextRow = React.useCallback(() => {
-    setSelectedCell((currentSelectedCell) => {
-      if (!currentSelectedCell) return null;
+  const navigateToAdjacentRow = React.useCallback(
+    (direction: "up" | "down" | "left" | "right") => {
+      setSelectedCell((currentSelectedCell) => {
+        if (!currentSelectedCell) return null;
 
-      const currentEntriesLength = timeEntriesRef.current.length;
+        const rowOffset =
+          direction === "down" ? 1 : direction === "up" ? -1 : 0;
+        const cellOffset =
+          direction === "right" ? 1 : direction === "left" ? -1 : 0;
+        const targetRowIndex = currentSelectedCell.rowIndex + rowOffset;
+        const targetCellIndex = currentSelectedCell.cellIndex + cellOffset;
+        if (
+          targetRowIndex < 0 ||
+          targetRowIndex >= timeEntriesRef.current.length ||
+          targetCellIndex < -1 ||
+          targetCellIndex > 6
+        ) {
+          return currentSelectedCell;
+        }
 
-      // Move to same column in next row
-      if (currentSelectedCell.rowIndex < currentEntriesLength - 1) {
-        const newCell = {
-          rowIndex: currentSelectedCell.rowIndex + 1,
-          cellIndex: currentSelectedCell.cellIndex,
+        const targetCell = {
+          rowIndex: targetRowIndex,
+          cellIndex: targetCellIndex,
         };
 
-        // Activate the cell after navigation
-        activateCell(newCell.rowIndex, newCell.cellIndex);
+        const navigationRecord = {
+          origin: { ...currentSelectedCell },
+          target: targetCell,
+          toastId: getLatestUndoToastId(),
+        };
+        submitNavigationHistoryRef.current.push(navigationRecord);
+        if (submitNavigationHistoryRef.current.length > 100) {
+          submitNavigationHistoryRef.current.shift();
+        }
 
-        return newCell;
-      }
+        // Optimistic state updaters can register their toast at the end of the
+        // event. Capture that final ID so position history follows the exact
+        // undo action instead of an unrelated older toast.
+        setTimeout(() => {
+          navigationRecord.toastId = getLatestUndoToastId();
+        }, 0);
 
-      return currentSelectedCell; // No change if at the end
-    });
-  }, [activateCell]);
+        // Let the current editor commit and close before opening its neighbor.
+        setTimeout(() => {
+          activateCell(targetCell.rowIndex, targetCell.cellIndex);
+        }, 0);
 
-  // Keep refs in sync with state
-  React.useEffect(() => {
-    timeEntriesRef.current = timeEntries;
-  }, [timeEntries]);
+        return targetCell;
+      });
+    },
+    [activateCell]
+  );
 
   React.useEffect(() => {
     projectsRef.current = projects;
@@ -6656,11 +6925,11 @@ export function TimeTrackerTable({
     };
   }, [handleCancelSync]);
 
-  // Give instant submission priority over editor-level Cmd/Ctrl+Enter
-  // handlers. When there is no actionable toast, the event continues to the
-  // focused editor normally.
+  // Give active toast actions priority over editor and selector key handlers.
+  // When no matching toast action exists, the event continues to the focused
+  // control normally (including native text undo for Cmd/Ctrl+Z).
   React.useEffect(() => {
-    const handleToastSubmitKeyDown = (e: KeyboardEvent) => {
+    const handleToastActionKeyDown = (e: KeyboardEvent) => {
       if (
         e.key === "Enter" &&
         (e.metaKey || e.ctrlKey) &&
@@ -6670,14 +6939,50 @@ export function TimeTrackerTable({
       ) {
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+
+      if (
+        e.key.toLowerCase() === "z" &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        const undoResult = triggerUndo();
+        if (!undoResult) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const navigationHistory = submitNavigationHistoryRef.current;
+        const navigationIndex = navigationHistory.findLastIndex(
+          (navigation) => navigation.toastId === undoResult.toastId
+        );
+
+        if (navigationIndex !== -1) {
+          const [navigation] = navigationHistory.splice(navigationIndex, 1);
+          const isStillAtNavigationTarget =
+            selectedCell?.rowIndex === navigation.target.rowIndex &&
+            selectedCell.cellIndex === navigation.target.cellIndex;
+
+          if (isStillAtNavigationTarget) {
+            setSelectedCell(navigation.origin);
+            setTimeout(() => {
+              activateCell(
+                navigation.origin.rowIndex,
+                navigation.origin.cellIndex
+              );
+            }, 0);
+          }
+        }
       }
     };
 
-    document.addEventListener("keydown", handleToastSubmitKeyDown, true);
+    document.addEventListener("keydown", handleToastActionKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", handleToastSubmitKeyDown, true);
+      document.removeEventListener("keydown", handleToastActionKeyDown, true);
     };
-  }, []);
+  }, [activateCell, selectedCell]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -7551,7 +7856,7 @@ export function TimeTrackerTable({
               // Check if Alt/Option key is pressed
               if (e.altKey) {
                 // Stop timer if it's running
-                if (!entry.stop || entry.duration === -1) {
+                if (isRunningTimeEntry(entry)) {
                   handleStopTimer(entry);
                 }
               } else {
@@ -8061,7 +8366,7 @@ export function TimeTrackerTable({
                       setIsTimeEditorOpen={setIsTimeEditorOpen}
                       navigateToNextCell={navigateToNextCell}
                       navigateToPrevCell={navigateToPrevCell}
-                      navigateToNextRow={navigateToNextRow}
+                      navigateToAdjacentRow={navigateToAdjacentRow}
                       isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                       syncStatus={entrySyncStatus.get(entry.id)}
                       onRetrySync={handleRetrySync}

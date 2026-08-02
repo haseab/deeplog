@@ -22,7 +22,7 @@ interface ProjectSelectorProps {
   isOpen?: boolean; // Optional controlled open state
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
-  onNavigateDown?: () => void;
+  onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   onProjectCreated?: (project: Project) => void;
   "data-testid"?: string;
 }
@@ -42,7 +42,7 @@ export function ProjectSelector({
   isOpen: controlledIsOpen,
   onNavigateNext,
   onNavigatePrev,
-  onNavigateDown,
+  onNavigateVertical,
   onProjectCreated,
   "data-testid": dataTestId,
 }: ProjectSelectorProps) {
@@ -162,6 +162,32 @@ export function ProjectSelector({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen) return;
 
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(e.key)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      const selectedProject = allOptions[highlightedIndex];
+      if (selectedProject) {
+        handleSelect(selectedProject.name);
+      } else {
+        setIsOpen(false);
+      }
+      onNavigateVertical?.(
+        e.key === "ArrowDown"
+          ? "down"
+          : e.key === "ArrowUp"
+            ? "up"
+            : e.key === "ArrowRight"
+              ? "right"
+              : "left"
+      );
+      return;
+    }
+
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
@@ -177,10 +203,6 @@ export function ProjectSelector({
         e.preventDefault();
         if (allOptions[highlightedIndex]) {
           handleSelect(allOptions[highlightedIndex].name);
-          // Only navigate down if Cmd+Enter
-          if (e.metaKey || e.ctrlKey) {
-            onNavigateDown?.();
-          }
         }
         break;
       case "Tab":

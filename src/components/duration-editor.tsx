@@ -14,7 +14,7 @@ interface DurationEditorProps {
   onSaveWithForcePush?: (duration: number) => void; // Align next entry's start to this entry's end
   onSaveWithStartTimeAdjustmentAndForcePush?: (duration: number) => void; // Align previous entry's end to this entry's start
   onEditingChange?: (isEditing: boolean) => void;
-  onNavigateDown?: () => void;
+  onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
   nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
   "data-testid"?: string;
@@ -29,7 +29,7 @@ export function DurationEditor({
   onSaveWithForcePush,
   onSaveWithStartTimeAdjustmentAndForcePush,
   onEditingChange,
-  onNavigateDown,
+  onNavigateVertical,
   prevEntryEnd,
   nextEntryStart,
   "data-testid": dataTestId,
@@ -166,6 +166,27 @@ export function DurationEditor({
     e: React.KeyboardEvent,
     field: "hours" | "minutes" | "seconds"
   ) => {
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(e.key)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleSave();
+      onNavigateVertical?.(
+        e.key === "ArrowDown"
+          ? "down"
+          : e.key === "ArrowUp"
+            ? "up"
+            : e.key === "ArrowRight"
+              ? "right"
+              : "left"
+      );
+      return;
+    }
+
     // Snap shortcuts: Cmd+Shift+Left/Right
     if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
       if (e.key === "ArrowLeft" && prevEntryEnd) {
@@ -203,33 +224,25 @@ export function DurationEditor({
       const s = parseInt(seconds) || 0;
       const totalSeconds = h * 3600 + m * 60 + s;
 
-      // Cmd+Option+Shift+Enter: adjust start and align the previous entry's end
-      if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey) {
+      // Cmd+Option+Enter: adjust start and overwrite the previous boundary.
+      if ((e.metaKey || e.ctrlKey) && e.altKey) {
         onSaveWithStartTimeAdjustmentAndForcePush?.(totalSeconds);
         setIsEditing(false);
       }
-      // Cmd+Shift+Enter: adjust end and align the next entry's start
-      else if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+      // Cmd+Enter: adjust end and overwrite the next boundary.
+      else if (e.metaKey || e.ctrlKey) {
         onSaveWithForcePush?.(totalSeconds);
         setIsEditing(false);
       }
-      // Option+Enter or Cmd+Option+Enter: adjust start time instead of stop time
+      // Option+Enter: adjust start time without overwriting the previous entry.
       else if (e.altKey) {
         if (totalSeconds !== duration) {
           onSaveWithStartTimeAdjustment?.(totalSeconds);
         }
         setIsEditing(false);
-
-        // Cmd+Option+Enter: also navigate down
-        if (e.metaKey || e.ctrlKey) {
-          onNavigateDown?.();
-        }
       } else {
-        // Regular Enter or Cmd+Enter: normal behavior (adjust stop time)
+        // Regular Enter: normal behavior (adjust stop time).
         handleSave();
-        if (e.metaKey || e.ctrlKey) {
-          onNavigateDown?.();
-        }
       }
     } else if (e.key === "Tab") {
       if (e.shiftKey) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { isRunningTimeEntry } from "@/lib/time-entry-state";
 import * as React from "react";
 
 interface LiveDurationProps {
@@ -17,17 +18,20 @@ export function LiveDuration({
   className,
 }: LiveDurationProps) {
   const [currentTime, setCurrentTime] = React.useState(new Date());
+  const isRunning = isRunningTimeEntry({
+    stop: stopTime,
+    duration: staticDuration,
+  });
 
   React.useEffect(() => {
-    // Only set up interval for running entries (no stop time or duration is -1)
-    if (!stopTime || staticDuration === -1) {
+    if (isRunning) {
       const interval = setInterval(() => {
         setCurrentTime(new Date());
       }, 1000);
 
       return () => clearInterval(interval);
     }
-  }, [stopTime, staticDuration]);
+  }, [isRunning]);
 
   const formatDuration = (seconds: number): string => {
     const absSeconds = Math.abs(seconds); // Handle negative durations
@@ -41,7 +45,7 @@ export function LiveDuration({
   };
 
   // If the entry is completed (has stop time AND duration is not -1), show the static duration
-  if (stopTime && staticDuration !== -1) {
+  if (!isRunning) {
     return (
       <span
         className={cn("font-mono transition-colors duration-200", className)}

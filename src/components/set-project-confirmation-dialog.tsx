@@ -141,7 +141,6 @@ export function SetProjectConfirmationDialog({
                 setIsProjectSelectorOpen(false);
               }}
               onNavigatePrev={() => {}}
-              onNavigateDown={() => {}}
               onProjectCreated={onProjectCreated}
             />
           </div>
@@ -203,4 +202,3 @@ export function SetProjectConfirmationDialog({
     </Dialog>
   );
 }
-

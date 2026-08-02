@@ -22,6 +22,7 @@ interface TagSelectorProps {
   closeOnSelect?: boolean; // Close the selector when a tag is selected
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
+  onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   onTagCreated?: (tag: Tag) => void;
   "data-testid"?: string;
 }
@@ -35,6 +36,7 @@ export function TagSelector({
   closeOnSelect = false,
   onNavigateNext,
   onNavigatePrev,
+  onNavigateVertical,
   onTagCreated,
   "data-testid": dataTestId,
 }: TagSelectorProps) {
@@ -214,6 +216,29 @@ export function TagSelector({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen) return;
+
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(e.key)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsOpen(false);
+      setSearchTerm("");
+      setHighlightedIndex(0);
+      onNavigateVertical?.(
+        e.key === "ArrowDown"
+          ? "down"
+          : e.key === "ArrowUp"
+            ? "up"
+            : e.key === "ArrowRight"
+              ? "right"
+              : "left"
+      );
+      return;
+    }
 
     switch (e.key) {
       case "ArrowDown":

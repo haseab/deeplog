@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { TimeEntry } from "@/types";
+import { isRunningTimeEntry } from "@/lib/time-entry-state";
 import { AlertTriangle, ArrowDown, Plus } from "lucide-react";
 import { format } from "date-fns";
 import * as React from "react";
@@ -44,7 +45,7 @@ export function CombineEntryDialog({
 
   if (!currentEntry || !previousEntry) return null;
 
-  const isCurrentEntryRunning = !currentEntry.stop || currentEntry.duration === -1;
+  const isCurrentEntryRunning = isRunningTimeEntry(currentEntry);
 
   // Determine which entry's metadata to keep based on reverse mode
   const entryToKeep = reverse ? currentEntry : previousEntry;
