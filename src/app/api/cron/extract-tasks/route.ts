@@ -355,7 +355,8 @@ async function processUserTasks(
         Authorization: `Bearer ${openaiApiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-5.6-luna",
+        reasoning_effort: "xhigh",
         messages: [
           {
             role: "system",

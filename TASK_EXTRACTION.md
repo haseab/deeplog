@@ -50,7 +50,7 @@ TODOIST_API_KEY=your-todoist-api-key
    - "remember to"
    - etc.
 5. **Extracts Context**: Gets line before + matching line + line after for better understanding
-6. **AI Processing**: Sends context to GPT-4o-mini to generate concise, actionable tasks
+6. **AI Processing**: Sends context to GPT-5.6 Luna to generate concise, actionable tasks
 7. **Creates in Todoist**: Automatically creates tasks with labels "auto-extracted" and "from-transcript"
 8. **Saves State**: Updates `data/processed-tasks.json` with new timestamp and processed IDs
 
