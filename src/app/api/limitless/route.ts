@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const direction = searchParams.get("direction") || "desc";
     const includeMarkdown = searchParams.get("includeMarkdown") || "true";
     const includeHeadings = searchParams.get("includeHeadings") || "true";
+    const includeContents = searchParams.get("includeContents") || "false";
 
     // Build the Limitless API URL
     let apiUrl = "https://api.limitless.ai/v1/lifelogs";
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest) {
     params.append("direction", direction);
     params.append("includeMarkdown", includeMarkdown);
     params.append("includeHeadings", includeHeadings);
+    params.append("includeContents", includeContents);
     
     if (cursor) {
       params.append("cursor", cursor);

@@ -1,6 +1,11 @@
 "use client";
 
 import { toast } from "@/lib/toast";
+import {
+  fetchLimitlessPage,
+  fetchLimitlessTimeRangeWithPreceding,
+  type LimitlessLifelog,
+} from "@/lib/limitless";
 import * as chrono from "chrono-node";
 import { format } from "date-fns";
 import { Search } from "lucide-react";
@@ -17,29 +22,33 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-interface TranscriptionContent {
-  type: "heading1" | "heading2" | "heading3" | "blockquote";
-  content: string;
-  speakerName?: string;
-  startTime?: string;
-  endTime?: string;
-  startOffsetMs?: number;
-  endOffsetMs?: number;
-}
-
-interface Transcription {
-  id: string;
-  title: string;
-  startTime: string;
-  endTime: string;
-  contents: TranscriptionContent[];
-  updatedAt: string;
-  markdown?: string;
-}
+type Transcription = LimitlessLifelog;
 
 interface LimitlessTranscriptionTableProps {
   initialQuery?: string;
 }
+
+const scrollToAndHighlightTimestamp = (element: HTMLElement) => {
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+  element.classList.add(
+    "ring-2",
+    "ring-blue-500",
+    "ring-offset-2",
+    "ring-offset-background",
+    "bg-blue-500/10",
+    "rounded-sm"
+  );
+  window.setTimeout(() => {
+    element.classList.remove(
+      "ring-2",
+      "ring-blue-500",
+      "ring-offset-2",
+      "ring-offset-background",
+      "bg-blue-500/10",
+      "rounded-sm"
+    );
+  }, 2500);
+};
 
 export function LimitlessTranscriptionTable({
   initialQuery = "today",
@@ -183,18 +192,13 @@ export function LimitlessTranscriptionTable({
           direction: "desc",
           includeMarkdown: "true",
           includeHeadings: "true",
+          includeContents: "true",
         });
 
-        // Give every requested range one hour of lead-in context. Keep the
-        // original startTime unchanged so scrolling still targets the exact
-        // time the user requested rather than the beginning of the allowance.
         if (fetchBeforeRange && endTime) {
           params.append("end", endTime.toISOString());
         } else if (startTime && endTime) {
-          const startWithAllowance = new Date(
-            startTime.getTime() - 60 * 60 * 1000
-          );
-          params.append("start", startWithAllowance.toISOString());
+          params.append("start", startTime.toISOString());
           params.append("end", endTime.toISOString());
         }
 
@@ -202,40 +206,23 @@ export function LimitlessTranscriptionTable({
           params.append("cursor", nextCursor);
         }
 
-        // Make the request with date filter
-        const response = await fetch(`/api/limitless?${params.toString()}`, {
-          headers: {
-            "x-limitless-api-key": apiKey,
-          },
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(
-            errorData.error || `HTTP ${response.status}: ${response.statusText}`
-          );
-        }
-
-        const data = await response.json();
-
-        // Extract transcriptions and pagination info
-        let newTranscriptions = [];
-        let responseCursor = null;
-
-        if (data.data && data.data.lifelogs) {
-          newTranscriptions = data.data.lifelogs;
-        } else if (data.lifelogs) {
-          newTranscriptions = data.lifelogs;
-        }
-
-        if (data.meta && data.meta.lifelogs && data.meta.lifelogs.nextCursor) {
-          responseCursor = data.meta.lifelogs.nextCursor;
-        }
-
-        // Ensure transcriptions is always an array
-        const transcriptionsArray = Array.isArray(newTranscriptions)
-          ? newTranscriptions
-          : [];
+        const shouldFetchPrecedingLifelog =
+          resetData &&
+          !fetchBeforeRange &&
+          !nextCursor &&
+          shouldScrollToRequestedStart &&
+          Boolean(startTime && endTime);
+        const page =
+          shouldFetchPrecedingLifelog && startTime && endTime
+            ? await fetchLimitlessTimeRangeWithPreceding({
+                apiKey,
+                startTime,
+                endTime,
+                limit: Number(limit),
+              })
+            : await fetchLimitlessPage({ apiKey, params });
+        const transcriptionsArray = page.lifelogs;
+        const responseCursor = page.nextCursor;
 
         if (resetData && !fetchBeforeRange) {
           setTranscriptions(transcriptionsArray);
@@ -378,19 +365,6 @@ export function LimitlessTranscriptionTable({
     fetchTranscriptions();
   }, [activeQuery, fetchTranscriptions]);
 
-  // Auto-load transcriptions before range when no results are found
-  // This will keep loading until we find results or there's an error
-  React.useEffect(() => {
-    if (
-      !loading &&
-      transcriptions.length === 0 &&
-      hasOriginalSearchRange
-    ) {
-      // Keep loading until we get results
-      loadBeforeRange();
-    }
-  }, [loading, transcriptions.length, hasOriginalSearchRange, loadBeforeRange]);
-
   // Scroll to the original query time range when results are found
   // Works for both auto-loaded results and immediate results
   React.useEffect(() => {
@@ -438,7 +412,7 @@ export function LimitlessTranscriptionTable({
             closestDiff: closestDiff,
             closestDiffSeconds: Math.round(closestDiff / 1000),
           });
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          scrollToAndHighlightTimestamp(element);
           // Mark as scrolled to prevent re-scrolling
           hasScrolledForQueryRef.current = true;
         } else {
@@ -570,26 +544,7 @@ export function LimitlessTranscriptionTable({
     setJumpDialogOpen(false);
 
     requestAnimationFrame(() => {
-      closestTarget.element.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      closestTarget.element.classList.add(
-        "ring-2",
-        "ring-primary",
-        "ring-offset-2",
-        "ring-offset-background",
-        "rounded-sm"
-      );
-      window.setTimeout(() => {
-        closestTarget.element.classList.remove(
-          "ring-2",
-          "ring-primary",
-          "ring-offset-2",
-          "ring-offset-background",
-          "rounded-sm"
-        );
-      }, 2500);
+      scrollToAndHighlightTimestamp(closestTarget.element);
     });
 
     const differenceSeconds = Math.round(closestDifference / 1000);
