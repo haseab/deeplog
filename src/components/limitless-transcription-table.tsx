@@ -8,6 +8,13 @@ import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 interface TranscriptionContent {
@@ -47,18 +54,42 @@ export function LimitlessTranscriptionTable({
   const [loading, setLoading] = React.useState(false);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [hasMore, setHasMore] = React.useState(true);
+  const [jumpDialogOpen, setJumpDialogOpen] = React.useState(false);
+  const [jumpQuery, setJumpQuery] = React.useState("");
+  const [jumpError, setJumpError] = React.useState<string | null>(null);
   // Store the original search time range for "load before" functionality
   // Use ref to avoid dependency issues in fetchTranscriptions
   const originalSearchRangeRef = React.useRef<{
     startTime: Date;
     endTime: Date;
   } | null>(null);
+  const shouldScrollToRequestedStartRef = React.useRef(false);
   // Use state to track if we have a range (for button visibility)
   const [hasOriginalSearchRange, setHasOriginalSearchRange] = React.useState(false);
   // Ref for the "Load before" button to auto-focus when no results
   const loadBeforeButtonRef = React.useRef<HTMLButtonElement>(null);
   // Track if we've scrolled for the current query
   const hasScrolledForQueryRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const handleJumpShortcut = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === "k" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        setJumpError(null);
+        setJumpDialogOpen(true);
+      }
+    };
+
+    document.addEventListener("keydown", handleJumpShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleJumpShortcut, true);
+  }, []);
 
   const fetchTranscriptions = React.useCallback(
     async (showLoadingState = true, resetData = true, nextCursor?: string, fetchBeforeRange?: boolean) => {
@@ -74,6 +105,7 @@ export function LimitlessTranscriptionTable({
 
       try {
         let startTime: Date | undefined, endTime: Date | undefined;
+        let shouldScrollToRequestedStart = false;
 
         // If fetching before range, use the original search range's start time as end
         if (fetchBeforeRange && originalSearchRangeRef.current) {
@@ -93,6 +125,7 @@ export function LimitlessTranscriptionTable({
             const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
             startTime = oneHourAgo;
             endTime = now;
+            shouldScrollToRequestedStart = true;
           } else {
             // Use chrono for standard parsing
             const results = chrono.parse(activeQuery.trim());
@@ -104,6 +137,7 @@ export function LimitlessTranscriptionTable({
                 // Time range found (e.g., "today from 3 to 5pm")
                 startTime = result.start.date();
                 endTime = result.end.date();
+                shouldScrollToRequestedStart = true;
               } else if (result.start) {
                 const parsedTime = result.start.date();
 
@@ -116,6 +150,7 @@ export function LimitlessTranscriptionTable({
                   // For relative times like "2 hours ago", create range from that time to now
                   startTime = parsedTime;
                   endTime = new Date(); // now
+                  shouldScrollToRequestedStart = true;
                 } else {
                   // Single date/time found, use full day
                   startTime = new Date(parsedTime);
@@ -150,11 +185,16 @@ export function LimitlessTranscriptionTable({
           includeHeadings: "true",
         });
 
-        // When fetching before range, only use end parameter
+        // Give every requested range one hour of lead-in context. Keep the
+        // original startTime unchanged so scrolling still targets the exact
+        // time the user requested rather than the beginning of the allowance.
         if (fetchBeforeRange && endTime) {
           params.append("end", endTime.toISOString());
         } else if (startTime && endTime) {
-          params.append("start", startTime.toISOString());
+          const startWithAllowance = new Date(
+            startTime.getTime() - 60 * 60 * 1000
+          );
+          params.append("start", startWithAllowance.toISOString());
           params.append("end", endTime.toISOString());
         }
 
@@ -204,8 +244,11 @@ export function LimitlessTranscriptionTable({
           // Only store if we have valid startTime and endTime
           if (startTime && endTime) {
             originalSearchRangeRef.current = { startTime, endTime };
+            shouldScrollToRequestedStartRef.current =
+              shouldScrollToRequestedStart;
             setHasOriginalSearchRange(true);
           } else {
+            shouldScrollToRequestedStartRef.current = false;
             setHasOriginalSearchRange(false);
           }
         } else {
@@ -355,6 +398,7 @@ export function LimitlessTranscriptionTable({
       !loading &&
       transcriptions.length > 0 &&
       originalSearchRangeRef.current &&
+      shouldScrollToRequestedStartRef.current &&
       !hasScrolledForQueryRef.current // Only scroll once per query
     ) {
       // Find the transcription that contains or is closest to the original start time
@@ -403,6 +447,169 @@ export function LimitlessTranscriptionTable({
       }, 300);
     }
   }, [loading, transcriptions.length]);
+
+  const handleJumpToTime = React.useCallback(() => {
+    const query = jumpQuery.trim();
+    if (!query) {
+      setJumpError("Enter a time to jump to.");
+      return;
+    }
+
+    const contentElements = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-content-time]")
+    );
+    const timestampElements =
+      contentElements.length > 0
+        ? contentElements
+        : Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-transcription-time]"
+            )
+          );
+    const loadedTargets = timestampElements
+      .map((element) => {
+        const timestamp =
+          element.getAttribute("data-content-time") ??
+          element.getAttribute("data-transcription-time");
+        const time = timestamp ? new Date(timestamp) : null;
+        return time && !Number.isNaN(time.getTime())
+          ? { element, time }
+          : null;
+      })
+      .filter(
+        (target): target is { element: HTMLElement; time: Date } =>
+          target !== null
+      );
+
+    if (loadedTargets.length === 0) {
+      setJumpError("There are no loaded transcript timestamps to search.");
+      return;
+    }
+
+    const parsedFromNow = chrono.parse(query, new Date(), {
+      forwardDate: false,
+    })[0];
+    if (!parsedFromNow) {
+      setJumpError(`Could not understand “${query}”.`);
+      return;
+    }
+
+    const hasExplicitDate = ["year", "month", "day"].some((component) =>
+      parsedFromNow.start.isCertain(
+        component as "year" | "month" | "day"
+      )
+    );
+    const isRelativeDateQuery =
+      /\b(ago|yesterday|today|tomorrow|last|next|from now)\b/i.test(query);
+    const expandAmbiguousMeridiem = (
+      result: (typeof parsedFromNow)
+    ): Date[] => {
+      const parsedTime = result.start.date();
+      const parsedHour = result.start.get("hour");
+      if (
+        result.start.isCertain("meridiem") ||
+        parsedHour === null ||
+        parsedHour < 1 ||
+        parsedHour > 11
+      ) {
+        return [parsedTime];
+      }
+
+      const alternateTime = new Date(parsedTime);
+      alternateTime.setHours(alternateTime.getHours() + 12);
+      return [parsedTime, alternateTime];
+    };
+    let candidateTimes: Date[];
+
+    if (hasExplicitDate || isRelativeDateQuery) {
+      candidateTimes = expandAmbiguousMeridiem(parsedFromNow);
+    } else {
+      // A time such as "7:22pm" has no calendar date. Parse it once against
+      // each loaded day, then choose the interpretation closest to real
+      // transcript data. This also behaves sensibly for multi-day results.
+      const loadedDays = new Map<string, Date>();
+      loadedTargets.forEach(({ time }) => {
+        const dayKey = format(time, "yyyy-MM-dd");
+        if (!loadedDays.has(dayKey)) {
+          const reference = new Date(time);
+          reference.setHours(12, 0, 0, 0);
+          loadedDays.set(dayKey, reference);
+        }
+      });
+      candidateTimes = Array.from(loadedDays.values())
+        .flatMap((reference) => {
+          const result = chrono.parse(query, reference, {
+            forwardDate: false,
+          })[0];
+          return result ? expandAmbiguousMeridiem(result) : [];
+        });
+    }
+
+    if (candidateTimes.length === 0) {
+      setJumpError(`Could not match “${query}” to the loaded dates.`);
+      return;
+    }
+
+    let closestTarget = loadedTargets[0];
+    let closestRequestedTime = candidateTimes[0];
+    let closestDifference = Infinity;
+    candidateTimes.forEach((requestedTime) => {
+      loadedTargets.forEach((target) => {
+        const difference = Math.abs(
+          target.time.getTime() - requestedTime.getTime()
+        );
+        if (difference < closestDifference) {
+          closestDifference = difference;
+          closestTarget = target;
+          closestRequestedTime = requestedTime;
+        }
+      });
+    });
+
+    setJumpError(null);
+    setJumpDialogOpen(false);
+
+    requestAnimationFrame(() => {
+      closestTarget.element.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      closestTarget.element.classList.add(
+        "ring-2",
+        "ring-primary",
+        "ring-offset-2",
+        "ring-offset-background",
+        "rounded-sm"
+      );
+      window.setTimeout(() => {
+        closestTarget.element.classList.remove(
+          "ring-2",
+          "ring-primary",
+          "ring-offset-2",
+          "ring-offset-background",
+          "rounded-sm"
+        );
+      }, 2500);
+    });
+
+    const differenceSeconds = Math.round(closestDifference / 1000);
+    const differenceLabel =
+      differenceSeconds < 60
+        ? `${differenceSeconds}s away`
+        : differenceSeconds < 3600
+          ? `${Math.round(differenceSeconds / 60)}m away`
+          : `${(differenceSeconds / 3600).toFixed(1)}h away`;
+    toast.info(
+      `Closest loaded timestamp: ${format(closestTarget.time, "MMM d, h:mm:ss a")} (${differenceLabel})`
+    );
+
+    console.log("[Jump to time]", {
+      query,
+      requestedTime: closestRequestedTime.toISOString(),
+      matchedTime: closestTarget.time.toISOString(),
+      differenceSeconds,
+    });
+  }, [jumpQuery]);
 
   const formatTranscriptionTime = (timestamp: string) => {
     try {
@@ -536,7 +743,59 @@ export function LimitlessTranscriptionTable({
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
+    <>
+      <Dialog
+        open={jumpDialogOpen}
+        onOpenChange={(open) => {
+          setJumpDialogOpen(open);
+          if (open) setJumpError(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Jump to a timestamp</DialogTitle>
+            <DialogDescription>
+              Enter a natural-language time. The closest currently loaded
+              transcript segment will be centered and highlighted.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleJumpToTime();
+            }}
+          >
+            <Input
+              autoFocus
+              value={jumpQuery}
+              onChange={(event) => {
+                setJumpQuery(event.target.value);
+                if (jumpError) setJumpError(null);
+              }}
+              placeholder="7:22pm, yesterday at noon, 15 minutes ago"
+              aria-label="Time to jump to"
+              aria-invalid={Boolean(jumpError)}
+            />
+            {jumpError && (
+              <p className="text-sm text-destructive" role="alert">
+                {jumpError}
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs text-muted-foreground">
+                Searches loaded timestamps only
+              </span>
+              <Button type="submit" size="sm">
+                Jump
+                <kbd className="ml-2 text-[10px] opacity-70">↵</kbd>
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <div className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
       {/* Simple NLP Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -663,6 +922,7 @@ export function LimitlessTranscriptionTable({
           for &ldquo;{activeQuery}&rdquo;
         </p>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
