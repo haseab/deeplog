@@ -38,10 +38,69 @@ export function DurationEditor({
   const [hours, setHours] = React.useState("");
   const [minutes, setMinutes] = React.useState("");
   const [seconds, setSeconds] = React.useState("");
+  const [keepSecondsLive, setKeepSecondsLive] = React.useState(false);
 
   const hoursRef = React.useRef<HTMLInputElement>(null);
   const minutesRef = React.useRef<HTMLInputElement>(null);
   const secondsRef = React.useRef<HTMLInputElement>(null);
+  const hoursValueRef = React.useRef("");
+  const minutesValueRef = React.useRef("");
+  const secondsValueRef = React.useRef("");
+
+  React.useEffect(() => {
+    hoursValueRef.current = hours;
+    minutesValueRef.current = minutes;
+    secondsValueRef.current = seconds;
+  }, [hours, minutes, seconds]);
+
+  // Keep a running timer live inside the editor until the user explicitly
+  // changes its seconds segment. Hours and minutes remain independently
+  // editable and only advance here when seconds roll over.
+  React.useEffect(() => {
+    if (!isEditing || !keepSecondsLive || duration !== -1 || endTime) return;
+
+    const getElapsedSeconds = () =>
+      Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
+    let lastElapsedSeconds = getElapsedSeconds();
+
+    const tick = () => {
+      const elapsedSeconds = getElapsedSeconds();
+      const elapsedDelta = elapsedSeconds - lastElapsedSeconds;
+      if (elapsedDelta <= 0) return;
+      lastElapsedSeconds = elapsedSeconds;
+
+      const currentSeconds = parseInt(secondsValueRef.current, 10) || 0;
+      const secondsWithDelta = currentSeconds + elapsedDelta;
+      const nextSeconds = secondsWithDelta % 60;
+      const minuteCarry = Math.floor(secondsWithDelta / 60);
+
+      const formattedSeconds = nextSeconds.toString().padStart(2, "0");
+      secondsValueRef.current = formattedSeconds;
+      setSeconds(formattedSeconds);
+
+      if (minuteCarry > 0) {
+        const currentMinutes = parseInt(minutesValueRef.current, 10) || 0;
+        const minutesWithCarry = currentMinutes + minuteCarry;
+        const nextMinutes = minutesWithCarry % 60;
+        const hourCarry = Math.floor(minutesWithCarry / 60);
+        const formattedMinutes = nextMinutes.toString().padStart(2, "0");
+        minutesValueRef.current = formattedMinutes;
+        setMinutes(formattedMinutes);
+
+        if (hourCarry > 0) {
+          const currentHours = parseInt(hoursValueRef.current, 10) || 0;
+          const formattedHours = (currentHours + hourCarry)
+            .toString()
+            .padStart(2, "0");
+          hoursValueRef.current = formattedHours;
+          setHours(formattedHours);
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(tick, 200);
+    return () => window.clearInterval(intervalId);
+  }, [duration, endTime, isEditing, keepSecondsLive, startTime]);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
@@ -64,6 +123,7 @@ export function DurationEditor({
     setHours(h.toString().padStart(2, "0"));
     setMinutes(m.toString().padStart(2, "0"));
     setSeconds(s.toString().padStart(2, "0"));
+    setKeepSecondsLive(duration === -1 && !endTime);
     setIsEditing(true);
 
     // Focus hours field
@@ -104,6 +164,7 @@ export function DurationEditor({
   };
 
   const handleCancel = () => {
+    setKeepSecondsLive(false);
     setIsEditing(false);
   };
 
@@ -120,6 +181,7 @@ export function DurationEditor({
       const newValue = Math.max(0, Math.min(59, current + delta));
       setMinutes(newValue.toString().padStart(2, "0"));
     } else if (field === "seconds") {
+      setKeepSecondsLive(false);
       const current = parseInt(seconds) || 0;
       const newValue = Math.max(0, Math.min(59, current + delta));
       setSeconds(newValue.toString().padStart(2, "0"));
@@ -166,6 +228,18 @@ export function DurationEditor({
     e: React.KeyboardEvent,
     field: "hours" | "minutes" | "seconds"
   ) => {
+    if (
+      field === "seconds" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      (e.key === "Backspace" || e.key === "Delete" || /^\d$/.test(e.key))
+    ) {
+      // Stop before the input event so even a keystroke rejected by maxLength
+      // establishes the user's seconds value as authoritative.
+      setKeepSecondsLive(false);
+    }
+
     if (
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey &&
@@ -296,7 +370,10 @@ export function DurationEditor({
         <Input
           ref={hoursRef}
           value={hours}
-          onChange={(e) => setHours(e.target.value)}
+          onChange={(e) => {
+            hoursValueRef.current = e.target.value;
+            setHours(e.target.value);
+          }}
           onKeyDown={(e) => handleKeyDown(e, "hours")}
           onBlur={handleBlur}
           className="w-6 h-5 text-center p-0 font-mono text-xs border-0 bg-transparent focus-visible:ring-1 rounded-sm"
@@ -306,7 +383,10 @@ export function DurationEditor({
         <Input
           ref={minutesRef}
           value={minutes}
-          onChange={(e) => setMinutes(e.target.value)}
+          onChange={(e) => {
+            minutesValueRef.current = e.target.value;
+            setMinutes(e.target.value);
+          }}
           onKeyDown={(e) => handleKeyDown(e, "minutes")}
           onBlur={handleBlur}
           className="w-6 h-5 text-center p-0 font-mono text-xs border-0 bg-transparent focus-visible:ring-1 rounded-sm"
@@ -316,7 +396,11 @@ export function DurationEditor({
         <Input
           ref={secondsRef}
           value={seconds}
-          onChange={(e) => setSeconds(e.target.value)}
+          onChange={(e) => {
+            setKeepSecondsLive(false);
+            secondsValueRef.current = e.target.value;
+            setSeconds(e.target.value);
+          }}
           onKeyDown={(e) => handleKeyDown(e, "seconds")}
           onBlur={handleBlur}
           className="w-6 h-5 text-center p-0 font-mono text-xs border-0 bg-transparent focus-visible:ring-1 rounded-sm"
