@@ -62,25 +62,26 @@ export function RecentTimersPopover({
 }: RecentTimersPopoverProps) {
   const [recentTimers, setRecentTimers] = React.useState<RecentTimerEntry[]>([]);
 
-  const refreshTimers = React.useCallback(() => {
+  const refreshTimers = React.useCallback((): RecentTimerEntry[] => {
     // Re-read local storage when a keyboard ranking reset increments this revision.
     void refreshRevision;
     const results = searchRecentTimers(searchQuery, maxResults);
     setRecentTimers(results);
     onTimersChange?.(results);
+    return results;
   }, [searchQuery, maxResults, onTimersChange, refreshRevision]);
 
   React.useEffect(() => {
-    if (open) {
-      refreshTimers();
+    if (!open) return;
 
-      // If no results found, close the popover state in parent
-      // This ensures keyboard shortcuts work properly
-      if (recentTimers.length === 0 && searchQuery.trim().length > 0) {
-        onOpenChange(false);
-      }
+    const results = refreshTimers();
+
+    // Decide from the results returned by this search, not the previous
+    // render's state. Using the old state closed a valid popup on first open.
+    if (results.length === 0) {
+      onOpenChange(false);
     }
-  }, [open, searchQuery, maxResults, onTimersChange, onOpenChange, refreshTimers, recentTimers.length]);
+  }, [open, searchQuery, onOpenChange, refreshTimers]);
 
   // Clamp highlighted index to valid range
   React.useEffect(() => {

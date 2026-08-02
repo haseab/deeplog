@@ -560,11 +560,11 @@ export function ExpandableDescription({
       setIsEditing(true);
       setCurrentCharCount(description.length);
 
-      // If description is empty or has only 1 character, show recent timers popover
-      if (!description || description.trim().length <= 1) {
-        setShowRecentTimers(true);
-        setHighlightedIndex(0);
-      }
+      // Opening the editor should always offer matching recent timers. The
+      // popover remains hidden when the cache has no matching entries.
+      setSearchQuery(description);
+      setShowRecentTimers(true);
+      setHighlightedIndex(0);
 
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {

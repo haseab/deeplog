@@ -714,6 +714,45 @@ const MemoizedActionsCell = React.memo(
   }
 );
 
+type DateSearchParams = {
+  get: (name: string) => string | null;
+};
+
+function getDefaultDateRange(): DateRange {
+  const today = new Date();
+  const sevenDaysAgo = subDays(today, 7);
+  return {
+    from: startOfDay(sevenDaysAgo),
+    to: endOfDay(today),
+  };
+}
+
+function getDateRangeFromSearchParams(
+  params: DateSearchParams
+): DateRange | null {
+  const fromParam = params.get("from");
+  const toParam = params.get("to");
+
+  if (!fromParam || !toParam) return null;
+
+  try {
+    // Parse dates in local time (not UTC) to avoid timezone shifts.
+    const from = parse(fromParam, "yyyy-MM-dd", new Date());
+    const to = parse(toParam, "yyyy-MM-dd", new Date());
+
+    if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+      return {
+        from: startOfDay(from),
+        to: endOfDay(to),
+      };
+    }
+  } catch {
+    // Invalid URL ranges use the rolling default instead.
+  }
+
+  return null;
+}
+
 function useAlternatingDateRangeSelection(
   date: DateRange | undefined,
   setDate: (date: DateRange | undefined) => void
@@ -2095,39 +2134,12 @@ export function TimeTrackerTable({
     }, 0);
   }, []);
 
-  const getDefaultDateRange = (): DateRange => {
-    const today = new Date();
-    const sevenDaysAgo = subDays(today, 7);
-    return {
-      from: startOfDay(sevenDaysAgo),
-      to: endOfDay(today),
-    };
-  };
-
   const getInitialDateRange = (): DateRange => {
     // Try to read from URL query params first
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const fromParam = params.get("from");
-      const toParam = params.get("to");
-
-      if (fromParam && toParam) {
-        try {
-          // Parse dates in local time (not UTC) to avoid timezone shifts
-          const from = parse(fromParam, "yyyy-MM-dd", new Date());
-          const to = parse(toParam, "yyyy-MM-dd", new Date());
-
-          // Validate dates
-          if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
-            return {
-              from: startOfDay(from),
-              to: endOfDay(to),
-            };
-          }
-        } catch {
-          // Invalid dates in URL, fall through to default
-        }
-      }
+      const urlDateRange = getDateRangeFromSearchParams(params);
+      if (urlDateRange) return urlDateRange;
     }
 
     // Fall back to default range
@@ -2136,6 +2148,19 @@ export function TimeTrackerTable({
 
   const [date, setDate] = React.useState<DateRange | undefined>(
     getInitialDateRange()
+  );
+  const [isRollingDateRange, setIsRollingDateRange] = React.useState(() => {
+    if (typeof window === "undefined") return true;
+    const params = new URLSearchParams(window.location.search);
+    return getDateRangeFromSearchParams(params) === null;
+  });
+
+  const handleDateChange = React.useCallback(
+    (nextDate: DateRange | undefined) => {
+      setIsRollingDateRange(false);
+      setDate(nextDate);
+    },
+    []
   );
 
   const fallbackTimelineTitle = React.useMemo(() => {
@@ -2154,26 +2179,17 @@ export function TimeTrackerTable({
 
   // Watch for URL changes and update date range accordingly
   React.useEffect(() => {
-    const fromParam = searchParams.get("from");
-    const toParam = searchParams.get("to");
+    const urlDateRange = getDateRangeFromSearchParams(searchParams);
 
-    // If no params, reset to default range
-    if (!fromParam || !toParam) {
+    if (!urlDateRange) {
+      // A URL without a complete valid range is the rolling view. Keeping
+      // that mode separate prevents the default dates from being written
+      // straight back into the URL and frozen there.
+      setIsRollingDateRange(true);
       setDate(getDefaultDateRange());
     } else {
-      try {
-        const from = parse(fromParam, "yyyy-MM-dd", new Date());
-        const to = parse(toParam, "yyyy-MM-dd", new Date());
-
-        if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
-          setDate({
-            from: startOfDay(from),
-            to: endOfDay(to),
-          });
-        }
-      } catch {
-        // Invalid date format, ignore
-      }
+      setIsRollingDateRange(false);
+      setDate(urlDateRange);
     }
   }, [searchParams]);
 
@@ -6162,7 +6178,7 @@ export function TimeTrackerTable({
 
   // Update URL query params when date range changes
   React.useEffect(() => {
-    if (date?.from && date?.to) {
+    if (!isRollingDateRange && date?.from && date?.to) {
       const params = new URLSearchParams(window.location.search);
       const fromStr = format(date.from, "yyyy-MM-dd");
       const toStr = format(date.to, "yyyy-MM-dd");
@@ -6173,7 +6189,7 @@ export function TimeTrackerTable({
       const newUrl = `${window.location.pathname}?${params.toString()}`;
       window.history.replaceState({}, "", newUrl);
     }
-  }, [date]);
+  }, [date, isRollingDateRange]);
 
   // Refresh data when tab becomes visible or window gains focus (with debouncing)
   React.useEffect(() => {
@@ -7908,7 +7924,7 @@ export function TimeTrackerTable({
               {/* Desktop layout - single row */}
               <MemoizedDatePickerRow
                 date={date}
-                setDate={setDate}
+                setDate={handleDateChange}
                 syncStatus={syncStatus}
                 hasLoadedMoreEntries={hasLoadedMoreEntries}
                 lastSyncTime={lastSyncTime}
@@ -7926,7 +7942,10 @@ export function TimeTrackerTable({
 
               {/* Mobile layout - two rows */}
               <div className="md:hidden space-y-3">
-                <MemoizedMobileDatePickerRow date={date} setDate={setDate} />
+                <MemoizedMobileDatePickerRow
+                  date={date}
+                  setDate={handleDateChange}
+                />
                 <MemoizedMobileButtonsRow
                   syncStatus={syncStatus}
                   hasLoadedMoreEntries={hasLoadedMoreEntries}
