@@ -214,7 +214,7 @@ const MemoizedProjectCell = React.memo(
             onProjectChange(entry.id)(newProject)
           }
           projects={projects}
-          onOpenChange={setIsProjectSelectorOpen}
+          onOpenChange={(open) => setIsProjectSelectorOpen(entry.id, open)}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
           onNavigateVertical={navigateToAdjacentRow}
@@ -280,7 +280,7 @@ const MemoizedTagCell = React.memo(
           currentTags={entry.tags || []}
           onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
           availableTags={availableTags}
-          onOpenChange={setIsTagSelectorOpen}
+          onOpenChange={(open) => setIsTagSelectorOpen(entry.id, open)}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
           onNavigateVertical={navigateToAdjacentRow}
@@ -348,7 +348,7 @@ const MemoizedDescriptionCell = React.memo(
           onSave={(newDescription) =>
             onDescriptionSave(entry.id)(newDescription)
           }
-          onEditingChange={setIsEditingCell}
+          onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
           onNavigateNext={navigateToNextCell}
           onNavigateVertical={navigateToAdjacentRow}
           projects={projects}
@@ -551,7 +551,7 @@ const MemoizedTimeCell = React.memo(
           onSaveWithForcePush={(startTime, endTime, direction) =>
             onTimeChangeWithForcePush(entry.id)(startTime, endTime, direction)
           }
-          onEditingChange={setIsTimeEditorOpen}
+          onEditingChange={(open) => setIsTimeEditorOpen(entry.id, open)}
           onNavigateNext={navigateToNextCell}
           onNavigateVertical={navigateToAdjacentRow}
           onNavigatePrev={navigateToPrevCell}
@@ -624,7 +624,7 @@ const MemoizedDurationCell = React.memo(
           onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
             onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
           }
-          onEditingChange={setIsEditingCell}
+          onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
           onNavigateVertical={navigateToAdjacentRow}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
@@ -1420,11 +1420,11 @@ const MemoizedTableRow = React.memo(
     availableTags: Tag[];
     onProjectCreated: (project: Project) => void;
     onTagCreated: (tag: Tag) => void;
-    setIsEditingCell: (editing: boolean) => void;
-    setIsProjectSelectorOpen: (open: boolean) => void;
-    setIsTagSelectorOpen: (open: boolean) => void;
+    setIsEditingCell: (entryId: number, editing: boolean) => void;
+    setIsProjectSelectorOpen: (entryId: number, open: boolean) => void;
+    setIsTagSelectorOpen: (entryId: number, open: boolean) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
-    setIsTimeEditorOpen: (open: boolean) => void;
+    setIsTimeEditorOpen: (entryId: number, open: boolean) => void;
     navigateToNextCell: () => void;
     navigateToPrevCell: () => void;
     navigateToAdjacentRow: (
@@ -1493,7 +1493,9 @@ const MemoizedTableRow = React.memo(
                     onSave={(newDescription) =>
                       onDescriptionSave(entry.id)(newDescription)
                     }
-                    onEditingChange={setIsEditingCell}
+                    onEditingChange={(editing) =>
+                      setIsEditingCell(entry.id, editing)
+                    }
                     onNavigateNext={navigateToNextCell}
                     onNavigateVertical={navigateToAdjacentRow}
                     projects={projects}
@@ -1535,7 +1537,9 @@ const MemoizedTableRow = React.memo(
                         onProjectChange(entry.id)(newProject)
                       }
                       projects={projects}
-                      onOpenChange={setIsProjectSelectorOpen}
+                      onOpenChange={(open) =>
+                        setIsProjectSelectorOpen(entry.id, open)
+                      }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
                       onNavigateVertical={navigateToAdjacentRow}
@@ -1557,7 +1561,9 @@ const MemoizedTableRow = React.memo(
                           direction
                         )
                       }
-                      onEditingChange={setIsTimeEditorOpen}
+                      onEditingChange={(open) =>
+                        setIsTimeEditorOpen(entry.id, open)
+                      }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
                       onNavigateVertical={navigateToAdjacentRow}
@@ -1577,7 +1583,9 @@ const MemoizedTableRow = React.memo(
                         onTagsChange(entry.id)(newTags)
                       }
                       availableTags={availableTags}
-                      onOpenChange={setIsTagSelectorOpen}
+                      onOpenChange={(open) =>
+                        setIsTagSelectorOpen(entry.id, open)
+                      }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
                       onNavigateVertical={navigateToAdjacentRow}
@@ -1604,7 +1612,9 @@ const MemoizedTableRow = React.memo(
                       onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
                         onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
                       }
-                      onEditingChange={setIsEditingCell}
+                      onEditingChange={(editing) =>
+                        setIsEditingCell(entry.id, editing)
+                      }
                       onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
                       nextEntryStart={nextEntryStart}
@@ -1652,7 +1662,7 @@ const MemoizedTableRow = React.memo(
                     {syncStatus === "pending" && (
                       <>
                         <Clock className="w-3 h-3 text-yellow-500" />
-                        <span>Queued</span>
+                        <span>Pending</span>
                       </>
                     )}
                     {syncStatus === "syncing" && (
@@ -1716,7 +1726,7 @@ const MemoizedTableRow = React.memo(
               />
             )}
             {syncStatus === "pending" && (
-              <div title="Update queued">
+              <div title="Pending local changes">
                 <Clock className="w-4 h-4 text-yellow-500" />
               </div>
             )}
@@ -2459,22 +2469,34 @@ export function TimeTrackerTable({
 
   // Track last selection direction for toggle behavior
   const lastSelectionDirectionRef = React.useRef<"up" | "down" | null>(null);
-  const activeEditorEntryIdRef = React.useRef<number | null>(null);
   const pendingCreateEntryIdsRef = React.useRef<Set<number>>(new Set());
-  const pendingCreateToastControllersRef = React.useRef<
+  const pendingEntryToastControllersRef = React.useRef<
     Map<number, { submit: () => boolean; cancel: () => boolean }>
   >(new Map());
-  const pendingCreateToastFactoriesRef = React.useRef<
+  const pendingEntryToastFactoriesRef = React.useRef<
     Map<number, () => void>
+  >(new Map());
+  const pendingEntryMutationsRef = React.useRef<
+    Map<
+      number,
+      {
+        message: string;
+        undoAction: () => void;
+        operations: Map<
+          string,
+          { apiCall: () => Promise<void>; onCommit?: () => void }
+        >;
+      }
+    >
   >(new Map());
   const pendingCreateCommitCallbacksRef = React.useRef<
     Map<number, Set<() => void>>
   >(new Map());
-  const previousRowEditorStatesRef = React.useRef({
-    descriptionOrDuration: false,
-    project: false,
-    tags: false,
-    time: false,
+  const activeEditorEntryIdsRef = React.useRef({
+    descriptionOrDuration: new Set<number>(),
+    project: new Set<number>(),
+    tags: new Set<number>(),
+    time: new Set<number>(),
   });
 
   const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
@@ -2489,49 +2511,74 @@ export function TimeTrackerTable({
   const isAnyRowEditorActive =
     isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen;
 
-  React.useEffect(() => {
-    const previous = previousRowEditorStatesRef.current;
-    const current = {
-      descriptionOrDuration: isEditingCell,
-      project: isProjectSelectorOpen,
-      tags: isTagSelectorOpen,
-      time: isTimeEditorOpen,
-    };
-    const editorKeys = Object.keys(current) as Array<keyof typeof current>;
-    const editorClosed = editorKeys.some(
-      (key) => previous[key] && !current[key]
-    );
-    const editorOpened = editorKeys.some(
-      (key) => !previous[key] && current[key]
-    );
-    const previouslyEditedEntryId = activeEditorEntryIdRef.current;
+  const handleRowEditorStateChange = React.useCallback(
+    (
+      entryId: number,
+      editorType: keyof typeof activeEditorEntryIdsRef.current,
+      open: boolean
+    ) => {
+      const activeEntryIds = activeEditorEntryIdsRef.current[editorType];
+      const wasOpen = activeEntryIds.has(entryId);
 
-    // Closing/submitting an editor starts a fresh quiet-period toast even if
-    // that editor did not change a value. This is only a candidate commit;
-    // opening the next editor cancels it without discarding the draft.
-    if (editorClosed && previouslyEditedEntryId !== null) {
-      pendingCreateToastFactoriesRef.current
-        .get(previouslyEditedEntryId)?.();
-    }
-
-    if (editorOpened) {
-      const openedEntryId = selectedCellEntryIdRef.current;
-      activeEditorEntryIdRef.current = openedEntryId;
-      if (openedEntryId !== null) {
-        pendingCreateToastControllersRef.current.get(openedEntryId)?.cancel();
+      if (open) {
+        activeEntryIds.add(entryId);
+      } else {
+        activeEntryIds.delete(entryId);
       }
-    } else if (!isAnyRowEditorActive) {
-      activeEditorEntryIdRef.current = null;
-    }
 
-    previousRowEditorStatesRef.current = current;
-  }, [
-    isAnyRowEditorActive,
-    isEditingCell,
-    isProjectSelectorOpen,
-    isTagSelectorOpen,
-    isTimeEditorOpen,
-  ]);
+      const hasActiveEditorOfType = activeEntryIds.size > 0;
+      if (editorType === "descriptionOrDuration") {
+        setIsEditingCell(hasActiveEditorOfType);
+      } else if (editorType === "project") {
+        setIsProjectSelectorOpen(hasActiveEditorOfType);
+      } else if (editorType === "tags") {
+        setIsTagSelectorOpen(hasActiveEditorOfType);
+      } else {
+        setIsTimeEditorOpen(hasActiveEditorOfType);
+      }
+
+      // Ignore initial/duplicate notifications from mounted controls. Only a
+      // real transition should pause or restart that entry's transaction.
+      if (open === wasOpen) return;
+
+      if (open) {
+        pendingEntryToastControllersRef.current.get(entryId)?.cancel();
+      } else {
+        const entryStillHasAnOpenEditor = Object.values(
+          activeEditorEntryIdsRef.current
+        ).some((entryIds) => entryIds.has(entryId));
+
+        // A direct editor-to-editor transition can report the new editor as
+        // open before the old one closes. Keep the transaction paused until
+        // the entry truly has no editor left open, regardless of event order.
+        if (!entryStillHasAnOpenEditor) {
+          pendingEntryToastFactoriesRef.current.get(entryId)?.();
+        }
+      }
+    },
+    []
+  );
+
+  const handleDescriptionOrDurationEditorChange = React.useCallback(
+    (entryId: number, open: boolean) =>
+      handleRowEditorStateChange(entryId, "descriptionOrDuration", open),
+    [handleRowEditorStateChange]
+  );
+  const handleProjectEditorChange = React.useCallback(
+    (entryId: number, open: boolean) =>
+      handleRowEditorStateChange(entryId, "project", open),
+    [handleRowEditorStateChange]
+  );
+  const handleTagEditorChange = React.useCallback(
+    (entryId: number, open: boolean) =>
+      handleRowEditorStateChange(entryId, "tags", open),
+    [handleRowEditorStateChange]
+  );
+  const handleTimeEditorChange = React.useCallback(
+    (entryId: number, open: boolean) =>
+      handleRowEditorStateChange(entryId, "time", open),
+    [handleRowEditorStateChange]
+  );
 
   React.useEffect(() => {
     if (typeof document !== "undefined") {
@@ -2697,6 +2744,7 @@ export function TimeTrackerTable({
         setEntrySyncStatus((prev) => {
           const next = new Map(prev);
           next.set(entryId, "syncing");
+          entrySyncStatusRef.current = next;
           return next;
         });
 
@@ -2714,6 +2762,7 @@ export function TimeTrackerTable({
           setEntrySyncStatus((prev) => {
             const next = new Map(prev);
             next.set(entryId, "synced");
+            entrySyncStatusRef.current = next;
             return next;
           });
           entryRetryFunctions.current.delete(entryId);
@@ -2727,7 +2776,12 @@ export function TimeTrackerTable({
           setTimeout(() => {
             setEntrySyncStatus((prev) => {
               const next = new Map(prev);
-              next.delete(entryId);
+              // Do not let an older completion timer erase a newer pending
+              // transaction started during this two-second confirmation.
+              if (next.get(entryId) === "synced") {
+                next.delete(entryId);
+              }
+              entrySyncStatusRef.current = next;
               return next;
             });
           }, 2000);
@@ -2742,6 +2796,7 @@ export function TimeTrackerTable({
           setEntrySyncStatus((prev) => {
             const next = new Map(prev);
             next.set(entryId, "error");
+            entrySyncStatusRef.current = next;
             return next;
           });
 
@@ -2770,7 +2825,112 @@ export function TimeTrackerTable({
     [toastDuration]
   );
 
-  // Reusable helper to handle updates on temp IDs (queues them) or real IDs (uses showUpdateToast)
+  const queueEntryMutation = React.useCallback(
+    (
+      message: string,
+      entryId: number,
+      undoAction: () => void,
+      apiCall: () => Promise<void>,
+      onCommit?: () => void,
+      operationKey: string = message
+    ) => {
+      let transaction = pendingEntryMutationsRef.current.get(entryId);
+
+      if (!transaction) {
+        transaction = {
+          message,
+          undoAction,
+          operations: new Map(),
+        };
+        pendingEntryMutationsRef.current.set(entryId, transaction);
+      }
+
+      // Preserve the first undo snapshot, but continuously replace each kind
+      // of edit with its latest operation. Different fields accumulate in the
+      // same entry transaction; repeated edits to one field are coalesced.
+      transaction.message = message;
+      transaction.operations.set(operationKey, { apiCall, onCommit });
+
+      // The optimistic row is intentionally ahead of Toggl until the quiet
+      // period expires, so expose that state immediately and keep it visible
+      // while the toast is paused or re-armed.
+      const pendingStatuses = new Map(entrySyncStatusRef.current);
+      pendingStatuses.set(entryId, "pending");
+      entrySyncStatusRef.current = pendingStatuses;
+      queueMicrotask(() => {
+        // Most mutation handlers register their transaction from inside an
+        // optimistic state updater. Publish the separate status state just
+        // after that updater finishes instead of nesting React state updates.
+        if (entrySyncStatusRef.current.get(entryId) !== "pending") return;
+        setEntrySyncStatus((previousStatuses) => {
+          const nextStatuses = new Map(previousStatuses);
+          nextStatuses.set(entryId, "pending");
+          return nextStatuses;
+        });
+      });
+
+      const armToast = () => {
+        const currentTransaction = pendingEntryMutationsRef.current.get(entryId);
+        if (!currentTransaction) return;
+
+        const entryHasOpenEditor = Object.values(
+          activeEditorEntryIdsRef.current
+        ).some((entryIds) => entryIds.has(entryId));
+        if (entryHasOpenEditor) return;
+
+        pendingEntryToastControllersRef.current.get(entryId)?.cancel();
+
+        const clearTransaction = () => {
+          if (
+            pendingEntryMutationsRef.current.get(entryId) === currentTransaction
+          ) {
+            pendingEntryMutationsRef.current.delete(entryId);
+            pendingEntryToastControllersRef.current.delete(entryId);
+            pendingEntryToastFactoriesRef.current.delete(entryId);
+          }
+        };
+
+        const controller = showUpdateToast(
+          currentTransaction.message,
+          entryId,
+          () => {
+            clearTransaction();
+            setEntrySyncStatus((previousStatuses) => {
+              const nextStatuses = new Map(previousStatuses);
+              if (nextStatuses.get(entryId) === "pending") {
+                nextStatuses.delete(entryId);
+              }
+              entrySyncStatusRef.current = nextStatuses;
+              return nextStatuses;
+            });
+            currentTransaction.undoAction();
+          },
+          async () => {
+            // Freeze the final accumulated operations at the moment the quiet
+            // period expires. Any later edit starts a new transaction.
+            const operations = Array.from(
+              currentTransaction.operations.values()
+            );
+            clearTransaction();
+
+            for (const operation of operations) {
+              await operation.apiCall();
+              operation.onCommit?.();
+            }
+          }
+        );
+
+        pendingEntryToastControllersRef.current.set(entryId, controller);
+      };
+
+      pendingEntryToastFactoriesRef.current.set(entryId, armToast);
+      armToast();
+    },
+    [showUpdateToast]
+  );
+
+  // Reusable helper to fold edits into an unsubmitted create transaction or
+  // queue them until an older create request finishes resolving its real ID.
   const handleUpdateWithQueue = React.useCallback(
     <T extends Record<string, unknown>>(
       entryId: number,
@@ -2799,6 +2959,7 @@ export function TimeTrackerTable({
           return updatedEntries;
         });
         setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
+        pendingEntryToastFactoriesRef.current.get(entryId)?.();
         return true;
       }
 
@@ -2903,7 +3064,7 @@ export function TimeTrackerTable({
             : entry
         );
 
-        showUpdateToast(
+        queueEntryMutation(
           "Description updated.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -2981,7 +3142,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue, encryption]
+    [queueEntryMutation, handleUpdateWithQueue, encryption]
   );
 
   const handleProjectChange = React.useCallback(
@@ -3041,7 +3202,7 @@ export function TimeTrackerTable({
             : entry
         );
 
-        showUpdateToast(
+        queueEntryMutation(
           "Project updated.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -3080,7 +3241,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue]
   );
 
   const handleTagsChange = React.useCallback(
@@ -3126,7 +3287,7 @@ export function TimeTrackerTable({
             : entry
         );
 
-        showUpdateToast(
+        queueEntryMutation(
           "Tags updated.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -3163,7 +3324,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue]
   );
 
   const handleTagCreated = React.useCallback((newTag: Tag) => {
@@ -3417,7 +3578,7 @@ export function TimeTrackerTable({
               : e
           );
 
-          showUpdateToast(
+          queueEntryMutation(
             "Entry updated.",
             entryId,
             () => setTimeEntries(originalEntries),
@@ -3466,7 +3627,7 @@ export function TimeTrackerTable({
           return updatedEntries;
         });
       },
-    [showUpdateToast, projects, availableTags, encryption]
+    [queueEntryMutation, projects, availableTags, encryption]
   );
 
   // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)
@@ -3673,7 +3834,7 @@ export function TimeTrackerTable({
           ? "Start time adjusted."
           : "Duration updated.";
 
-        showUpdateToast(
+        queueEntryMutation(
           message,
           entryId,
           () => setTimeEntries(originalEntries),
@@ -3749,7 +3910,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast]
+    [queueEntryMutation]
   );
 
   const handleTimeChange = React.useCallback(
@@ -3808,7 +3969,7 @@ export function TimeTrackerTable({
           (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
         );
 
-        showUpdateToast(
+        queueEntryMutation(
           "Time updated.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -3849,7 +4010,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue]
   );
 
   const handleTimeChangeWithForcePush = React.useCallback(
@@ -3958,7 +4119,7 @@ export function TimeTrackerTable({
           return entry;
         });
 
-        showUpdateToast(
+        queueEntryMutation(
           "Duration updated.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -3996,7 +4157,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue]
   );
 
   const handleDurationChangeWithStartTimeAdjustment = React.useCallback(
@@ -4040,7 +4201,7 @@ export function TimeTrackerTable({
           return entry;
         });
 
-        showUpdateToast(
+        queueEntryMutation(
           "Start time adjusted.",
           entryId,
           () => setTimeEntries(originalEntries),
@@ -4076,7 +4237,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [showUpdateToast]
+    [queueEntryMutation]
   );
 
   const handleDurationChangeWithForcePush = React.useCallback(
@@ -4118,7 +4279,7 @@ export function TimeTrackerTable({
           (entry) => entry.id !== entryToDelete.id
         );
 
-        showUpdateToast(
+        queueEntryMutation(
           "Time entry deleted.",
           entryToDelete.id,
           () => {
@@ -4182,7 +4343,7 @@ export function TimeTrackerTable({
         });
       }
     },
-    [showUpdateToast, selectedCell, timeEntries]
+    [queueEntryMutation, selectedCell, timeEntries]
   );
 
   const handleDeleteMultiple = React.useCallback(
@@ -5564,8 +5725,6 @@ export function TimeTrackerTable({
           }
 
           pendingCreateEntryIdsRef.current.delete(tempId);
-          pendingCreateToastControllersRef.current.delete(tempId);
-          pendingCreateToastFactoriesRef.current.delete(tempId);
 
           // Encrypt description if E2EE is enabled and unlocked
           let finalDescription = latestEntry.description;
@@ -5762,8 +5921,6 @@ export function TimeTrackerTable({
 
       const undoAction = () => {
         pendingCreateEntryIdsRef.current.delete(tempId);
-        pendingCreateToastControllersRef.current.delete(tempId);
-        pendingCreateToastFactoriesRef.current.delete(tempId);
         pendingCreateCommitCallbacksRef.current.delete(tempId);
         setTimeEntries(originalEntries);
         setEntrySyncStatus((prev) => {
@@ -5786,30 +5943,21 @@ export function TimeTrackerTable({
         }
       };
 
-      const armCreateToast = () => {
-        if (!pendingCreateEntryIdsRef.current.has(tempId)) return;
-
-        // A draft has exactly one active countdown. Re-arming it represents a
-        // new quiet period after the latest editor interaction.
-        pendingCreateToastControllersRef.current.get(tempId)?.cancel();
-        const controller = showUpdateToast(
-          runningEntry
-            ? "Stopped previous timer and started new one"
-            : "New time entry started",
-          tempId,
-          undoAction,
-          apiCall
-        );
-        pendingCreateToastControllersRef.current.set(tempId, controller);
-      };
-
-      pendingCreateToastFactoriesRef.current.set(tempId, armCreateToast);
-      armCreateToast();
+      queueEntryMutation(
+        runningEntry
+          ? "Stopped previous timer and started new one"
+          : "New time entry started",
+        tempId,
+        undoAction,
+        apiCall,
+        undefined,
+        "create"
+      );
     },
     [
       projects,
       availableTags,
-      showUpdateToast,
+      queueEntryMutation,
       encryption,
       isFullscreen,
       beginClientMutation,
@@ -8542,11 +8690,11 @@ export function TimeTrackerTable({
                       availableTags={availableTags}
                       onProjectCreated={handleProjectCreated}
                       onTagCreated={handleTagCreated}
-                      setIsEditingCell={setIsEditingCell}
-                      setIsProjectSelectorOpen={setIsProjectSelectorOpen}
-                      setIsTagSelectorOpen={setIsTagSelectorOpen}
+                      setIsEditingCell={handleDescriptionOrDurationEditorChange}
+                      setIsProjectSelectorOpen={handleProjectEditorChange}
+                      setIsTagSelectorOpen={handleTagEditorChange}
                       setIsActionsMenuOpen={setIsActionsMenuOpen}
-                      setIsTimeEditorOpen={setIsTimeEditorOpen}
+                      setIsTimeEditorOpen={handleTimeEditorChange}
                       navigateToNextCell={navigateToNextCell}
                       navigateToPrevCell={navigateToPrevCell}
                       navigateToAdjacentRow={navigateToAdjacentRow}

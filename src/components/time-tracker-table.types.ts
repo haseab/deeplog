@@ -14,7 +14,7 @@ export interface MemoizedProjectCellProps {
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onProjectChange: (entryId: number) => (newProject: string) => void;
   projects: Project[];
-  setIsProjectSelectorOpen: (open: boolean) => void;
+  setIsProjectSelectorOpen: (entryId: number, open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
@@ -29,7 +29,7 @@ export interface MemoizedTagCellProps {
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onTagsChange: (entryId: number) => (newTags: string[]) => void;
   availableTags: Tag[];
-  setIsTagSelectorOpen: (open: boolean) => void;
+  setIsTagSelectorOpen: (entryId: number, open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
@@ -43,7 +43,7 @@ export interface MemoizedDescriptionCellProps {
   isFullscreen: boolean;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onDescriptionSave: (entryId: number) => (newDescription: string) => void;
-  setIsEditingCell: (editing: boolean) => void;
+  setIsEditingCell: (entryId: number, editing: boolean) => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   projects: Project[];
@@ -91,7 +91,7 @@ export interface MemoizedTimeCellProps {
     endTime: string | null,
     direction: "next" | "previous"
   ) => void;
-  setIsTimeEditorOpen: (open: boolean) => void;
+  setIsTimeEditorOpen: (entryId: number, open: boolean) => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   navigateToPrevCell: () => void;
@@ -114,7 +114,7 @@ export interface MemoizedDurationCellProps {
   onDurationChangeWithStartTimeAdjustmentAndForcePush: (
     entryId: number
   ) => (newDuration: number) => void;
-  setIsEditingCell: (editing: boolean) => void;
+  setIsEditingCell: (entryId: number, editing: boolean) => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
