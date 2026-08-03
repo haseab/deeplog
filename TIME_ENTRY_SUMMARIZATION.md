@@ -5,10 +5,15 @@ Todoist task-extraction route. It fetches Toggl entries in a requested window,
 matches each entry against Limitless transcript segments, and appends a
 recall-oriented summary to that entry's existing description.
 
+From the DeepLog table, Option–P sends the selected entry's ID and exact time
+range to this route. Interactive requests authenticate with
+`x-toggl-session-token`; cron requests continue to use `CRON_SECRET`.
+
 ## Request
 
-The route requires a bearer token matching `CRON_SECRET` and a JSON body with
-an ISO date-time range of at most 24 hours:
+Cron calls require a bearer token matching `CRON_SECRET`. Interactive table
+calls instead provide the current `x-toggl-session-token` and an `entryId`.
+Both forms require a JSON body with an ISO date-time range of at most 24 hours:
 
 ```bash
 curl -X POST http://localhost:3000/api/cron/summarize-time-entries \

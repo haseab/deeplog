@@ -104,6 +104,8 @@ import type {
   MemoizedTimeCellProps,
 } from "./time-tracker-table.types";
 
+type AiSummaryStatus = "processing" | "updated" | "error";
+
 // Memoized components to prevent unnecessary re-renders when selectedCell changes
 // These only compare data props, not callbacks (callbacks should be stable via useCallback)
 const MemoizedProjectSelector = React.memo(
@@ -1350,6 +1352,7 @@ const MemoizedTableRow = React.memo(
     navigateToAdjacentRow,
     isNewlyLoaded,
     syncStatus,
+    aiSummaryStatus,
     onRetrySync,
     isFullscreen,
   }: {
@@ -1429,6 +1432,7 @@ const MemoizedTableRow = React.memo(
     ) => void;
     isNewlyLoaded: boolean;
     syncStatus?: SyncStatus;
+    aiSummaryStatus?: AiSummaryStatus;
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
   }) {
@@ -1625,8 +1629,26 @@ const MemoizedTableRow = React.memo(
                 </div>
 
                 {/* Sync status indicator */}
-                {syncStatus && (
+                {(syncStatus || aiSummaryStatus) && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {aiSummaryStatus === "processing" && (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-violet-500" />
+                        <span>Generating summary...</span>
+                      </>
+                    )}
+                    {aiSummaryStatus === "updated" && (
+                      <>
+                        <Check className="w-3 h-3 text-violet-500" />
+                        <span>Summary updated</span>
+                      </>
+                    )}
+                    {aiSummaryStatus === "error" && (
+                      <>
+                        <AlertCircle className="w-3 h-3 text-red-500" />
+                        <span className="text-red-500">Summary failed</span>
+                      </>
+                    )}
                     {syncStatus === "pending" && (
                       <>
                         <Clock className="w-3 h-3 text-yellow-500" />
@@ -1675,6 +1697,24 @@ const MemoizedTableRow = React.memo(
           onMouseLeave={onRowMouseLeave}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
+            {aiSummaryStatus === "processing" && (
+              <Loader2
+                className="w-4 h-4 animate-spin text-violet-500"
+                aria-label="Generating AI summary"
+              />
+            )}
+            {aiSummaryStatus === "updated" && (
+              <Check
+                className="w-4 h-4 text-violet-500"
+                aria-label="AI summary updated"
+              />
+            )}
+            {aiSummaryStatus === "error" && (
+              <AlertCircle
+                className="w-4 h-4 text-red-500"
+                aria-label="AI summary failed"
+              />
+            )}
             {syncStatus === "pending" && (
               <div title="Update queued">
                 <Clock className="w-4 h-4 text-yellow-500" />
@@ -2560,6 +2600,9 @@ export function TimeTrackerTable({
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | undefined>();
   const [entrySyncStatus, setEntrySyncStatus] = React.useState<
     Map<number, SyncStatus>
+  >(new Map());
+  const [entryAiSummaryStatus, setEntryAiSummaryStatus] = React.useState<
+    Map<number, AiSummaryStatus>
   >(new Map());
   const entrySyncStatusRef = React.useRef<Map<number, SyncStatus>>(new Map());
   const entryRetryFunctions = React.useRef<Map<number, () => Promise<void>>>(
@@ -6669,6 +6712,127 @@ export function TimeTrackerTable({
     }
   }, [date, fetchData]);
 
+  const handleSummarizeEntry = React.useCallback(
+    async (entry: TimeEntry) => {
+      if (entry.id < 0) {
+        toast.info("Sync this new entry before generating a summary");
+        return;
+      }
+
+      const entryStatus = entrySyncStatusRef.current.get(entry.id);
+      if (entryStatus === "pending" || entryStatus === "syncing") {
+        toast.info("Finish syncing this entry before generating a summary");
+        return;
+      }
+      if (entryAiSummaryStatus.get(entry.id) === "processing") {
+        toast.info("A summary is already being generated for this entry");
+        return;
+      }
+
+      const sessionToken = localStorage.getItem("toggl_session_token");
+      if (!sessionToken) {
+        toast.error("Toggl session is missing");
+        return;
+      }
+
+      const startDate = new Date(entry.start);
+      const endDate = entry.stop ? new Date(entry.stop) : new Date();
+      if (
+        Number.isNaN(startDate.getTime()) ||
+        Number.isNaN(endDate.getTime()) ||
+        endDate <= startDate
+      ) {
+        toast.error("This entry does not have a valid time range");
+        return;
+      }
+
+      setEntryAiSummaryStatus((current) =>
+        new Map(current).set(entry.id, "processing")
+      );
+      const toastId = toast.loading("Generating recall summary...");
+
+      try {
+        const response = await fetch(
+          "/api/cron/summarize-time-entries",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-toggl-session-token": sessionToken,
+            },
+            body: JSON.stringify({
+              entryId: entry.id,
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+            }),
+          }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Summary request failed");
+        }
+
+        const result = data.results?.find(
+          (candidate: { entryId?: number }) => candidate.entryId === entry.id
+        );
+        if (result?.status !== "summarized" || !result.entry) {
+          const reason = result?.reason;
+          const message =
+            reason === "no_overlapping_transcript"
+              ? "No overlapping Limitless transcript was found"
+              : reason === "already_summarized"
+                ? "This exact time range is already summarized"
+                : reason === "encrypted_description"
+                  ? "Encrypted descriptions cannot be summarized on the server"
+                  : reason === "description_limit"
+                    ? "The description is too long to append a summary"
+                    : result?.error || "Summary could not be generated";
+          throw new Error(message);
+        }
+
+        setTimeEntries((currentEntries) =>
+          currentEntries.map((currentEntry) =>
+            currentEntry.id === entry.id
+              ? {
+                  ...currentEntry,
+                  description:
+                    typeof result.entry.description === "string"
+                      ? result.entry.description
+                      : currentEntry.description,
+                }
+              : currentEntry
+          )
+        );
+        setEntryAiSummaryStatus((current) =>
+          new Map(current).set(entry.id, "updated")
+        );
+        toast.success("Recall summary added", { id: toastId });
+        window.setTimeout(() => {
+          setEntryAiSummaryStatus((current) => {
+            const next = new Map(current);
+            if (next.get(entry.id) === "updated") next.delete(entry.id);
+            return next;
+          });
+        }, 4000);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Summary request failed";
+        setEntryAiSummaryStatus((current) =>
+          new Map(current).set(entry.id, "error")
+        );
+        toast.error(message, { id: toastId });
+        window.setTimeout(() => {
+          setEntryAiSummaryStatus((current) => {
+            const next = new Map(current);
+            if (next.get(entry.id) === "error") next.delete(entry.id);
+            return next;
+          });
+        }, 5000);
+      }
+    },
+    [entryAiSummaryStatus]
+  );
+
   const handleDeleteSelected = React.useCallback(() => {
     if (selectedCell) {
       const entry = timeEntries[selectedCell.rowIndex];
@@ -7181,6 +7345,24 @@ export function TimeTrackerTable({
         !isInInput
       ) {
         e.preventDefault();
+        return;
+      }
+
+      // Option+P: Generate a recall summary for the focused time entry.
+      // Use e.code because macOS may report Option+P as the "π" character.
+      if (
+        e.code === "KeyP" &&
+        e.altKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !isInInput &&
+        selectedCell
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        const entry = getSelectedCellEntry();
+        if (entry) void handleSummarizeEntry(entry);
         return;
       }
 
@@ -7932,6 +8114,7 @@ export function TimeTrackerTable({
     handleNewTimer,
     handleNewStoppedEntry,
     handleRefreshData,
+    handleSummarizeEntry,
     handleDeleteSelected,
     handleDeleteSelectedWithConfirmation,
     handleDeleteSelectedClick,
@@ -8369,6 +8552,7 @@ export function TimeTrackerTable({
                       navigateToAdjacentRow={navigateToAdjacentRow}
                       isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                       syncStatus={entrySyncStatus.get(entry.id)}
+                      aiSummaryStatus={entryAiSummaryStatus.get(entry.id)}
                       onRetrySync={handleRetrySync}
                       isFullscreen={isFullscreen}
                     />

@@ -37,7 +37,12 @@ interface TranscriptSegment {
 }
 
 type EntryResult =
-  | { entryId: number; status: "summarized"; transcriptSegments: number }
+  | {
+      entryId: number;
+      status: "summarized";
+      transcriptSegments: number;
+      entry: TogglTimeEntry;
+    }
   | {
       entryId: number;
       status: "skipped";
@@ -307,10 +312,10 @@ const appendSummary = async ({
       sourceEnd
     )
   ) {
-    return "already_summarized" as const;
+    return { status: "already_summarized" as const };
   }
   if (isEncryptedDescription(currentDescription)) {
-    return "encrypted_description" as const;
+    return { status: "encrypted_description" as const };
   }
 
   const separator = currentDescription.trim() ? "\n\n" : "";
@@ -327,7 +332,7 @@ const appendSummary = async ({
     separator.length -
     emptyBlock.length;
   if (availableSummaryCharacters < 120) {
-    return "description_limit" as const;
+    return { status: "description_limit" as const };
   }
   const fittedSummary =
     summary.length > availableSummaryCharacters
@@ -365,7 +370,10 @@ const appendSummary = async ({
       `Failed to append summary in Toggl (${response.status}): ${body || response.statusText}`
     );
   }
-  return "summarized" as const;
+  return {
+    status: "summarized" as const,
+    entry: (await response.json()) as TogglTimeEntry,
+  };
 };
 
 const mapWithConcurrency = async <T, R>(
@@ -390,14 +398,18 @@ const mapWithConcurrency = async <T, R>(
 
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (
-    !cronSecret ||
-    request.headers.get("authorization") !== `Bearer ${cronSecret}`
-  ) {
+  const cronAuthorized = Boolean(
+    cronSecret &&
+      request.headers.get("authorization") === `Bearer ${cronSecret}`
+  );
+  const requestSessionToken = request.headers.get("x-toggl-session-token");
+  if (!cronAuthorized && !requestSessionToken) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  const sessionToken = process.env.TOGGL_SESSION_TOKEN;
+  const sessionToken = cronAuthorized
+    ? process.env.TOGGL_SESSION_TOKEN
+    : requestSessionToken;
   const limitlessApiKey = process.env.LIMITLESS_API_KEY;
   const openaiApiKey = process.env.OPENAI_API_KEY;
   if (!sessionToken || !limitlessApiKey || !openaiApiKey) {
@@ -411,6 +423,16 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const requestedEntryId =
+    typeof body.entryId === "number" && Number.isSafeInteger(body.entryId)
+      ? body.entryId
+      : null;
+  if (!cronAuthorized && requestedEntryId === null) {
+    return jsonResponse(
+      { error: "entryId is required for an interactive request" },
+      400
+    );
+  }
   const startMs = Date.parse(body.startDate);
   const endMs = Date.parse(body.endDate);
   if (!body.startDate || !body.endDate || Number.isNaN(startMs) || Number.isNaN(endMs)) {
@@ -434,7 +456,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const [timeEntries, workspaces] = await Promise.all([
-      fetchTimeEntries(sessionToken, startTime, endTime, request.signal),
+      requestedEntryId === null
+        ? fetchTimeEntries(sessionToken, startTime, endTime, request.signal)
+        : fetchTogglJson<TogglTimeEntry>(
+            `https://track.toggl.com/api/v9/me/time_entries/${requestedEntryId}`,
+            sessionToken,
+            request.signal
+          ).then((entry) => [entry]),
       fetchTogglJson<Array<{ id: number }>>(
         "https://track.toggl.com/api/v9/workspaces",
         sessionToken,
@@ -551,18 +579,18 @@ export async function POST(request: NextRequest) {
             sessionToken,
             signal: request.signal,
           });
-          if (appendResult !== "summarized") {
+          if (appendResult.status === "summarized") {
             return {
               entryId: entry.id,
-              status: "skipped",
-              reason: appendResult,
+              status: "summarized",
+              transcriptSegments: segments.length,
+              entry: appendResult.entry,
             };
           }
-
           return {
             entryId: entry.id,
-            status: "summarized",
-            transcriptSegments: segments.length,
+            status: "skipped",
+            reason: appendResult.status,
           };
         } catch (error) {
           return {
