@@ -8,6 +8,13 @@ import {
   isRunningTimeEntry,
   stopTimeEntryAt,
 } from "@/lib/time-entry-state";
+import {
+  addCalendarDays,
+  calendarRangeToUtc,
+  formatDateInTimeZone,
+  intervalsOverlap,
+  isValidTimeZone,
+} from "@/lib/timezone";
 
 type Project = {
   id: number;
@@ -51,26 +58,27 @@ async function serializeTimerStart<T>(
 
 export async function GET(request: NextRequest) {
   try {
-    const { sessionToken, workspaceId, organizationId, userId } =
+    const { sessionToken, workspaceId, organizationId, userId, profileTimeZone } =
       await setupSessionApi(request);
 
     const searchParams = request.nextUrl.searchParams;
-    const startDate = searchParams.get("start_date");
-    const endDate = searchParams.get("end_date");
+    const fromDate = searchParams.get("from_date");
+    const toDate = searchParams.get("to_date");
+    const requestedTimeZone = searchParams.get("timezone");
     const page = parseInt(searchParams.get("page") || "0");
     const limit = parseInt(searchParams.get("limit") || "100");
-    const timezoneOffset = parseInt(searchParams.get("timezone_offset") || "0");
+    const displayTimeZone = isValidTimeZone(requestedTimeZone)
+      ? requestedTimeZone
+      : profileTimeZone;
+    const validCalendarDate = /^\d{4}-\d{2}-\d{2}$/;
 
-    console.log('[API] Received date range:', {
-      startDate,
-      endDate,
-      timezoneOffset,
-      startDateParsed: startDate ? new Date(startDate).toString() : null,
-      endDateParsed: endDate ? new Date(endDate).toString() : null,
-    });
+    if (!fromDate || !toDate || !validCalendarDate.test(fromDate) || !validCalendarDate.test(toDate)) {
+      return createErrorResponse("from_date and to_date are required in YYYY-MM-DD format", 400);
+    }
 
-    if (!startDate || !endDate) {
-      return createErrorResponse("start_date and end_date are required", 400);
+    const requestedRange = calendarRangeToUtc(fromDate, toDate, displayTimeZone);
+    if (!requestedRange || requestedRange.endExclusive <= requestedRange.start) {
+      return createErrorResponse("Invalid date range or timezone", 400);
     }
 
     // Fetch projects using regular API
@@ -137,27 +145,22 @@ export async function GET(request: NextRequest) {
       (project) => project.active !== false
     );
 
-    // Fetch time entries using Analytics API - single call, no pagination needed!
-    // The Analytics API expects dates in YYYY-MM-DD format
-    // We need to convert the UTC ISO strings to the user's local timezone
-    // timezoneOffset is in minutes (e.g., PDT is 420 minutes = UTC-7)
-
-    const startDateObj = new Date(startDate);
-    const endDateObj = new Date(endDate);
-
-    // Apply timezone offset to get local time
-    // Note: getTimezoneOffset() returns positive for west of UTC, so we subtract
-    const startLocal = new Date(startDateObj.getTime() - timezoneOffset * 60 * 1000);
-    const endLocal = new Date(endDateObj.getTime() - timezoneOffset * 60 * 1000);
-
-    // Extract YYYY-MM-DD in the user's local timezone
-    const fromDate = startLocal.toISOString().split('T')[0];
-    const toDate = endLocal.toISOString().split('T')[0];
+    // Analytics periods and wall-clock response fields use the Toggl profile
+    // timezone. Query one preceding calendar day so stopped entries that begin
+    // before the selected range but overlap it are available for filtering.
+    const analyticsFromDate = addCalendarDays(
+      formatDateInTimeZone(requestedRange.start, profileTimeZone),
+      -1
+    );
+    const analyticsToDate = formatDateInTimeZone(
+      new Date(requestedRange.endExclusive.getTime() - 1),
+      profileTimeZone
+    );
 
     const analyticsPayload = {
       period: {
-        from: fromDate,
-        to: toDate,
+          from: analyticsFromDate,
+          to: analyticsToDate,
       },
       filters: [
         {
@@ -216,7 +219,51 @@ export async function GET(request: NextRequest) {
     }
 
     const analyticsData = await analyticsResponse.json();
-    let enrichedEntries = transformAnalyticsData(analyticsData);
+    let enrichedEntries = transformAnalyticsData(analyticsData, profileTimeZone);
+
+    // A repeated fall-back wall time can represent two distinct instants. The
+    // Analytics fields cannot always disambiguate it, so hydrate only those
+    // rare rows from the canonical v9 endpoint instead of guessing.
+    const ambiguousEntries = enrichedEntries.filter((entry) => entry._timezoneAmbiguous);
+    if (ambiguousEntries.length > 0) {
+      const canonicalEntries = await Promise.all(
+        ambiguousEntries.map(async (entry) => {
+          const response = await fetch(
+            `https://track.toggl.com/api/v9/me/time_entries/${entry.id}`,
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${sessionToken}`,
+              },
+              signal: request.signal,
+            }
+          );
+          return response.ok ? response.json() : null;
+        })
+      );
+      const canonicalById = new Map(
+        canonicalEntries.filter(Boolean).map((entry) => [entry.id, entry])
+      );
+      enrichedEntries = enrichedEntries.map((entry) => {
+        const canonical = canonicalById.get(entry.id);
+        if (!canonical) return entry;
+        return {
+          ...entry,
+          start: new Date(canonical.start).toISOString(),
+          stop: canonical.stop ? new Date(canonical.stop).toISOString() : null,
+          duration: canonical.duration,
+          _timezoneAmbiguous: false,
+        };
+      });
+    }
+
+    enrichedEntries = enrichedEntries
+      .filter((entry) => intervalsOverlap(
+        entry.start,
+        entry.stop,
+        requestedRange.start,
+        requestedRange.endExclusive
+      ));
 
     console.log('[API] Got entries from Analytics API:', {
       count: enrichedEntries.length,
@@ -304,18 +351,18 @@ export async function GET(request: NextRequest) {
 
     // If there's a running task, handle it properly
     if (currentTask && currentTask.id) {
-      // Check if the running task's start time is within the requested date range
-      const taskStartDate = new Date(currentTask.start);
-      const rangeStartDate = new Date(startDate);
-      const rangeEndDate = new Date(endDate);
-      const isCurrentTaskInRange =
-        taskStartDate >= rangeStartDate && taskStartDate <= rangeEndDate;
+      const isCurrentTaskInRange = intervalsOverlap(
+        currentTask.start,
+        null,
+        requestedRange.start,
+        requestedRange.endExclusive
+      );
 
       console.log("[API] Current time entry range check:", {
         id: currentTask.id,
-        taskStart: taskStartDate.toISOString(),
-        rangeStart: rangeStartDate.toISOString(),
-        rangeEnd: rangeEndDate.toISOString(),
+        taskStart: currentTask.start,
+        rangeStart: requestedRange.start.toISOString(),
+        rangeEnd: requestedRange.endExclusive.toISOString(),
         isCurrentTaskInRange,
       });
 
@@ -338,6 +385,7 @@ export async function GET(request: NextRequest) {
           duration: -1, // Always use -1 for running tasks
           tags: currentTask.tags || [],
           tag_ids: currentTask.tag_ids || [],
+          _timezoneAmbiguous: false,
         };
 
         // Add the v9 current entry only if it's within date range
@@ -353,7 +401,9 @@ export async function GET(request: NextRequest) {
     // Apply pagination on the frontend side (since we get all data at once)
     const startIndex = page * limit;
     const endIndex = startIndex + limit;
-    const paginatedEntries = enrichedEntries.slice(startIndex, endIndex);
+    const paginatedEntries = enrichedEntries.slice(startIndex, endIndex).map((entry) => {
+      return { ...entry, _timezoneAmbiguous: undefined };
+    });
 
     return new Response(
       JSON.stringify({
@@ -367,6 +417,8 @@ export async function GET(request: NextRequest) {
           hasMore: endIndex < enrichedEntries.length,
         },
         syncStatus: "synced", // Add sync status for UI
+        profileTimeZone,
+        displayTimeZone,
       }),
       {
         status: 200,

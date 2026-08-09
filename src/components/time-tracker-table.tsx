@@ -2,6 +2,7 @@
 
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
+import { useTimezonePreference } from "@/hooks/use-timezone-preference";
 import { decryptDescription, encryptDescription } from "@/lib/encryption";
 import {
   SyncQueueManager,
@@ -73,6 +74,11 @@ import {
   stopTimeEntryAt,
 } from "@/lib/time-entry-state";
 import { cn } from "@/lib/utils";
+import {
+  formatDateInTimeZone,
+  formatDateTimeInTimeZone,
+  formatTimeInTimeZone,
+} from "@/lib/timezone";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
 import { AddTagConfirmationDialog } from "./add-tag-confirmation-dialog";
@@ -126,6 +132,7 @@ const MemoizedTimeEditor = React.memo(TimeEditor, (prevProps, nextProps) => {
     prevProps.endTime === nextProps.endTime &&
     prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
     prevProps.nextEntryStart === nextProps.nextEntryStart
+    && prevProps.timeZone === nextProps.timeZone
     // Callbacks are intentionally not compared - they should be stable via useCallback
   );
 });
@@ -478,6 +485,7 @@ const MemoizedDateCell = React.memo(
     rowIndex,
     selectedCell,
     onSelectCell,
+    timeZone,
   }: MemoizedDateCellProps) {
     const cellIndex = 0;
     const isSelected =
@@ -493,7 +501,7 @@ const MemoizedDateCell = React.memo(
         )}
         onClick={() => onSelectCell(rowIndex, cellIndex)}
       >
-        {format(new Date(entry.start), "yyyy-MM-dd")}
+        {formatDateInTimeZone(entry.start, timeZone)}
       </TableCell>
     );
   },
@@ -508,6 +516,7 @@ const MemoizedDateCell = React.memo(
 
     return (
       prevProps.entry.start === nextProps.entry.start &&
+      prevProps.timeZone === nextProps.timeZone &&
       prevIsSelected === nextIsSelected
     );
   }
@@ -527,6 +536,7 @@ const MemoizedTimeCell = React.memo(
     navigateToPrevCell,
     prevEntryEnd,
     nextEntryStart,
+    timeZone,
   }: MemoizedTimeCellProps) {
     const cellIndex = 4;
     const isSelected =
@@ -557,6 +567,7 @@ const MemoizedTimeCell = React.memo(
           onNavigatePrev={navigateToPrevCell}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
+          timeZone={timeZone}
           data-testid="time-editor"
         />
       </TableCell>
@@ -574,6 +585,7 @@ const MemoizedTimeCell = React.memo(
     return (
       prevProps.entry.start === nextProps.entry.start &&
       prevProps.entry.stop === nextProps.entry.stop &&
+      prevProps.timeZone === nextProps.timeZone &&
       prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
       prevProps.nextEntryStart === nextProps.nextEntryStart &&
       prevIsSelected === nextIsSelected
@@ -666,6 +678,7 @@ const MemoizedActionsCell = React.memo(
     onUnpin,
     onSplit,
     onCombine,
+    onCombineReverse,
     onStartEntry,
     onStopTimer,
     onDelete,
@@ -693,6 +706,7 @@ const MemoizedActionsCell = React.memo(
           isPinned={isPinned}
           onSplit={() => onSplit(entry)}
           onCombine={() => onCombine(entry)}
+          onCombineReverse={() => onCombineReverse(entry)}
           onStartEntry={() => onStartEntry(entry)}
           onStopTimer={() => onStopTimer(entry)}
           onDelete={() => onDelete(entry)}
@@ -730,8 +744,14 @@ type DateSearchParams = {
   get: (name: string) => string | null;
 };
 
-function getDefaultDateRange(): DateRange {
-  const today = new Date();
+function getDefaultDateRange(timeZone: string): DateRange {
+  // DayPicker uses local Date objects for calendar cells. Materialize the
+  // selected timezone's current calendar date as a local calendar-only value.
+  const today = parse(
+    formatDateInTimeZone(new Date(), timeZone),
+    "yyyy-MM-dd",
+    new Date()
+  );
   const sevenDaysAgo = subDays(today, 7);
   return {
     from: startOfDay(sevenDaysAgo),
@@ -1355,6 +1375,7 @@ const MemoizedTableRow = React.memo(
     aiSummaryStatus,
     onRetrySync,
     isFullscreen,
+    timeZone,
   }: {
     entry: TimeEntry;
     rowIndex: number;
@@ -1435,6 +1456,7 @@ const MemoizedTableRow = React.memo(
     aiSummaryStatus?: AiSummaryStatus;
     onRetrySync: (entryId: number) => void;
     isFullscreen: boolean;
+    timeZone: string;
   }) {
     // Check if this row is selected (use Set for accurate non-contiguous selection)
     const isInSelectedRange = selectedRows.has(rowIndex);
@@ -1569,6 +1591,7 @@ const MemoizedTableRow = React.memo(
                       onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
                       nextEntryStart={nextEntryStart}
+                      timeZone={timeZone}
                       data-testid="time-editor"
                     />
                   </div>
@@ -1626,6 +1649,7 @@ const MemoizedTableRow = React.memo(
                       isPinned={isPinned}
                       onSplit={() => onSplit(entry)}
                       onCombine={() => onCombine(entry)}
+                      onCombineReverse={() => onCombineReverse(entry)}
                       onStartEntry={() => onStartEntry(entry)}
                       onStopTimer={() => onStopTimer(entry)}
                       onDelete={() => onDelete(entry)}
@@ -1759,6 +1783,7 @@ const MemoizedTableRow = React.memo(
             rowIndex={rowIndex}
             selectedCell={selectedCell}
             onSelectCell={onSelectCell}
+            timeZone={timeZone}
           />
           {isFullscreen ? (
             <>
@@ -1864,6 +1889,7 @@ const MemoizedTableRow = React.memo(
             navigateToAdjacentRow={navigateToAdjacentRow}
             prevEntryEnd={prevEntryEnd}
             nextEntryStart={nextEntryStart}
+            timeZone={timeZone}
           />
           <MemoizedDurationCell
             entry={entry}
@@ -2035,6 +2061,7 @@ const MemoizedTableRow = React.memo(
     const syncStatusEqual = prevProps.syncStatus === nextProps.syncStatus;
     const onRetrySyncEqual = prevProps.onRetrySync === nextProps.onRetrySync;
     const isFullscreenEqual = prevProps.isFullscreen === nextProps.isFullscreen;
+    const timeZoneEqual = prevProps.timeZone === nextProps.timeZone;
     const onCheckboxToggleEqual =
       prevProps.onCheckboxToggle === nextProps.onCheckboxToggle;
 
@@ -2070,6 +2097,7 @@ const MemoizedTableRow = React.memo(
       syncStatusEqual &&
       onRetrySyncEqual &&
       isFullscreenEqual &&
+      timeZoneEqual &&
       onCheckboxToggleEqual;
 
     // Debug logging (only for rows 1-3)
@@ -2113,6 +2141,7 @@ const MemoizedTableRow = React.memo(
       if (!syncStatusEqual) changedProps.push("syncStatus");
       if (!onRetrySyncEqual) changedProps.push("onRetrySync");
       if (!isFullscreenEqual) changedProps.push("isFullscreen");
+      if (!timeZoneEqual) changedProps.push("timeZone");
 
       console.log(
         `[TableRow Memo] Row ${prevProps.rowIndex} changed props:`,
@@ -2131,6 +2160,7 @@ export function TimeTrackerTable({
   const searchParams = useSearchParams();
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const encryption = useEncryptionContext();
+  const { timeZone, setProfileTimeZone } = useTimezonePreference();
 
   // Decrypt pinned entries for display
   const decryptedPinnedEntries = React.useMemo(() => {
@@ -2212,7 +2242,7 @@ export function TimeTrackerTable({
     }
 
     // Fall back to default range
-    return getDefaultDateRange();
+    return getDefaultDateRange(timeZone);
   };
 
   const [date, setDate] = React.useState<DateRange | undefined>(
@@ -2255,12 +2285,12 @@ export function TimeTrackerTable({
       // that mode separate prevents the default dates from being written
       // straight back into the URL and frozen there.
       setIsRollingDateRange(true);
-      setDate(getDefaultDateRange());
+      setDate(getDefaultDateRange(timeZone));
     } else {
       setIsRollingDateRange(false);
       setDate(urlDateRange);
     }
-  }, [searchParams]);
+  }, [searchParams, timeZone]);
 
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
@@ -4941,7 +4971,7 @@ export function TimeTrackerTable({
       const toastId = toast(`Combined ${entries.length} entries`, {
         description: hasRunningEntry
           ? `${reverse ? "Latest" : "Earliest"} entry is now running`
-          : `Extended to ${format(new Date(newStop), "h:mm a")}`,
+          : `Extended to ${formatTimeInTimeZone(newStop, timeZone)}`,
         duration: Infinity,
         submitAction: submitNow,
         action: {
@@ -5074,7 +5104,7 @@ export function TimeTrackerTable({
 
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [toastDuration]
+    [toastDuration, timeZone]
   );
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
@@ -6098,8 +6128,8 @@ export function TimeTrackerTable({
 
       // Only show main loading state for initial loads, not infinite scroll
       if (showLoadingState && resetData) setLoading(true);
-      const fromISO = date.from.toISOString();
-      const toISO = date.to.toISOString();
+      const fromDate = format(date.from, "yyyy-MM-dd");
+      const toDate = format(date.to, "yyyy-MM-dd");
 
       // A manual resync refreshes every page the user has already loaded in
       // one request. Normal resets (such as a date change) still start at one
@@ -6114,10 +6144,8 @@ export function TimeTrackerTable({
 
       try {
         setSyncStatus("syncing");
-        // Get user's timezone offset in minutes
-        const timezoneOffset = new Date().getTimezoneOffset();
         const response = await fetch(
-          `/api/time-entries?start_date=${fromISO}&end_date=${toISO}&page=${pageToFetch}&limit=${limit}&timezone_offset=${timezoneOffset}&sync_nonce=${now}`,
+          `/api/time-entries?from_date=${fromDate}&to_date=${toDate}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}`,
           {
             cache: "no-store",
             headers: {
@@ -6137,6 +6165,10 @@ export function TimeTrackerTable({
         }
 
         const data = await response.json();
+
+        if (typeof data.profileTimeZone === "string") {
+          setProfileTimeZone(data.profileTimeZone);
+        }
 
         if (
           syncAbortController.signal.aborted ||
@@ -6338,7 +6370,7 @@ export function TimeTrackerTable({
         }
       }
     },
-    [date]
+    [date, timeZone, setProfileTimeZone]
   );
 
   // Load more function for infinite scrolling
@@ -7529,23 +7561,22 @@ export function TimeTrackerTable({
         e.preventDefault();
         const entry = decryptedEntries[selectedCell.rowIndex];
         if (entry) {
-          const startDateObj = new Date(entry.start);
           const endDateObj = entry.stop ? new Date(entry.stop) : new Date();
 
           // Check if start and end are on the same day
-          const sameDay = format(startDateObj, "yyyy-MM-dd") === format(endDateObj, "yyyy-MM-dd");
+          const sameDay = formatDateInTimeZone(entry.start, timeZone) === formatDateInTimeZone(endDateObj, timeZone);
 
           let query: string;
           if (sameDay) {
             // Format: "2025-11-04 from 3:48am to 3:49am"
-            const dateStr = format(startDateObj, "yyyy-MM-dd");
-            const startTimeStr = format(startDateObj, "h:mma").toLowerCase();
-            const endTimeStr = format(endDateObj, "h:mma").toLowerCase();
+            const dateStr = formatDateInTimeZone(entry.start, timeZone);
+            const startTimeStr = formatTimeInTimeZone(entry.start, timeZone, { compact: true });
+            const endTimeStr = formatTimeInTimeZone(endDateObj, timeZone, { compact: true });
             query = `${dateStr} from ${startTimeStr} to ${endTimeStr}`;
           } else {
             // Format: "2025-11-02 11:25am to 2025-11-03 1:35pm"
-            const startFormatted = format(startDateObj, "yyyy-MM-dd h:mma").toLowerCase();
-            const endFormatted = format(endDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+            const startFormatted = formatDateTimeInTimeZone(entry.start, timeZone);
+            const endFormatted = formatDateTimeInTimeZone(endDateObj, timeZone);
             query = `${startFormatted} to ${endFormatted}`;
           }
 
@@ -8285,6 +8316,7 @@ export function TimeTrackerTable({
     getSelectedCellEntry,
     multiSelectMenuOpen,
     setShowPinnedEntriesValue,
+    timeZone,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -8648,6 +8680,7 @@ export function TimeTrackerTable({
                     <MemoizedTableRow
                       key={entry.id}
                       entry={entry}
+                      timeZone={timeZone}
                       rowIndex={rowIndex}
                       prevEntryEnd={prevEntry?.stop || null}
                       nextEntryStart={nextEntry?.start || null}

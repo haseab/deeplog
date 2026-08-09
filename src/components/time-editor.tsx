@@ -9,7 +9,17 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { addDays, format, parse, subDays } from "date-fns";
+import {
+  addCalendarDays,
+  formatDateInTimeZone,
+  formatDateTimeInTimeZone,
+  formatTimeInTimeZone,
+  getZonedParts,
+  wallTimeToUtc,
+  wallTimeToUtcCandidates,
+  type WallTimeDisambiguation,
+} from "@/lib/timezone";
+import { parse } from "date-fns";
 import { Clock } from "lucide-react";
 import * as React from "react";
 
@@ -28,6 +38,7 @@ interface TimeEditorProps {
   onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
   nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
+  timeZone: string;
   "data-testid"?: string;
 }
 
@@ -42,6 +53,7 @@ export function TimeEditor({
   onNavigateVertical,
   prevEntryEnd,
   nextEntryStart,
+  timeZone,
   "data-testid": dataTestId,
 }: TimeEditorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -54,6 +66,10 @@ export function TimeEditor({
   const [endTimeMinutes, setEndTimeMinutes] = React.useState("");
   const [endTimeSeconds, setEndTimeSeconds] = React.useState("");
   const [error, setError] = React.useState("");
+  const [startDisambiguation, setStartDisambiguation] = React.useState<WallTimeDisambiguation | null>(null);
+  const [endDisambiguation, setEndDisambiguation] = React.useState<WallTimeDisambiguation | null>(null);
+  const [startIsAmbiguous, setStartIsAmbiguous] = React.useState(false);
+  const [endIsAmbiguous, setEndIsAmbiguous] = React.useState(false);
 
   const startDateInputRef = React.useRef<HTMLInputElement>(null);
   const startTimeHoursRef = React.useRef<HTMLInputElement>(null);
@@ -81,25 +97,29 @@ export function TimeEditor({
   // Initialize values when opening
   React.useEffect(() => {
     if (isOpen) {
-      const start = new Date(startTime);
-      setStartDateValue(format(start, "yyyy-MM-dd"));
-      setStartTimeHours(format(start, "HH"));
-      setStartTimeMinutes(format(start, "mm"));
-      setStartTimeSeconds(format(start, "ss"));
+      const start = getZonedParts(startTime, timeZone);
+      setStartDateValue(formatDateInTimeZone(startTime, timeZone));
+      setStartTimeHours(start.hour.toString().padStart(2, "0"));
+      setStartTimeMinutes(start.minute.toString().padStart(2, "0"));
+      setStartTimeSeconds(start.second.toString().padStart(2, "0"));
 
       if (endTime) {
-        const end = new Date(endTime);
-        setEndDateValue(format(end, "yyyy-MM-dd"));
-        setEndTimeHours(format(end, "HH"));
-        setEndTimeMinutes(format(end, "mm"));
-        setEndTimeSeconds(format(end, "ss"));
+        const end = getZonedParts(endTime, timeZone);
+        setEndDateValue(formatDateInTimeZone(endTime, timeZone));
+        setEndTimeHours(end.hour.toString().padStart(2, "0"));
+        setEndTimeMinutes(end.minute.toString().padStart(2, "0"));
+        setEndTimeSeconds(end.second.toString().padStart(2, "0"));
       } else {
-        setEndDateValue(format(start, "yyyy-MM-dd"));
+        setEndDateValue(formatDateInTimeZone(startTime, timeZone));
         setEndTimeHours("");
         setEndTimeMinutes("");
         setEndTimeSeconds("");
       }
       setError("");
+      setStartDisambiguation(null);
+      setEndDisambiguation(null);
+      setStartIsAmbiguous(false);
+      setEndIsAmbiguous(false);
 
       // Focus the start time hours input first
       setTimeout(() => {
@@ -107,7 +127,7 @@ export function TimeEditor({
         startTimeHoursRef.current?.select();
       }, 100);
     }
-  }, [isOpen, startTime, endTime]);
+  }, [isOpen, startTime, endTime, timeZone]);
 
   const parseDateInput = (dateStr: string): Date | null => {
     if (!dateStr.trim()) return null;
@@ -127,11 +147,7 @@ export function TimeEditor({
   const adjustStartDate = (days: number) => {
     const currentDate = parseDateInput(startDateValue);
     if (currentDate) {
-      const newDate =
-        days > 0
-          ? addDays(currentDate, days)
-          : subDays(currentDate, Math.abs(days));
-      setStartDateValue(format(newDate, "yyyy-MM-dd"));
+      setStartDateValue(addCalendarDays(startDateValue, days));
       setError("");
     }
   };
@@ -139,11 +155,7 @@ export function TimeEditor({
   const adjustEndDate = (days: number) => {
     const currentDate = parseDateInput(endDateValue);
     if (currentDate) {
-      const newDate =
-        days > 0
-          ? addDays(currentDate, days)
-          : subDays(currentDate, Math.abs(days));
-      setEndDateValue(format(newDate, "yyyy-MM-dd"));
+      setEndDateValue(addCalendarDays(endDateValue, days));
       setError("");
     }
   };
@@ -152,7 +164,10 @@ export function TimeEditor({
     dateStr: string,
     hours: string,
     minutes: string,
-    seconds: string
+    seconds: string,
+    kind: "start" | "end",
+    originalTime: string | null,
+    disambiguation: WallTimeDisambiguation | null
   ): Date | null => {
     const date = parseDateInput(dateStr);
     if (!date) return null;
@@ -175,12 +190,31 @@ export function TimeEditor({
       return null;
     }
 
-    date.setHours(h);
-    date.setMinutes(m);
-    date.setSeconds(s);
-    date.setMilliseconds(0);
+    const wallTime = `${h.toString().padStart(2, "0")}:${m
+      .toString()
+      .padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    const candidates = wallTimeToUtcCandidates(dateStr, wallTime, timeZone);
+    const setAmbiguous = kind === "start" ? setStartIsAmbiguous : setEndIsAmbiguous;
 
-    return date;
+    if (candidates.length === 0) {
+      setAmbiguous(false);
+      setError(`That ${kind} time does not exist in ${timeZone} because of a daylight-saving transition.`);
+      return null;
+    }
+    if (candidates.length === 1) {
+      setAmbiguous(false);
+      return candidates[0];
+    }
+
+    setAmbiguous(true);
+    const originalMs = originalTime ? new Date(originalTime).getTime() : NaN;
+    const originalCandidate = candidates.find((candidate) => candidate.getTime() === originalMs);
+    if (originalCandidate && !disambiguation) return originalCandidate;
+    if (disambiguation === "earlier") return candidates[0];
+    if (disambiguation === "later") return candidates[candidates.length - 1];
+
+    setError(`That ${kind} time occurs twice in ${timeZone}. Choose the first or second occurrence.`);
+    return null;
   };
 
   const handleSave = (): boolean => {
@@ -188,7 +222,10 @@ export function TimeEditor({
       startDateValue,
       startTimeHours,
       startTimeMinutes,
-      startTimeSeconds
+      startTimeSeconds,
+      "start",
+      startTime,
+      startDisambiguation
     );
 
     if (!finalStartDateTime) {
@@ -202,7 +239,10 @@ export function TimeEditor({
         endDateValue,
         endTimeHours,
         endTimeMinutes,
-        endTimeSeconds
+        endTimeSeconds,
+        "end",
+        endTime,
+        endDisambiguation
       );
 
       if (!finalEndDateTime) {
@@ -243,7 +283,10 @@ export function TimeEditor({
       startDateValue,
       startTimeHours,
       startTimeMinutes,
-      startTimeSeconds
+      startTimeSeconds,
+      "start",
+      startTime,
+      startDisambiguation
     );
 
     if (!finalStartDateTime) {
@@ -257,7 +300,10 @@ export function TimeEditor({
         endDateValue,
         endTimeHours,
         endTimeMinutes,
-        endTimeSeconds
+        endTimeSeconds,
+        "end",
+        endTime,
+        endDisambiguation
       );
 
       if (!finalEndDateTime) {
@@ -328,57 +374,72 @@ export function TimeEditor({
   const snapStartToPrevEnd = () => {
     if (!prevEntryEnd) return;
 
-    const prevEnd = new Date(prevEntryEnd);
-    setStartDateValue(format(prevEnd, "yyyy-MM-dd"));
-    setStartTimeHours(format(prevEnd, "HH"));
-    setStartTimeMinutes(format(prevEnd, "mm"));
-    setStartTimeSeconds(format(prevEnd, "ss"));
+    const prevEnd = getZonedParts(prevEntryEnd, timeZone);
+    setStartDateValue(formatDateInTimeZone(prevEntryEnd, timeZone));
+    setStartTimeHours(prevEnd.hour.toString().padStart(2, "0"));
+    setStartTimeMinutes(prevEnd.minute.toString().padStart(2, "0"));
+    setStartTimeSeconds(prevEnd.second.toString().padStart(2, "0"));
     setError("");
   };
 
   const snapEndToNextStart = () => {
     if (!nextEntryStart) return;
 
-    const nextStart = new Date(nextEntryStart);
-    setEndDateValue(format(nextStart, "yyyy-MM-dd"));
-    setEndTimeHours(format(nextStart, "HH"));
-    setEndTimeMinutes(format(nextStart, "mm"));
-    setEndTimeSeconds(format(nextStart, "ss"));
+    const nextStart = getZonedParts(nextEntryStart, timeZone);
+    setEndDateValue(formatDateInTimeZone(nextEntryStart, timeZone));
+    setEndTimeHours(nextStart.hour.toString().padStart(2, "0"));
+    setEndTimeMinutes(nextStart.minute.toString().padStart(2, "0"));
+    setEndTimeSeconds(nextStart.second.toString().padStart(2, "0"));
     setError("");
   };
 
   const shiftBothTimes = (minutesToShift: number) => {
-    // Parse current start and end times
-    const startDateParsed = parse(startDateValue, "yyyy-MM-dd", new Date());
     const startHours = parseInt(startTimeHours) || 0;
     const startMinutes = parseInt(startTimeMinutes) || 0;
     const startSeconds = parseInt(startTimeSeconds) || 0;
 
-    const currentStart = new Date(startDateParsed);
-    currentStart.setHours(startHours, startMinutes, startSeconds);
+    const currentStart = wallTimeToUtc(
+      startDateValue,
+      `${startHours}:${startMinutes.toString().padStart(2, "0")}:${startSeconds.toString().padStart(2, "0")}`,
+      timeZone,
+      startDisambiguation || "earlier"
+    );
+    if (!currentStart) {
+      setError(`The current start time is invalid in ${timeZone}.`);
+      return;
+    }
 
     // Shift start time
     const newStart = new Date(currentStart.getTime() + minutesToShift * 60 * 1000);
-    setStartDateValue(format(newStart, "yyyy-MM-dd"));
-    setStartTimeHours(format(newStart, "HH"));
-    setStartTimeMinutes(format(newStart, "mm"));
-    setStartTimeSeconds(format(newStart, "ss"));
+    const newStartParts = getZonedParts(newStart, timeZone);
+    setStartDateValue(formatDateInTimeZone(newStart, timeZone));
+    setStartTimeHours(newStartParts.hour.toString().padStart(2, "0"));
+    setStartTimeMinutes(newStartParts.minute.toString().padStart(2, "0"));
+    setStartTimeSeconds(newStartParts.second.toString().padStart(2, "0"));
 
     // If there's an end time, shift it too
     if (endDateValue && endTimeHours) {
-      const endDateParsed = parse(endDateValue, "yyyy-MM-dd", new Date());
       const endHours = parseInt(endTimeHours) || 0;
       const endMinutes = parseInt(endTimeMinutes) || 0;
       const endSeconds = parseInt(endTimeSeconds) || 0;
 
-      const currentEnd = new Date(endDateParsed);
-      currentEnd.setHours(endHours, endMinutes, endSeconds);
+      const currentEnd = wallTimeToUtc(
+        endDateValue,
+        `${endHours}:${endMinutes.toString().padStart(2, "0")}:${endSeconds.toString().padStart(2, "0")}`,
+        timeZone,
+        endDisambiguation || "earlier"
+      );
+      if (!currentEnd) {
+        setError(`The current end time is invalid in ${timeZone}.`);
+        return;
+      }
 
       const newEnd = new Date(currentEnd.getTime() + minutesToShift * 60 * 1000);
-      setEndDateValue(format(newEnd, "yyyy-MM-dd"));
-      setEndTimeHours(format(newEnd, "HH"));
-      setEndTimeMinutes(format(newEnd, "mm"));
-      setEndTimeSeconds(format(newEnd, "ss"));
+      const newEndParts = getZonedParts(newEnd, timeZone);
+      setEndDateValue(formatDateInTimeZone(newEnd, timeZone));
+      setEndTimeHours(newEndParts.hour.toString().padStart(2, "0"));
+      setEndTimeMinutes(newEndParts.minute.toString().padStart(2, "0"));
+      setEndTimeSeconds(newEndParts.second.toString().padStart(2, "0"));
     }
 
     setError("");
@@ -610,44 +671,42 @@ export function TimeEditor({
   // Format display text - always show just time, no dates
   const displayText = React.useMemo(() => {
     const isRunning = !endTime || endTime === "";
-    const startDateObj = new Date(startTime);
-    const endDateObj = endTime ? new Date(endTime) : null;
-
     if (isRunning) {
-      return `${format(startDateObj, "HH:mm")} - Now`;
+      const start = getZonedParts(startTime, timeZone);
+      return `${start.hour.toString().padStart(2, "0")}:${start.minute.toString().padStart(2, "0")} - Now`;
     }
-
-    return `${format(startDateObj, "HH:mm")} - ${format(endDateObj!, "HH:mm")}`;
-  }, [startTime, endTime]);
+    const start = getZonedParts(startTime, timeZone);
+    const end = getZonedParts(endTime!, timeZone);
+    return `${start.hour.toString().padStart(2, "0")}:${start.minute.toString().padStart(2, "0")} - ${end.hour.toString().padStart(2, "0")}:${end.minute.toString().padStart(2, "0")}`;
+  }, [startTime, endTime, timeZone]);
 
   // Generate Limitless pendant URL with time range
   const pendantUrl = React.useMemo(() => {
     if (!hasLimitlessKey) return null;
 
-    const startDateObj = new Date(startTime);
     const endDateObj = endTime ? new Date(endTime) : new Date();
 
     // Check if start and end are on the same day
-    const sameDay = format(startDateObj, "yyyy-MM-dd") === format(endDateObj, "yyyy-MM-dd");
+    const sameDay = formatDateInTimeZone(startTime, timeZone) === formatDateInTimeZone(endDateObj, timeZone);
 
     let query: string;
     if (sameDay) {
       // Format: "2025-11-04 from 3:48am to 3:49am"
       // Date first to prevent parsing "2025" as "20:25"
-      const dateStr = format(startDateObj, "yyyy-MM-dd");
-      const startTimeStr = format(startDateObj, "h:mma").toLowerCase();
-      const endTimeStr = format(endDateObj, "h:mma").toLowerCase();
+      const dateStr = formatDateInTimeZone(startTime, timeZone);
+      const startTimeStr = formatTimeInTimeZone(startTime, timeZone, { compact: true });
+      const endTimeStr = formatTimeInTimeZone(endDateObj, timeZone, { compact: true });
       query = `${dateStr} from ${startTimeStr} to ${endTimeStr}`;
     } else {
       // Format: "2025-11-02 11:25am to 2025-11-03 1:35pm"
       // Both dates included, no "from" needed
-      const startFormatted = format(startDateObj, "yyyy-MM-dd h:mma").toLowerCase();
-      const endFormatted = format(endDateObj, "yyyy-MM-dd h:mma").toLowerCase();
+      const startFormatted = formatDateTimeInTimeZone(startTime, timeZone);
+      const endFormatted = formatDateTimeInTimeZone(endDateObj, timeZone);
       query = `${startFormatted} to ${endFormatted}`;
     }
 
     return `/pendant?q=${encodeURIComponent(query)}`;
-  }, [hasLimitlessKey, startTime, endTime]);
+  }, [hasLimitlessKey, startTime, endTime, timeZone]);
 
   const handleClockClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -861,6 +920,33 @@ export function TimeEditor({
               </div>
             </div>
           </div>
+
+          <div className="text-xs text-muted-foreground">
+            Editing in {timeZone}
+          </div>
+
+          {(startIsAmbiguous || endIsAmbiguous) && (
+            <div className="space-y-2 rounded-md border p-2">
+              {startIsAmbiguous && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs">Start occurs twice</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={startDisambiguation === "earlier" ? "default" : "outline"} onClick={() => { setStartDisambiguation("earlier"); setError(""); }}>First</Button>
+                    <Button size="sm" variant={startDisambiguation === "later" ? "default" : "outline"} onClick={() => { setStartDisambiguation("later"); setError(""); }}>Second</Button>
+                  </div>
+                </div>
+              )}
+              {endIsAmbiguous && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs">End occurs twice</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={endDisambiguation === "earlier" ? "default" : "outline"} onClick={() => { setEndDisambiguation("earlier"); setError(""); }}>First</Button>
+                    <Button size="sm" variant={endDisambiguation === "later" ? "default" : "outline"} onClick={() => { setEndDisambiguation("later"); setError(""); }}>Second</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="text-sm text-red-600 dark:text-red-400 animate-in fade-in-0 duration-200 font-medium">

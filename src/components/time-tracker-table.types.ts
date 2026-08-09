@@ -74,6 +74,7 @@ export interface MemoizedDateCellProps {
   rowIndex: number;
   selectedCell: SelectedCell;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
+  timeZone: string;
 }
 
 export interface MemoizedTimeCellProps {
@@ -97,6 +98,7 @@ export interface MemoizedTimeCellProps {
   navigateToPrevCell: () => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
+  timeZone: string;
 }
 
 export interface MemoizedDurationCellProps {

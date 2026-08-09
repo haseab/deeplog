@@ -22,6 +22,7 @@ import { toast } from "@/lib/toast";
 import { useTheme } from "next-themes";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { PinDialog } from "@/components/pin-dialog";
+import { useTimezonePreference } from "@/hooks/use-timezone-preference";
 
 interface AppSettingsProps {
   showLimitlessKey?: boolean;
@@ -40,6 +41,13 @@ export function AppSettings({
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const previousTitleRef = useRef<string | null>(null);
   const { theme, setTheme } = useTheme();
+  const {
+    mode: timezoneMode,
+    timeZone,
+    deviceTimeZone,
+    profileTimeZone,
+    setMode: setTimezoneMode,
+  } = useTimezonePreference();
   const [mounted, setMounted] = useState(false);
 
   // API Keys
@@ -337,6 +345,30 @@ export function AppSettings({
                           onCheckedChange={handleThemeChange}
                         />
                       )}
+                    </div>
+
+                    {/* Toast Duration Setting */}
+                    <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-card">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="toggl-profile-timezone" className="text-base font-medium">
+                          Use Toggl Profile Timezone
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Off follows this device ({deviceTimeZone}). On uses your Toggl profile
+                          {profileTimeZone ? ` (${profileTimeZone})` : " once it has synced"}.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Active timezone: {timeZone}
+                        </p>
+                      </div>
+                      <Switch
+                        id="toggl-profile-timezone"
+                        checked={timezoneMode === "profile"}
+                        disabled={!profileTimeZone}
+                        onCheckedChange={(checked) =>
+                          setTimezoneMode(checked ? "profile" : "device")
+                        }
+                      />
                     </div>
 
                     {/* Toast Duration Setting */}

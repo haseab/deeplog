@@ -1,10 +1,16 @@
 import { type NextRequest } from "next/server";
+import {
+  addCalendarDays,
+  isValidTimeZone,
+  wallTimeToUtcCandidates,
+} from "@/lib/timezone";
 
 export type SessionApiSetup = {
   sessionToken: string;
   workspaceId: number;
   organizationId: number;
   userId: number;
+  profileTimeZone: string;
 };
 
 export async function setupSessionApi(
@@ -36,6 +42,9 @@ export async function setupSessionApi(
 
   const userData = await meResponse.json();
   const userId = userData.id;
+  const profileTimeZone = isValidTimeZone(userData.timezone)
+    ? userData.timezone
+    : "UTC";
 
   // Get workspaces
   const workspacesResponse = await fetch(
@@ -67,7 +76,7 @@ export async function setupSessionApi(
   const workspaceId = workspace.id;
   const organizationId = workspace.organization_id;
 
-  return { sessionToken, workspaceId, organizationId, userId };
+  return { sessionToken, workspaceId, organizationId, userId, profileTimeZone };
 }
 
 export function createErrorResponse(message: string, status: number = 500) {
@@ -91,7 +100,7 @@ export function transformAnalyticsData(apiResponse: {
     tags?: Record<string, { name: string }>;
   };
   data_table?: unknown[][];
-}) {
+}, profileTimeZone: string) {
   const dictionaries = apiResponse.dictionaries || {};
 
   // Transform projects dictionary
@@ -121,24 +130,43 @@ export function transformAnalyticsData(apiResponse: {
     const projectId = entry.project_id as string | number | undefined;
     const project = projectId ? projectDict[projectId] || { name: "", color: "#6b7280" } : { name: "", color: "#6b7280" };
 
-    // Combine start_date and times to create full ISO strings
+    // Analytics reports wall-clock fields in the Toggl profile timezone.
+    // Resolve them to canonical UTC instants before returning them to clients.
     const startDate = entry.start_date as string;
     const startTime = entry.start_time as string;
     const stopTime = entry.stop_time as string | undefined;
-
-    const startDateTime = `${startDate}T${startTime}`;
-    const stopDateTime = stopTime ? `${startDate}T${stopTime}` : null;
-
-    // Handle overnight entries - if stop_time is before start_time, it's the next day
-    let actualStopDateTime = stopDateTime;
-    if (stopDateTime && stopTime && stopTime < startTime) {
-      const nextDay = new Date(startDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      actualStopDateTime = `${nextDay.toISOString().split('T')[0]}T${stopTime}`;
-    }
-
     const tagIds = (entry.tag_ids || []) as string[];
     const duration = entry.duration as number;
+    const startCandidates = wallTimeToUtcCandidates(startDate, startTime, profileTimeZone);
+    if (startCandidates.length === 0) {
+      console.warn("[API] Skipping Analytics entry with an invalid local start time", {
+        id: entry.time_entry_id,
+        startDate,
+        startTime,
+        profileTimeZone,
+      });
+      return null;
+    }
+
+    let startDateTime = startCandidates[0];
+    let timezoneAmbiguous = startCandidates.length > 1;
+    if (startCandidates.length > 1 && stopTime && Number.isFinite(duration)) {
+      const stopDate = stopTime < startTime ? addCalendarDays(startDate, 1) : startDate;
+      const stopCandidates = wallTimeToUtcCandidates(stopDate, stopTime, profileTimeZone);
+      const matchingStarts = startCandidates.filter((candidate) =>
+        stopCandidates.some((stopCandidate) =>
+          Math.abs(stopCandidate.getTime() - candidate.getTime() - duration) < 1000
+        )
+      );
+      if (matchingStarts.length === 1) {
+        startDateTime = matchingStarts[0];
+        timezoneAmbiguous = false;
+      }
+    }
+
+    const actualStopDateTime = Number.isFinite(duration) && duration >= 0
+      ? new Date(startDateTime.getTime() + duration).toISOString()
+      : null;
 
     return {
       id: entry.time_entry_id as number,
@@ -146,12 +174,13 @@ export function transformAnalyticsData(apiResponse: {
       project_id: projectId,
       project_name: project.name,
       project_color: project.color,
-      start: startDateTime,
+      start: startDateTime.toISOString(),
       stop: actualStopDateTime,
       // Analytics API returns duration in milliseconds, convert to seconds
       duration: Math.round(duration / 1000),
       tags: tagIds.map((tagId) => tagDict[tagId] || `Tag_${tagId}`),
-      tag_ids: tagIds
+      tag_ids: tagIds,
+      _timezoneAmbiguous: timezoneAmbiguous,
     };
-  });
+  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
