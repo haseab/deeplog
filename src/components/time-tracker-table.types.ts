@@ -148,9 +148,7 @@ export interface MemoizedDatePickerRowProps {
     | "syncing"
     | "error"
     | "session_expired"
-    | "offline"
-    | "sync_paused";
-  hasLoadedMoreEntries: boolean;
+    | "offline";
   lastSyncTime: Date | undefined;
   handleReauthenticate: () => void;
   fetchData: () => void;
@@ -175,9 +173,7 @@ export interface MemoizedMobileButtonsRowProps {
     | "syncing"
     | "error"
     | "session_expired"
-    | "offline"
-    | "sync_paused";
-  hasLoadedMoreEntries: boolean;
+    | "offline";
   lastSyncTime: Date | undefined;
   handleReauthenticate: () => void;
   fetchData: () => void;

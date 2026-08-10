@@ -835,7 +835,6 @@ const MemoizedDatePickerRow = React.memo(
     date,
     setDate,
     syncStatus,
-    hasLoadedMoreEntries,
     lastSyncTime,
     handleReauthenticate,
     fetchData,
@@ -910,13 +909,7 @@ const MemoizedDatePickerRow = React.memo(
             </PopoverContent>
           </Popover>
           <SyncStatusBadge
-            status={
-              syncStatus === "syncing"
-                ? "syncing"
-                : hasLoadedMoreEntries
-                ? "sync_paused"
-                : syncStatus || "synced"
-            }
+            status={syncStatus || "synced"}
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
@@ -990,7 +983,6 @@ const MemoizedDatePickerRow = React.memo(
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
       prevProps.syncStatus === nextProps.syncStatus &&
-      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
       prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
       prevProps.encryption.isE2EEEnabled ===
         nextProps.encryption.isE2EEEnabled &&
@@ -1077,7 +1069,6 @@ const MemoizedMobileDatePickerRow = React.memo(
 const MemoizedMobileButtonsRow = React.memo(
   function MemoizedMobileButtonsRow({
     syncStatus,
-    hasLoadedMoreEntries,
     lastSyncTime,
     handleReauthenticate,
     fetchData,
@@ -1094,13 +1085,7 @@ const MemoizedMobileButtonsRow = React.memo(
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <SyncStatusBadge
-            status={
-              syncStatus === "syncing"
-                ? "syncing"
-                : hasLoadedMoreEntries
-                ? "sync_paused"
-                : syncStatus || "synced"
-            }
+            status={syncStatus || "synced"}
             lastSyncTime={lastSyncTime}
             onReauthenticate={handleReauthenticate}
             onRetry={() => fetchData()}
@@ -1172,7 +1157,6 @@ const MemoizedMobileButtonsRow = React.memo(
   ) => {
     return (
       prevProps.syncStatus === nextProps.syncStatus &&
-      prevProps.hasLoadedMoreEntries === nextProps.hasLoadedMoreEntries &&
       prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
       prevProps.encryption.isE2EEEnabled ===
         nextProps.encryption.isE2EEEnabled &&
@@ -2377,11 +2361,6 @@ export function TimeTrackerTable({
   const [loading, setLoading] = React.useState(false);
   const currentPageRef = React.useRef(0);
   const [hasMore, setHasMore] = React.useState(true);
-  // Track if user has manually loaded more entries (pagination)
-  // If true, skip auto-resync to preserve loaded entries
-  const hasLoadedMoreEntriesRef = React.useRef(false);
-  // State version for reactive badge updates
-  const [hasLoadedMoreEntries, setHasLoadedMoreEntries] = React.useState(false);
   const [selectedCell, setSelectedCell] = React.useState<SelectedCell>(null);
   const submitNavigationHistoryRef = React.useRef<
     Array<{
@@ -6181,10 +6160,6 @@ export function TimeTrackerTable({
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
           if (resetData) {
-            const hasRetainedPagination = retainedPage > 0;
-            hasLoadedMoreEntriesRef.current = hasRetainedPagination;
-            setHasLoadedMoreEntries(hasRetainedPagination);
-
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
 
@@ -6267,10 +6242,6 @@ export function TimeTrackerTable({
               setTimeout(() => {
                 setNewlyLoadedEntries(new Set());
               }, 3000);
-
-              // Mark that we've loaded more entries (pagination)
-              hasLoadedMoreEntriesRef.current = true;
-              setHasLoadedMoreEntries(true);
 
               const normalizedEntries = enforceSingleRunningTimeEntry([
                 ...prev,
@@ -6658,9 +6629,6 @@ export function TimeTrackerTable({
   React.useEffect(() => {
     currentPageRef.current = 0;
     setHasMore(true);
-    // Reset the flag when date changes (user manually changed date range)
-    hasLoadedMoreEntriesRef.current = false;
-    setHasLoadedMoreEntries(false);
     // Use fetchData instead of duplicating the logic
     if (date?.from && date?.to) {
       fetchData(true, true); // Show loading, reset data
@@ -6729,15 +6697,10 @@ export function TimeTrackerTable({
       }
       lastFetchTime = now;
 
-      // Skip auto-resync if user has manually loaded more entries
-      // This preserves pagination state when switching tabs
-      if (hasLoadedMoreEntriesRef.current) {
-        return; // Don't auto-resync - user has loaded more entries
-      }
-
       if (date?.from && date?.to) {
-        // Silently refresh data without showing loading state
-        fetchData(false);
+        // Silently refresh every page currently loaded so auto-sync does not
+        // collapse the expanded result set back to the first page.
+        void fetchData(false, true, true);
       }
     };
 
@@ -8594,7 +8557,6 @@ export function TimeTrackerTable({
                 date={date}
                 setDate={handleDateChange}
                 syncStatus={syncStatus}
-                hasLoadedMoreEntries={hasLoadedMoreEntries}
                 lastSyncTime={lastSyncTime}
                 handleReauthenticate={handleReauthenticate}
                 fetchData={handleRefreshData}
@@ -8616,7 +8578,6 @@ export function TimeTrackerTable({
                 />
                 <MemoizedMobileButtonsRow
                   syncStatus={syncStatus}
-                  hasLoadedMoreEntries={hasLoadedMoreEntries}
                   lastSyncTime={lastSyncTime}
                   handleReauthenticate={handleReauthenticate}
                   fetchData={handleRefreshData}
