@@ -233,6 +233,12 @@
     margin: 0;
   }
 
+  /* Markdown double line breaks are parsed as adjacent paragraphs. Tailwind's
+     reset removes their default margins, so restore one line of separation. */
+  .description-editor > p + p {
+    margin-top: 1em;
+  }
+
   .description-editor ul ul {
     list-style-type: circle;
   }
