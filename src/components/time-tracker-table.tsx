@@ -75,9 +75,11 @@ import {
 } from "@/lib/time-entry-state";
 import { cn } from "@/lib/utils";
 import {
+  addCalendarDays,
   formatDateInTimeZone,
   formatDateTimeInTimeZone,
   formatTimeInTimeZone,
+  wallTimeToUtc,
 } from "@/lib/timezone";
 import type { Project, SelectedCell, Tag, TimeEntry } from "../types";
 import { ActionsMenu } from "./actions-menu";
@@ -757,6 +759,16 @@ function getDefaultDateRange(timeZone: string): DateRange {
     from: startOfDay(sevenDaysAgo),
     to: endOfDay(today),
   };
+}
+
+function dateRangesMatch(
+  first: DateRange | undefined,
+  second: DateRange | undefined
+): boolean {
+  return (
+    first?.from?.getTime() === second?.from?.getTime() &&
+    first?.to?.getTime() === second?.to?.getTime()
+  );
 }
 
 function getDateRangeFromSearchParams(
@@ -2275,6 +2287,48 @@ export function TimeTrackerTable({
       setDate(urlDateRange);
     }
   }, [searchParams, timeZone]);
+
+  // Keep the default range rolling while the page remains open. React state
+  // does not otherwise change when the selected timezone crosses midnight.
+  React.useEffect(() => {
+    if (!isRollingDateRange) return;
+
+    let midnightTimer: ReturnType<typeof setTimeout>;
+
+    const refreshRollingRange = () => {
+      const nextDate = getDefaultDateRange(timeZone);
+      setDate((currentDate) =>
+        dateRangesMatch(currentDate, nextDate) ? currentDate : nextDate
+      );
+    };
+
+    const scheduleNextMidnight = () => {
+      const now = new Date();
+      const tomorrow = addCalendarDays(
+        formatDateInTimeZone(now, timeZone),
+        1
+      );
+      const nextMidnight = wallTimeToUtc(
+        tomorrow,
+        "00:00:00",
+        timeZone,
+        "earlier"
+      );
+      const delay = nextMidnight
+        ? Math.max(1000, nextMidnight.getTime() - now.getTime() + 1000)
+        : 60_000;
+
+      midnightTimer = setTimeout(() => {
+        refreshRollingRange();
+        scheduleNextMidnight();
+      }, delay);
+    };
+
+    refreshRollingRange();
+    scheduleNextMidnight();
+
+    return () => clearTimeout(midnightTimer);
+  }, [isRollingDateRange, timeZone]);
 
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
@@ -6666,6 +6720,16 @@ export function TimeTrackerTable({
     const debouncedFetch = () => {
       if (!isMounted) return; // Don't fetch on initial mount
 
+      if (isRollingDateRange) {
+        const nextDate = getDefaultDateRange(timeZone);
+        if (!dateRangesMatch(date, nextDate)) {
+          // Updating the range triggers the normal date-change fetch. Avoid
+          // first issuing a request with yesterday's stale query parameters.
+          setDate(nextDate);
+          return;
+        }
+      }
+
       // Don't sync if there's an active toast to prevent accidental data loss
       const toastActive = hasActiveToast();
       if (toastActive) {
@@ -6725,6 +6789,8 @@ export function TimeTrackerTable({
   }, [
     fetchData,
     date,
+    isRollingDateRange,
+    timeZone,
     isEditingCell,
     isProjectSelectorOpen,
     isTagSelectorOpen,
