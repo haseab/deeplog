@@ -1,0 +1,7 @@
+name = "60m-cron"
+main = "scripts/cron.ts"
+account_id = "77a1af0e6b6b754c764d70f15708da43"
+compatibility_date = "2026-08-10"
+
+[triggers]
+crons = ["0 * * * *"]

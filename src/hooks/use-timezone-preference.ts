@@ -9,11 +9,15 @@ import {
 
 export const TIMEZONE_MODE_KEY = "deeplog_timezone_mode";
 export const PROFILE_TIMEZONE_KEY = "toggl_profile_timezone";
+export const CUSTOM_TIMEZONE_KEY = "deeplog_custom_timezone";
 export const TIMEZONE_CHANGE_EVENT = "deeplog-timezone-change";
 
 function readMode(): TimeZoneMode {
   if (typeof window === "undefined") return "device";
-  return localStorage.getItem(TIMEZONE_MODE_KEY) === "profile" ? "profile" : "device";
+  const mode = localStorage.getItem(TIMEZONE_MODE_KEY);
+  if (mode === "profile") return "profile";
+  if (mode === "custom" && readCustomTimeZone()) return "custom";
+  return "device";
 }
 
 function readProfileTimeZone(): string | null {
@@ -22,14 +26,22 @@ function readProfileTimeZone(): string | null {
   return isValidTimeZone(value) ? value : null;
 }
 
+function readCustomTimeZone(): string | null {
+  if (typeof window === "undefined") return null;
+  const value = localStorage.getItem(CUSTOM_TIMEZONE_KEY);
+  return isValidTimeZone(value) ? value : null;
+}
+
 export function useTimezonePreference() {
   const [mode, setModeState] = React.useState<TimeZoneMode>(() => readMode());
   const [profileTimeZone, setProfileTimeZoneState] = React.useState<string | null>(() => readProfileTimeZone());
+  const [customTimeZone, setCustomTimeZoneState] = React.useState<string | null>(() => readCustomTimeZone());
   const [deviceTimeZone, setDeviceTimeZone] = React.useState(() => getDeviceTimeZone());
 
   const refresh = React.useCallback(() => {
     setModeState(readMode());
     setProfileTimeZoneState(readProfileTimeZone());
+    setCustomTimeZoneState(readCustomTimeZone());
     setDeviceTimeZone(getDeviceTimeZone());
   }, []);
 
@@ -67,9 +79,33 @@ export function useTimezonePreference() {
     window.dispatchEvent(new Event(TIMEZONE_CHANGE_EVENT));
   }, []);
 
+  const setTimeZone = React.useCallback((nextTimeZone: string) => {
+    if (!isValidTimeZone(nextTimeZone)) return;
+
+    const currentDeviceTimeZone = getDeviceTimeZone();
+    if (nextTimeZone === currentDeviceTimeZone) {
+      localStorage.setItem(TIMEZONE_MODE_KEY, "device");
+    } else {
+      localStorage.setItem(CUSTOM_TIMEZONE_KEY, nextTimeZone);
+      localStorage.setItem(TIMEZONE_MODE_KEY, "custom");
+    }
+    window.dispatchEvent(new Event(TIMEZONE_CHANGE_EVENT));
+  }, []);
+
   const timeZone = mode === "profile" && profileTimeZone
     ? profileTimeZone
-    : deviceTimeZone;
+    : mode === "custom" && customTimeZone
+      ? customTimeZone
+      : deviceTimeZone;
 
-  return { mode, timeZone, deviceTimeZone, profileTimeZone, setMode, setProfileTimeZone };
+  return {
+    mode,
+    timeZone,
+    deviceTimeZone,
+    profileTimeZone,
+    customTimeZone,
+    setMode,
+    setTimeZone,
+    setProfileTimeZone,
+  };
 }

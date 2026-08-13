@@ -1,4 +1,4 @@
-export type TimeZoneMode = "device" | "profile";
+export type TimeZoneMode = "device" | "profile" | "custom";
 export type WallTimeDisambiguation = "earlier" | "later" | "reject";
 
 export type ZonedDateTimeParts = {

@@ -12,6 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -47,8 +55,16 @@ export function AppSettings({
     deviceTimeZone,
     profileTimeZone,
     setMode: setTimezoneMode,
+    setTimeZone,
   } = useTimezonePreference();
   const [mounted, setMounted] = useState(false);
+  const timeZoneOptions = useMemo(() => {
+    const intlWithSupportedValues = Intl as typeof Intl & {
+      supportedValuesOf?: (key: "timeZone") => string[];
+    };
+    const supported = intlWithSupportedValues.supportedValuesOf?.("timeZone") ?? [];
+    return Array.from(new Set([...supported, "UTC", deviceTimeZone])).sort();
+  }, [deviceTimeZone]);
 
   // API Keys
   const [limitlessApiKey, setLimitlessApiKey] = useState("");
@@ -129,6 +145,20 @@ export function AppSettings({
     const newTheme = checked ? "dark" : "light";
     setTheme(newTheme);
     toast.success(`Theme changed to ${newTheme} mode`);
+  };
+
+  const handleTimeZoneChange = (value: string) => {
+    if (value === "profile") {
+      setTimezoneMode("profile");
+      if (profileTimeZone) toast.success(`Timezone set to ${profileTimeZone}`);
+      return;
+    }
+
+    const nextTimeZone = value.startsWith("timezone:")
+      ? value.slice("timezone:".length)
+      : deviceTimeZone;
+    setTimeZone(nextTimeZone);
+    toast.success(`Timezone set to ${nextTimeZone}`);
   };
 
   const handleToastDurationChange = (value: string) => {
@@ -347,28 +377,59 @@ export function AppSettings({
                       )}
                     </div>
 
-                    {/* Toast Duration Setting */}
-                    <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-card">
+                    {/* Timezone Setting */}
+                    <div className="space-y-3 p-4 rounded-lg border bg-card">
                       <div className="space-y-0.5">
-                        <Label htmlFor="toggl-profile-timezone" className="text-base font-medium">
-                          Use Toggl Profile Timezone
+                        <Label htmlFor="timezone" className="text-base font-medium">
+                          Timezone
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                          Off follows this device ({deviceTimeZone}). On uses your Toggl profile
-                          {profileTimeZone ? ` (${profileTimeZone})` : " once it has synced"}.
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Active timezone: {timeZone}
+                          Controls how dates and times are displayed and queried.
                         </p>
                       </div>
-                      <Switch
-                        id="toggl-profile-timezone"
-                        checked={timezoneMode === "profile"}
-                        disabled={!profileTimeZone}
-                        onCheckedChange={(checked) =>
-                          setTimezoneMode(checked ? "profile" : "device")
-                        }
-                      />
+                      {mounted && (
+                        <Select
+                          value={
+                            timezoneMode === "profile" && profileTimeZone
+                              ? "profile"
+                              : timezoneMode === "custom"
+                                ? `timezone:${timeZone}`
+                                : "device"
+                          }
+                          onValueChange={handleTimeZoneChange}
+                        >
+                          <SelectTrigger id="timezone" className="w-full">
+                            <SelectValue placeholder="Choose a timezone" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="device">
+                              {deviceTimeZone} (Recommended)
+                            </SelectItem>
+                            {profileTimeZone && (
+                              <>
+                                <SelectSeparator />
+                                <SelectItem value="profile">
+                                  {profileTimeZone} (Toggl profile)
+                                </SelectItem>
+                              </>
+                            )}
+                            <SelectSeparator />
+                            {timeZoneOptions
+                              .filter((option) => option !== deviceTimeZone)
+                              .map((option) => (
+                                <SelectItem
+                                  key={option}
+                                  value={`timezone:${option}`}
+                                >
+                                  {option}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Active timezone: {timeZone}
+                      </p>
                     </div>
 
                     {/* Toast Duration Setting */}

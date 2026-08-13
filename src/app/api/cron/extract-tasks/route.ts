@@ -368,7 +368,6 @@ async function processUserTasks(
             content: `Here are conversation snippets with key phrases. Create a list of actionable tasks:\n\n${combinedContexts}`,
           },
         ],
-        temperature: 0.3,
         response_format: { type: "json_object" },
       }),
     }

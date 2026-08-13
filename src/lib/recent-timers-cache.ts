@@ -11,7 +11,10 @@ const MAX_RECENT_TIMER_SEGMENT_LENGTH = 50;
 
 export function getRecentTimerDescription(description: string): string | null {
   const segments = description
-    .split("-")
+    // A dash is a description-list separator only when surrounded by
+    // whitespace. Preserve hyphenated words and channel names such as
+    // "core-team" and "#core-team".
+    .split(/\s+-\s+/)
     .map((segment) => segment.trim())
     .filter(Boolean);
   const eligibleSegments: string[] = [];
