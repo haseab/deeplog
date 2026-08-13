@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,20 +19,17 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield } from "lucide-react";
+import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield, Check, ChevronsUpDown, Search } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useTheme } from "next-themes";
 import { useEncryptionContext } from "@/contexts/encryption-context";
@@ -39,6 +43,7 @@ interface AppSettingsProps {
 }
 
 type SettingsSection = "general" | "api-keys" | "danger-zone";
+type TimeZoneChoice = { value: string; label: string };
 
 export function AppSettings({
   showLimitlessKey = false,
@@ -58,6 +63,11 @@ export function AppSettings({
     setTimeZone,
   } = useTimezonePreference();
   const [mounted, setMounted] = useState(false);
+  const [isTimeZoneOpen, setIsTimeZoneOpen] = useState(false);
+  const [timeZoneSearch, setTimeZoneSearch] = useState("");
+  const [activeTimeZoneIndex, setActiveTimeZoneIndex] = useState(0);
+  const timeZoneListRef = useRef<HTMLDivElement>(null);
+  const timeZoneOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const timeZoneOptions = useMemo(() => {
     const intlWithSupportedValues = Intl as typeof Intl & {
       supportedValuesOf?: (key: "timeZone") => string[];
@@ -65,6 +75,52 @@ export function AppSettings({
     const supported = intlWithSupportedValues.supportedValuesOf?.("timeZone") ?? [];
     return Array.from(new Set([...supported, "UTC", deviceTimeZone])).sort();
   }, [deviceTimeZone]);
+  const selectedTimeZoneValue =
+    timezoneMode === "profile" && profileTimeZone
+      ? "profile"
+      : timezoneMode === "custom"
+        ? `timezone:${timeZone}`
+        : "device";
+  const visibleTimeZoneChoices = useMemo<TimeZoneChoice[]>(() => {
+    const query = timeZoneSearch.trim().toLowerCase();
+    const matches = (value: string) =>
+      !query || value.toLowerCase().replaceAll("_", " ").includes(query);
+    const choices: TimeZoneChoice[] = [
+      {
+        value: "device",
+        label: `${deviceTimeZone} (Recommended)`,
+      },
+    ];
+
+    if (
+      profileTimeZone &&
+      matches(`${profileTimeZone} Toggl profile`)
+    ) {
+      choices.push({
+        value: "profile",
+        label: `${profileTimeZone} (Toggl profile)`,
+      });
+    }
+
+    choices.push(
+      ...timeZoneOptions
+        .filter(
+          (option) => option !== deviceTimeZone && matches(option)
+        )
+        .map((option) => ({
+          value: `timezone:${option}`,
+          label: option,
+        }))
+    );
+    return choices;
+  }, [deviceTimeZone, profileTimeZone, timeZoneOptions, timeZoneSearch]);
+
+  useEffect(() => {
+    if (!isTimeZoneOpen) return;
+    timeZoneOptionRefs.current[activeTimeZoneIndex]?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeTimeZoneIndex, isTimeZoneOpen]);
 
   // API Keys
   const [limitlessApiKey, setLimitlessApiKey] = useState("");
@@ -151,6 +207,8 @@ export function AppSettings({
     if (value === "profile") {
       setTimezoneMode("profile");
       if (profileTimeZone) toast.success(`Timezone set to ${profileTimeZone}`);
+      setIsTimeZoneOpen(false);
+      setTimeZoneSearch("");
       return;
     }
 
@@ -159,6 +217,71 @@ export function AppSettings({
       : deviceTimeZone;
     setTimeZone(nextTimeZone);
     toast.success(`Timezone set to ${nextTimeZone}`);
+    setIsTimeZoneOpen(false);
+    setTimeZoneSearch("");
+  };
+
+  const handleTimeZoneOpenChange = (open: boolean) => {
+    setIsTimeZoneOpen(open);
+    setTimeZoneSearch("");
+    if (open) {
+      const selectedIndex = visibleTimeZoneChoices.findIndex(
+        (choice) => choice.value === selectedTimeZoneValue
+      );
+      setActiveTimeZoneIndex(Math.max(0, selectedIndex));
+    }
+  };
+
+  const handleTimeZoneSearchKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>
+  ) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveTimeZoneIndex((current) => {
+        const lastIndex = visibleTimeZoneChoices.length - 1;
+        if (lastIndex < 0) return 0;
+        return Math.min(lastIndex, Math.max(0, current + direction));
+      });
+      return;
+    }
+
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setActiveTimeZoneIndex(
+        event.key === "Home" ? 0 : visibleTimeZoneChoices.length - 1
+      );
+      return;
+    }
+
+    if (event.key === "Enter") {
+      const choice = visibleTimeZoneChoices[activeTimeZoneIndex];
+      if (choice) {
+        event.preventDefault();
+        handleTimeZoneChange(choice.value);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setIsTimeZoneOpen(false);
+      setTimeZoneSearch("");
+    }
+  };
+
+  const handleTimeZoneWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    // The settings dialog locks scrolling outside its own portal. The timezone
+    // popover is another portal, so consume the wheel and scroll it explicitly.
+    event.preventDefault();
+    event.stopPropagation();
+    const multiplier =
+      event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? event.currentTarget.clientHeight
+          : 1;
+    event.currentTarget.scrollTop += event.deltaY * multiplier;
   };
 
   const handleToastDurationChange = (value: string) => {
@@ -388,44 +511,100 @@ export function AppSettings({
                         </p>
                       </div>
                       {mounted && (
-                        <Select
-                          value={
-                            timezoneMode === "profile" && profileTimeZone
-                              ? "profile"
-                              : timezoneMode === "custom"
-                                ? `timezone:${timeZone}`
-                                : "device"
-                          }
-                          onValueChange={handleTimeZoneChange}
+                        <Popover
+                          open={isTimeZoneOpen}
+                          onOpenChange={handleTimeZoneOpenChange}
                         >
-                          <SelectTrigger id="timezone" className="w-full">
-                            <SelectValue placeholder="Choose a timezone" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="device">
-                              {deviceTimeZone} (Recommended)
-                            </SelectItem>
-                            {profileTimeZone && (
-                              <>
-                                <SelectSeparator />
-                                <SelectItem value="profile">
-                                  {profileTimeZone} (Toggl profile)
-                                </SelectItem>
-                              </>
-                            )}
-                            <SelectSeparator />
-                            {timeZoneOptions
-                              .filter((option) => option !== deviceTimeZone)
-                              .map((option) => (
-                                <SelectItem
-                                  key={option}
-                                  value={`timezone:${option}`}
+                          <PopoverTrigger asChild>
+                            <Button
+                              id="timezone"
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={isTimeZoneOpen}
+                              className="w-full justify-between font-normal"
+                            >
+                              <span className="truncate">
+                                {timeZone}
+                                {timezoneMode === "device"
+                                  ? " (Recommended)"
+                                  : timezoneMode === "profile"
+                                    ? " (Toggl profile)"
+                                    : ""}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            className="w-[var(--radix-popover-trigger-width)] p-0"
+                          >
+                            <div className="relative border-b p-2">
+                              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                autoFocus
+                                value={timeZoneSearch}
+                                onChange={(event) => {
+                                  setTimeZoneSearch(event.target.value);
+                                  setActiveTimeZoneIndex(0);
+                                }}
+                                onKeyDown={handleTimeZoneSearchKeyDown}
+                                placeholder="Search timezones..."
+                                aria-label="Search timezones"
+                                role="combobox"
+                                aria-expanded={true}
+                                aria-controls="timezone-options"
+                                aria-activedescendant={`timezone-option-${activeTimeZoneIndex}`}
+                                className="pl-9"
+                              />
+                            </div>
+                            <div
+                              id="timezone-options"
+                              ref={timeZoneListRef}
+                              role="listbox"
+                              aria-label="Timezones"
+                              onWheelCapture={handleTimeZoneWheel}
+                              className="max-h-64 touch-pan-y overflow-y-scroll overscroll-contain p-1 [scrollbar-gutter:stable]"
+                            >
+                              {visibleTimeZoneChoices.map((choice, index) => (
+                                <button
+                                  type="button"
+                                  id={`timezone-option-${index}`}
+                                  key={choice.value}
+                                  ref={(element) => {
+                                    timeZoneOptionRefs.current[index] = element;
+                                  }}
+                                  role="option"
+                                  aria-selected={
+                                    choice.value === selectedTimeZoneValue
+                                  }
+                                  tabIndex={-1}
+                                  onMouseMove={() =>
+                                    setActiveTimeZoneIndex(index)
+                                  }
+                                  onClick={() =>
+                                    handleTimeZoneChange(choice.value)
+                                  }
+                                  className={`flex w-full items-center rounded-sm px-2 py-2 text-left text-sm ${
+                                    activeTimeZoneIndex === index
+                                      ? "bg-accent text-accent-foreground"
+                                      : "hover:bg-accent hover:text-accent-foreground"
+                                  }`}
                                 >
-                                  {option}
-                                </SelectItem>
+                                  <Check
+                                    className={`mr-2 h-4 w-4 shrink-0 ${
+                                      choice.value === selectedTimeZoneValue
+                                        ? "opacity-100"
+                                        : "opacity-0"
+                                    }`}
+                                  />
+                                  <span className="truncate">
+                                    {choice.label}
+                                  </span>
+                                </button>
                               ))}
-                          </SelectContent>
-                        </Select>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
                       )}
                       <p className="text-xs text-muted-foreground">
                         Active timezone: {timeZone}
