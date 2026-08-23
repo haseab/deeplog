@@ -20,6 +20,53 @@ const TASK_KEYWORDS = [
   "due",
 ];
 
+const TODOIST_TASK_EXTRACTION_PROJECT = "task-extraction";
+
+interface TodoistProject {
+  id: string;
+  name: string;
+}
+
+async function getTaskExtractionProjectId(apiKey: string): Promise<string> {
+  const params = new URLSearchParams({
+    query: TODOIST_TASK_EXTRACTION_PROJECT,
+    limit: "200",
+  });
+  const response = await fetch(
+    `https://api.todoist.com/api/v1/projects/search?${params.toString()}`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    console.error(
+      "Todoist project lookup failed:",
+      response.status,
+      await response.text()
+    );
+    throw new Error("Failed to look up the Todoist task-extraction project");
+  }
+
+  const data = (await response.json()) as { results?: TodoistProject[] };
+  const project = data.results?.find(
+    ({ name }) =>
+      name.trim().toLowerCase() === TODOIST_TASK_EXTRACTION_PROJECT
+  );
+
+  if (!project?.id) {
+    throw new Error(
+      'Todoist project "task-extraction" was not found; no tasks were created'
+    );
+  }
+
+  return project.id;
+}
+
 interface ProcessedState {
   lastProcessedTimestamp: string;
 }
@@ -416,8 +463,17 @@ async function processUserTasks(
       : "=== Creating Todoist tasks ==="
   );
   const createdTasks = [];
+  const taskExtractionProjectId =
+    !isDryRun && deduplicatedTasks.length > 0
+      ? await getTaskExtractionProjectId(todoistApiKey)
+      : null;
 
   for (let i = 0; !isDryRun && i < deduplicatedTasks.length; i++) {
+    if (!taskExtractionProjectId) {
+      throw new Error(
+        "Todoist task-extraction project was not resolved; no tasks were created"
+      );
+    }
     const taskContent = deduplicatedTasks[i];
     console.log(`Creating task ${i + 1}: "${taskContent}"`);
 
@@ -432,6 +488,7 @@ async function processUserTasks(
           },
           body: JSON.stringify({
             content: taskContent,
+            project_id: taskExtractionProjectId,
             description: `Extracted from transcript on ${new Date(
               end
             ).toLocaleDateString()}`,
@@ -452,7 +509,9 @@ async function processUserTasks(
         todoistId: todoistTask.id,
       });
 
-      console.log(`✓ Created task in Todoist (ID: ${todoistTask.id})`);
+      console.log(
+        `✓ Created task in Todoist project ${TODOIST_TASK_EXTRACTION_PROJECT} (ID: ${todoistTask.id})`
+      );
     } catch (error) {
       console.error("Error creating Todoist task:", error);
     }
