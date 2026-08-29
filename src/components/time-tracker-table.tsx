@@ -7932,6 +7932,12 @@ export function TimeTrackerTable({
           break;
 
         case "enter":
+          // Modified Enter is reserved for editor/toast submit shortcuts. Once
+          // those handlers finish, don't let repeated presses reopen the cell.
+          if (e.metaKey || e.ctrlKey || e.altKey) {
+            break;
+          }
+
           e.preventDefault();
           if (selectedCell) {
             // If checkbox is selected, toggle it
