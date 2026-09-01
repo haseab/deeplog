@@ -90,7 +90,7 @@ export interface MemoizedTimeCellProps {
   ) => (
     startTime: string,
     endTime: string | null,
-    direction: "next" | "previous"
+    direction: "next" | "previous" | "both"
   ) => void;
   setIsTimeEditorOpen: (entryId: number, open: boolean) => void;
   navigateToNextCell: () => void;

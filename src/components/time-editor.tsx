@@ -30,7 +30,7 @@ interface TimeEditorProps {
   onSaveWithForcePush?: (
     startTime: string,
     endTime: string | null,
-    direction: "next" | "previous"
+    direction: "next" | "previous" | "both"
   ) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
@@ -278,7 +278,9 @@ export function TimeEditor({
     return true;
   };
 
-  const handleSaveWithForcePush = (direction: "next" | "previous") => {
+  const handleSaveWithForcePush = (
+    direction: "next" | "previous" | "both"
+  ) => {
     const finalStartDateTime = buildDateTime(
       startDateValue,
       startTimeHours,
@@ -563,10 +565,10 @@ export function TimeEditor({
     if (e.key === "Enter") {
       e.preventDefault();
 
-      // Cmd+Enter overwrites the next boundary. Adding Option reverses the
-      // overwrite direction and aligns the previous entry's end instead.
+      // Cmd+Enter aligns both adjacent boundaries. Adding Option keeps the
+      // explicit one-sided shortcut for aligning only the previous boundary.
       if (e.metaKey || e.ctrlKey) {
-        handleSaveWithForcePush(e.altKey ? "previous" : "next");
+        handleSaveWithForcePush(e.altKey ? "previous" : "both");
       } else {
         handleSave();
       }

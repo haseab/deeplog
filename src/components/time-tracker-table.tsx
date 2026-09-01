@@ -1412,7 +1412,7 @@ const MemoizedTableRow = React.memo(
     ) => (
       startTime: string,
       endTime: string | null,
-      direction: "next" | "previous"
+      direction: "next" | "previous" | "both"
     ) => void;
     onDurationChange: (entryId: number) => (newDuration: number) => void;
     onDurationChangeWithStartTimeAdjustment: (
@@ -3740,7 +3740,7 @@ export function TimeTrackerTable({
       entryId: number,
       updateType: 'time' | 'duration-end' | 'duration-start',
       newValues: { startTime?: string; endTime?: string | null; duration?: number },
-      alignmentDirection: "next" | "previous" | "overlap" = "overlap"
+      alignmentDirection: "next" | "previous" | "both" | "overlap" = "overlap"
     ) => {
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
@@ -3808,13 +3808,13 @@ export function TimeTrackerTable({
         // whether there is currently a gap or an overlap. The overlap mode is
         // retained for callers that explicitly want the legacy behavior.
         const shouldAdjustPrevious =
-          alignmentDirection === "previous"
+          alignmentDirection === "previous" || alignmentDirection === "both"
             ? Boolean(prevEntry)
             : alignmentDirection === "next"
             ? false
             : Boolean(prevOverlap);
         const shouldAdjustNext =
-          alignmentDirection === "next"
+          alignmentDirection === "next" || alignmentDirection === "both"
             ? Boolean(nextEntry && newEnd)
             : alignmentDirection === "previous"
             ? false
@@ -3883,7 +3883,11 @@ export function TimeTrackerTable({
         const sessionToken = localStorage.getItem("toggl_session_token");
 
         // Show toast with appropriate message
-        const message = shouldAdjustPrevious || shouldAdjustNext
+        const message = shouldAdjustPrevious && shouldAdjustNext
+          ? updateType === 'time'
+            ? "Time updated, both adjacent entries aligned."
+            : "Duration updated, both adjacent entries aligned."
+          : shouldAdjustPrevious || shouldAdjustNext
           ? updateType === 'time'
             ? shouldAdjustPrevious
               ? "Time updated, previous entry aligned."
@@ -4080,7 +4084,7 @@ export function TimeTrackerTable({
     (entryId: number) => (
       startTime: string,
       endTime: string | null,
-      direction: "next" | "previous"
+      direction: "next" | "previous" | "both"
     ) => {
       handleForceUpdate(
         entryId,
@@ -4309,7 +4313,7 @@ export function TimeTrackerTable({
         entryId,
         'duration-end',
         { duration: newDuration },
-        "next"
+        "both"
       );
     },
     [handleForceUpdate]

@@ -303,7 +303,7 @@ export function DurationEditor({
         onSaveWithStartTimeAdjustmentAndForcePush?.(totalSeconds);
         setIsEditing(false);
       }
-      // Cmd+Enter: adjust end and overwrite the next boundary.
+      // Cmd+Enter: adjust end and align both adjacent boundaries.
       else if (e.metaKey || e.ctrlKey) {
         onSaveWithForcePush?.(totalSeconds);
         setIsEditing(false);
