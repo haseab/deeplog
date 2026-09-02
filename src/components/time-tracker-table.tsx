@@ -4601,6 +4601,23 @@ export function TimeTrackerTable({
       // Store original entries for undo
       const originalEntries = [...timeEntries];
       const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
+      const originalSyncStatuses = new Map(entrySyncStatusRef.current);
+
+      const setBulkEntrySyncStatus = (
+        entryId: number,
+        status?: SyncStatus
+      ) => {
+        setEntrySyncStatus((previousStatuses) => {
+          const nextStatuses = new Map(previousStatuses);
+          if (status) {
+            nextStatuses.set(entryId, status);
+          } else {
+            nextStatuses.delete(entryId);
+          }
+          entrySyncStatusRef.current = nextStatuses;
+          return nextStatuses;
+        });
+      };
 
       // Update entries with new tags immediately
       setTimeEntries((currentEntries) => {
@@ -4615,6 +4632,16 @@ export function TimeTrackerTable({
           }
           return entry;
         });
+      });
+
+      // Keep every affected row visibly pending throughout the undo window.
+      setEntrySyncStatus((previousStatuses) => {
+        const nextStatuses = new Map(previousStatuses);
+        entryIdsToUpdate.forEach((entryId) => {
+          nextStatuses.set(entryId, "pending");
+        });
+        entrySyncStatusRef.current = nextStatuses;
+        return nextStatuses;
       });
 
       // Clear selected rows
@@ -4657,6 +4684,19 @@ export function TimeTrackerTable({
                 }
               });
               setSelectedRows(restoredIndices);
+              setEntrySyncStatus((previousStatuses) => {
+                const nextStatuses = new Map(previousStatuses);
+                entryIdsToUpdate.forEach((entryId) => {
+                  const originalStatus = originalSyncStatuses.get(entryId);
+                  if (originalStatus) {
+                    nextStatuses.set(entryId, originalStatus);
+                  } else {
+                    nextStatuses.delete(entryId);
+                  }
+                });
+                entrySyncStatusRef.current = nextStatuses;
+                return nextStatuses;
+              });
             },
           },
           duration: Infinity,
@@ -4683,7 +4723,7 @@ export function TimeTrackerTable({
         for (let i = 0; i < entriesToUpdate.length; i++) {
           const entry = entriesToUpdate[i];
 
-          try {
+          const updateEntryTags = async () => {
             const resolvedExistingTagIds = (entry.tags || [])
               .map(
                 (tagName) =>
@@ -4715,13 +4755,29 @@ export function TimeTrackerTable({
                 errorText,
                 entryId: entry.id,
               });
-              errors.push(`Failed to update entry ${entry.id}`);
+              throw new Error(`Failed to update entry ${entry.id}`);
             }
+          };
+
+          entryRetryFunctions.current.set(entry.id, updateEntryTags);
+          setBulkEntrySyncStatus(entry.id, "syncing");
+
+          try {
+            await updateEntryTags();
+            entryRetryFunctions.current.delete(entry.id);
+            setBulkEntrySyncStatus(entry.id, "synced");
+
+            setTimeout(() => {
+              if (entrySyncStatusRef.current.get(entry.id) === "synced") {
+                setBulkEntrySyncStatus(entry.id);
+              }
+            }, 2000);
           } catch (error) {
             console.error(
               `[handleAddTagsToMultiple] Error updating entry ${entry.id}:`,
               error
             );
+            setBulkEntrySyncStatus(entry.id, "error");
             errors.push(`Error updating entry ${entry.id}`);
           }
 
