@@ -4587,6 +4587,17 @@ export function TimeTrackerTable({
     (entriesToUpdate: TimeEntry[], tagsToAdd: string[]) => {
       if (entriesToUpdate.length === 0 || tagsToAdd.length === 0) return;
 
+      const resolvedTags = tagsToAdd.map((tagName) => ({
+        name: tagName,
+        id: availableTagsRef.current.find((tag) => tag.name === tagName)?.id,
+      }));
+      const unresolvedTag = resolvedTags.find((tag) => tag.id === undefined);
+      if (unresolvedTag) {
+        toast.error(`Could not find tag "${unresolvedTag.name}". Please try again.`);
+        return;
+      }
+      const tagIdsToAdd = resolvedTags.map((tag) => tag.id as number);
+
       // Store original entries for undo
       const originalEntries = [...timeEntries];
       const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
@@ -4597,7 +4608,10 @@ export function TimeTrackerTable({
           if (entryIdsToUpdate.has(entry.id)) {
             const currentTags = entry.tags || [];
             const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
-            return { ...entry, tags: newTags };
+            const newTagIds = Array.from(
+              new Set([...(entry.tag_ids || []), ...tagIdsToAdd])
+            );
+            return { ...entry, tags: newTags, tag_ids: newTagIds };
           }
           return entry;
         });
@@ -4627,6 +4641,8 @@ export function TimeTrackerTable({
           action: {
             label: "Undo (⌘Z)",
             onClick: () => {
+              // Once submission begins, the API requests cannot be cancelled.
+              if (state.apiCallStarted) return;
               toastDismissed = true;
               // Restore all entries
               setTimeEntries(originalEntries);
@@ -4655,6 +4671,11 @@ export function TimeTrackerTable({
         }
 
         state.apiCallStarted = true;
+        // The undo window has ended. Dismissing the actionable toast also
+        // prevents an in-flight request from being visually "undone" locally.
+        if (toastId !== undefined) {
+          toast.dismiss(toastId);
+        }
         const sessionToken = localStorage.getItem("toggl_session_token");
         const errors: string[] = [];
 
@@ -4663,8 +4684,20 @@ export function TimeTrackerTable({
           const entry = entriesToUpdate[i];
 
           try {
-            const currentTags = entry.tags || [];
-            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
+            const resolvedExistingTagIds = (entry.tags || [])
+              .map(
+                (tagName) =>
+                  availableTagsRef.current.find((tag) => tag.name === tagName)
+                    ?.id
+              )
+              .filter((id): id is number => id !== undefined);
+            const newTagIds = Array.from(
+              new Set([
+                ...(entry.tag_ids || []),
+                ...resolvedExistingTagIds,
+                ...tagIdsToAdd,
+              ])
+            );
 
             const response = await fetch(`/api/time-entries/${entry.id}`, {
               method: "PATCH",
@@ -4672,7 +4705,7 @@ export function TimeTrackerTable({
                 "Content-Type": "application/json",
                 "x-toggl-session-token": sessionToken || "",
               },
-              body: JSON.stringify({ tags: newTags }),
+              body: JSON.stringify({ tag_ids: newTagIds }),
             });
 
             if (!response.ok) {
@@ -4696,11 +4729,6 @@ export function TimeTrackerTable({
           if (i < entriesToUpdate.length - 1) {
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
-        }
-
-        // Dismiss the toast now that API calls are complete
-        if (toastId !== undefined) {
-          toast.dismiss(toastId);
         }
 
         // Show error if any failed
