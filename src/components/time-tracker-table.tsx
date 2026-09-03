@@ -5468,6 +5468,18 @@ export function TimeTrackerTable({
             const syncQueue = syncQueueRef.current;
             syncQueue.registerIdMapping(tempId, realId);
 
+            // The user can open an editor on the optimistic split row before
+            // the request finishes. Keep that registration attached to the
+            // row when its temporary ID is replaced by the server ID.
+            Object.values(activeEditorEntryIdsRef.current).forEach(
+              (activeEntryIds) => {
+                if (activeEntryIds.delete(tempId)) {
+                  activeEntryIds.add(realId);
+                }
+              }
+            );
+            publishActiveEditorState();
+
             // Swap temp ID with real ID in encrypted entries tracking
             encryption.swapEncryptedEntryId(tempId, realId);
 
@@ -5547,7 +5559,7 @@ export function TimeTrackerTable({
           setTimeEntries(originalEntries);
         });
     },
-    [entryToSplit, toastDuration, encryption]
+    [entryToSplit, toastDuration, encryption, publishActiveEditorState]
   );
 
   const handleCombine = React.useCallback(

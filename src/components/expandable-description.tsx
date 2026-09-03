@@ -138,6 +138,10 @@ export function ExpandableDescription({
 
   // Create a ref for the editor to avoid dependency issues
   const editorRef = React.useRef<Editor>(null);
+  const editorContainerRef = React.useRef<HTMLDivElement>(null);
+  const isEditingRef = React.useRef(false);
+  const hasLocalEditsRef = React.useRef(false);
+  const isApplyingExternalContentRef = React.useRef(false);
 
   const getMarkdownContent = React.useCallback(() => {
     if (!editorRef.current) return "";
@@ -148,6 +152,7 @@ export function ExpandableDescription({
 
   // Notify parent of editing state changes
   React.useEffect(() => {
+    isEditingRef.current = isEditing;
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
 
@@ -172,8 +177,9 @@ export function ExpandableDescription({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
 
-      // Find the editor container
-      const editorContainer = document.querySelector(".editor-container");
+      // Use this editor's container. A split can briefly leave more than one
+      // row editor mounted, so a document-wide query can select another row.
+      const editorContainer = editorContainerRef.current;
       if (!editorContainer) return;
 
       // Check if click is outside the editor container
@@ -509,6 +515,12 @@ export function ExpandableDescription({
       },
     },
     onUpdate: () => {
+      if (
+        isEditingRef.current &&
+        !isApplyingExternalContentRef.current
+      ) {
+        hasLocalEditsRef.current = true;
+      }
       updateCharCount();
       // Show recent timers if content is empty or has only 1 character
       if (editor && isEditing) {
@@ -575,10 +587,19 @@ export function ExpandableDescription({
     const currentContent = getMarkdownContent();
     const contentMismatch = description !== currentContent;
 
-    // Don't update editor content if user is actively editing (prevents interrupting typing)
-    if (editor && !isEditing && contentMismatch) {
+    // Split reconciliation can update a row while its editor stays mounted.
+    // Accept that external value while the editor is still pristine, but do
+    // not overwrite text the user has actually changed locally.
+    if (
+      editor &&
+      contentMismatch &&
+      (!isEditing || !hasLocalEditsRef.current)
+    ) {
       // Convert markdown to HTML before setting content
-      editor.commands.setContent(markdownToHtml(description));
+      isApplyingExternalContentRef.current = true;
+      editor.commands.setContent(markdownToHtml(description), false);
+      isApplyingExternalContentRef.current = false;
+      hasLocalEditsRef.current = false;
       // Update character count after setting content
       setTimeout(() => {
         updateCharCount();
@@ -600,6 +621,14 @@ export function ExpandableDescription({
     }
 
     if (!isEditing) {
+      const currentContent = getMarkdownContent();
+      if (editor && currentContent !== description) {
+        isApplyingExternalContentRef.current = true;
+        editor.commands.setContent(markdownToHtml(description), false);
+        isApplyingExternalContentRef.current = false;
+      }
+      hasLocalEditsRef.current = false;
+      isEditingRef.current = true;
       setIsEditing(true);
       setCurrentCharCount(description.length);
 
@@ -631,10 +660,14 @@ export function ExpandableDescription({
         // editing states now so the table can handle that next key instead of
         // allowing native focus to fall through to the page body.
         flushSync(() => {
+          isEditingRef.current = false;
+          hasLocalEditsRef.current = false;
           setIsEditing(false);
           onEditingChange?.(false);
         });
       } else {
+        isEditingRef.current = false;
+        hasLocalEditsRef.current = false;
         setIsEditing(false);
       }
     }
@@ -645,10 +678,14 @@ export function ExpandableDescription({
       isEditing,
       showRecentTimers,
     });
+    isEditingRef.current = false;
+    hasLocalEditsRef.current = false;
     setIsEditing(false);
     setCurrentCharCount(description.length);
     // Reset to original content
-    editor?.commands.setContent(markdownToHtml(description));
+    isApplyingExternalContentRef.current = true;
+    editor?.commands.setContent(markdownToHtml(description), false);
+    isApplyingExternalContentRef.current = false;
     // setContent can synchronously run onUpdate while the previous editing
     // state is still visible, so close the recent-timers UI after the reset.
     setShowRecentTimers(false);
@@ -750,6 +787,7 @@ export function ExpandableDescription({
         }}
       >
         <div
+          ref={editorContainerRef}
           className="w-full editor-container"
           data-row-editor-content="true"
           data-testid={dataTestId}
