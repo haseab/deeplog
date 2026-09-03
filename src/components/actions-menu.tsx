@@ -7,7 +7,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Pin } from "lucide-react";
 import * as React from "react";
 interface ActionsMenuProps {
   onPin?: () => void;
@@ -185,7 +185,7 @@ export function ActionsMenu({
         <Button
           variant="ghost"
           className={cn(
-            "h-8 w-auto p-0 !px-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 opacity-100",
+            "h-8 w-auto gap-1.5 p-0 !px-0 transition-all duration-200 hover:bg-accent/60 hover:scale-110 active:scale-95 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 opacity-100",
             isSelected && "bg-accent/20 ring-1 ring-accent/30"
           )}
           data-testid={dataTestId}
@@ -194,6 +194,15 @@ export function ActionsMenu({
           onMouseLeave={handleTriggerLeave}
         >
           <span className="sr-only">Open menu</span>
+          {isPinned && (
+            <span
+              className="inline-flex text-amber-500 dark:text-amber-400"
+              title="Pinned entry"
+            >
+              <Pin className="h-3.5 w-3.5 rotate-45 fill-current" aria-hidden="true" />
+              <span className="sr-only">Pinned entry</span>
+            </span>
+          )}
           <MoreVertical className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
