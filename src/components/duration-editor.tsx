@@ -107,6 +107,17 @@ export function DurationEditor({
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
 
+  const onEditingChangeRef = React.useRef(onEditingChange);
+  React.useEffect(() => {
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+  React.useEffect(
+    () => () => {
+      onEditingChangeRef.current?.(false);
+    },
+    []
+  );
+
   const handleActivate = () => {
     // If timer is running (duration = -1), calculate current duration from start time
     let actualDuration = duration;

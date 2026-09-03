@@ -72,6 +72,17 @@ export function ProjectSelector({
     }
   }, [internalIsOpen, onOpenChange, controlledIsOpen]);
 
+  const onOpenChangeRef = React.useRef(onOpenChange);
+  React.useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+  React.useEffect(
+    () => () => {
+      onOpenChangeRef.current?.(false);
+    },
+    []
+  );
+
   // Create options array (filtered projects + No Project at bottom)
   const allOptions = React.useMemo(() => {
     const noProjectOption = { id: -1, name: "No Project", color: "" };

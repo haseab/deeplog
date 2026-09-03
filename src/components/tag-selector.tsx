@@ -67,6 +67,17 @@ export function TagSelector({
     }
   }, [internalIsOpen, onOpenChange, controlledIsOpen]);
 
+  const onOpenChangeRef = React.useRef(onOpenChange);
+  React.useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+  React.useEffect(
+    () => () => {
+      onOpenChangeRef.current?.(false);
+    },
+    []
+  );
+
   // Create options array (selected tags first, then filtered available tags)
   const allOptions = React.useMemo(() => {
     const searchQuery = searchTerm.trim().toLowerCase();

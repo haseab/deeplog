@@ -1454,6 +1454,8 @@ const MemoizedTableRow = React.memo(
     isFullscreen: boolean;
     timeZone: string;
   }) {
+    const stableEntryKey = entry.tempId ?? entry.id;
+
     // Check if this row is selected (use Set for accurate non-contiguous selection)
     const isInSelectedRange = selectedRows.has(rowIndex);
 
@@ -1465,7 +1467,7 @@ const MemoizedTableRow = React.memo(
       <>
         {/* Mobile View */}
         <TableRow
-          key={`${entry.id}-mobile`}
+          key={`${stableEntryKey}-mobile`}
           data-entry-id={entry.id}
           className={cn(
             "md:hidden hover:bg-accent/20 border-border/40 group",
@@ -1715,7 +1717,7 @@ const MemoizedTableRow = React.memo(
 
         {/* Desktop View */}
         <TableRow
-          key={entry.id}
+          key={stableEntryKey}
           data-entry-id={entry.id}
           className={cn(
             "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
@@ -5956,6 +5958,17 @@ export function TimeTrackerTable({
 
             syncQueue.registerIdMapping(tempId, realId);
 
+            // Editor registrations are keyed by entry ID. Reconcile them at
+            // the same time as the optimistic entry so a temp ID can never
+            // remain in the sets and keep global shortcuts disabled forever.
+            Object.values(activeEditorEntryIdsRef.current).forEach(
+              (activeEntryIds) => {
+                if (activeEntryIds.delete(tempId)) {
+                  activeEntryIds.add(realId);
+                }
+              }
+            );
+
             // Swap temp ID with real ID in encrypted entries tracking
             encryption.swapEncryptedEntryId(tempId, realId);
 
@@ -8799,7 +8812,7 @@ export function TimeTrackerTable({
 
                   return (
                     <MemoizedTableRow
-                      key={entry.id}
+                      key={entry.tempId ?? entry.id}
                       entry={entry}
                       timeZone={timeZone}
                       rowIndex={rowIndex}

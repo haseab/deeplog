@@ -94,6 +94,17 @@ export function TimeEditor({
     onEditingChange?.(isOpen);
   }, [isOpen, onEditingChange]);
 
+  const onEditingChangeRef = React.useRef(onEditingChange);
+  React.useEffect(() => {
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+  React.useEffect(
+    () => () => {
+      onEditingChangeRef.current?.(false);
+    },
+    []
+  );
+
   // Initialize values when opening
   React.useEffect(() => {
     if (isOpen) {

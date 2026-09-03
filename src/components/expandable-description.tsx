@@ -151,6 +151,20 @@ export function ExpandableDescription({
     onEditingChange?.(isEditing);
   }, [isEditing, onEditingChange]);
 
+  // The row can disappear without going through the normal close path (for
+  // example, while an optimistic entry is reconciled). Always release the
+  // parent's editor registration when this instance unmounts.
+  const onEditingChangeRef = React.useRef(onEditingChange);
+  React.useEffect(() => {
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+  React.useEffect(
+    () => () => {
+      onEditingChangeRef.current?.(false);
+    },
+    []
+  );
+
   // Handle click outside to save and close editor
   React.useEffect(() => {
     if (!isEditing || !editorRef.current) return;
