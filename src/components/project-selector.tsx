@@ -287,6 +287,7 @@ export function ProjectSelector({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        data-row-editor-content="true"
         className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-80 p-0 border-border/60"
         align="start"
       >

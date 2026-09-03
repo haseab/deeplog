@@ -330,13 +330,24 @@ export function TagSelector({
                     className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-md transition-all duration-200 hover:bg-primary/20"
                   >
                     {tag}
-                    <X
-                      className="h-3 w-3 hover:text-primary/70 cursor-pointer"
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Remove ${tag} tag`}
+                      className="-m-1 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm hover:text-primary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleRemoveTag(tag);
+                        void handleRemoveTag(tag);
                       }}
-                    />
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleRemoveTag(tag);
+                      }}
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </span>
                   </span>
                 ))}
                 {currentTags.length > 3 && (
@@ -361,6 +372,7 @@ export function TagSelector({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        data-row-editor-content="true"
         className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-80 p-0 border-border/60"
         align="start"
         side="bottom"

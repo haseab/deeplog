@@ -122,8 +122,9 @@ const MemoizedProjectSelector = React.memo(
     return (
       prevProps.currentProject === nextProps.currentProject &&
       prevProps.currentProjectColor === nextProps.currentProjectColor &&
-      prevProps.projects === nextProps.projects
-      // Callbacks are intentionally not compared - they should be stable via useCallback
+      prevProps.projects === nextProps.projects &&
+      prevProps.onProjectChange === nextProps.onProjectChange &&
+      prevProps.onOpenChange === nextProps.onOpenChange
     );
   }
 );
@@ -133,9 +134,11 @@ const MemoizedTimeEditor = React.memo(TimeEditor, (prevProps, nextProps) => {
     prevProps.startTime === nextProps.startTime &&
     prevProps.endTime === nextProps.endTime &&
     prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
-    prevProps.nextEntryStart === nextProps.nextEntryStart
-    && prevProps.timeZone === nextProps.timeZone
-    // Callbacks are intentionally not compared - they should be stable via useCallback
+    prevProps.nextEntryStart === nextProps.nextEntryStart &&
+    prevProps.timeZone === nextProps.timeZone &&
+    prevProps.onSave === nextProps.onSave &&
+    prevProps.onSaveWithForcePush === nextProps.onSaveWithForcePush &&
+    prevProps.onEditingChange === nextProps.onEditingChange
   );
 });
 
@@ -146,8 +149,10 @@ const MemoizedTagSelector = React.memo(TagSelector, (prevProps, nextProps) => {
     prevProps.currentTags.every((tag, i) => tag === nextProps.currentTags[i]);
 
   return (
-    tagsEqual && prevProps.availableTags === nextProps.availableTags
-    // Callbacks are intentionally not compared - they should be stable via useCallback
+    tagsEqual &&
+    prevProps.availableTags === nextProps.availableTags &&
+    prevProps.onTagsChange === nextProps.onTagsChange &&
+    prevProps.onOpenChange === nextProps.onOpenChange
   );
 });
 
@@ -157,8 +162,10 @@ const MemoizedExpandableDescription = React.memo(
     return (
       prevProps.description === nextProps.description &&
       prevProps.projects === nextProps.projects &&
-      prevProps.availableTags === nextProps.availableTags
-      // Callbacks are intentionally not compared - they should be stable via useCallback
+      prevProps.availableTags === nextProps.availableTags &&
+      prevProps.onSave === nextProps.onSave &&
+      prevProps.onEditingChange === nextProps.onEditingChange &&
+      prevProps.onRecentTimerSelect === nextProps.onRecentTimerSelect
     );
   }
 );
@@ -171,8 +178,14 @@ const MemoizedDurationEditor = React.memo(
       prevProps.startTime === nextProps.startTime &&
       prevProps.endTime === nextProps.endTime &&
       prevProps.prevEntryEnd === nextProps.prevEntryEnd &&
-      prevProps.nextEntryStart === nextProps.nextEntryStart
-      // Callbacks are intentionally not compared - they should be stable via useCallback
+      prevProps.nextEntryStart === nextProps.nextEntryStart &&
+      prevProps.onSave === nextProps.onSave &&
+      prevProps.onSaveWithStartTimeAdjustment ===
+        nextProps.onSaveWithStartTimeAdjustment &&
+      prevProps.onSaveWithForcePush === nextProps.onSaveWithForcePush &&
+      prevProps.onSaveWithStartTimeAdjustmentAndForcePush ===
+        nextProps.onSaveWithStartTimeAdjustmentAndForcePush &&
+      prevProps.onEditingChange === nextProps.onEditingChange
     );
   }
 );
@@ -181,8 +194,15 @@ const MemoizedActionsMenu = React.memo(ActionsMenu, (prevProps, nextProps) => {
   return (
     prevProps.isPinned === nextProps.isPinned &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.isRunning === nextProps.isRunning
-    // Callbacks are intentionally not compared - they should be stable via useCallback
+    prevProps.isRunning === nextProps.isRunning &&
+    prevProps.onPin === nextProps.onPin &&
+    prevProps.onUnpin === nextProps.onUnpin &&
+    prevProps.onSplit === nextProps.onSplit &&
+    prevProps.onCombine === nextProps.onCombine &&
+    prevProps.onCombineReverse === nextProps.onCombineReverse &&
+    prevProps.onStartEntry === nextProps.onStartEntry &&
+    prevProps.onStopTimer === nextProps.onStopTimer &&
+    prevProps.onDelete === nextProps.onDelete
   );
 });
 
@@ -247,6 +267,7 @@ const MemoizedProjectCell = React.memo(
       nextProps.selectedCell?.cellIndex === nextCellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.project_name === nextProps.entry.project_name &&
       prevProps.entry.project_color === nextProps.entry.project_color &&
       prevProps.projects === nextProps.projects &&
@@ -315,6 +336,7 @@ const MemoizedTagCell = React.memo(
       );
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       tagsEqual &&
       prevProps.availableTags === nextProps.availableTags &&
       prevIsSelected === nextIsSelected &&
@@ -402,6 +424,7 @@ const MemoizedDescriptionCell = React.memo(
       nextProps.selectedCell?.cellIndex === nextCellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.description === nextProps.entry.description &&
       prevProps.projects === nextProps.projects &&
       prevProps.availableTags === nextProps.availableTags &&
@@ -517,6 +540,7 @@ const MemoizedDateCell = React.memo(
       nextProps.selectedCell?.cellIndex === cellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.start === nextProps.entry.start &&
       prevProps.timeZone === nextProps.timeZone &&
       prevIsSelected === nextIsSelected
@@ -585,6 +609,7 @@ const MemoizedTimeCell = React.memo(
       nextProps.selectedCell?.cellIndex === cellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.start === nextProps.entry.start &&
       prevProps.entry.stop === nextProps.entry.stop &&
       prevProps.timeZone === nextProps.timeZone &&
@@ -660,6 +685,7 @@ const MemoizedDurationCell = React.memo(
       nextProps.selectedCell?.cellIndex === cellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.duration === nextProps.entry.duration &&
       prevProps.entry.start === nextProps.entry.start &&
       prevProps.entry.stop === nextProps.entry.stop &&
@@ -734,6 +760,7 @@ const MemoizedActionsCell = React.memo(
       nextProps.selectedCell?.cellIndex === cellIndex;
 
     return (
+      prevProps.entry.id === nextProps.entry.id &&
       prevProps.entry.stop === nextProps.entry.stop &&
       prevProps.entry.duration === nextProps.entry.duration &&
       prevProps.isPinned === nextProps.isPinned &&
@@ -2576,6 +2603,30 @@ export function TimeTrackerTable({
   const isAnyRowEditorActive =
     isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen;
 
+  const publishActiveEditorState = React.useCallback(() => {
+    const activeEditors = activeEditorEntryIdsRef.current;
+    setIsEditingCell(activeEditors.descriptionOrDuration.size > 0);
+    setIsProjectSelectorOpen(activeEditors.project.size > 0);
+    setIsTagSelectorOpen(activeEditors.tags.size > 0);
+    setIsTimeEditorOpen(activeEditors.time.size > 0);
+  }, []);
+
+  const clearRowEditorRegistrations = React.useCallback(() => {
+    const affectedEntryIds = new Set<number>();
+
+    Object.values(activeEditorEntryIdsRef.current).forEach((entryIds) => {
+      entryIds.forEach((entryId) => affectedEntryIds.add(entryId));
+      entryIds.clear();
+    });
+    publishActiveEditorState();
+
+    // Clearing a real editor must preserve the normal delayed-commit flow.
+    // Orphaned registrations simply have no matching factory and are ignored.
+    affectedEntryIds.forEach((entryId) => {
+      pendingEntryToastFactoriesRef.current.get(entryId)?.();
+    });
+  }, [publishActiveEditorState]);
+
   const handleRowEditorStateChange = React.useCallback(
     (
       entryId: number,
@@ -2586,21 +2637,27 @@ export function TimeTrackerTable({
       const wasOpen = activeEntryIds.has(entryId);
 
       if (open) {
+        // Row editors are mutually exclusive. Starting a new one is also a
+        // recovery point: discard any orphaned registration left by an older
+        // row before registering the editor the user can actually see.
+        const replacedEntryIds = new Set<number>();
+        Object.values(activeEditorEntryIdsRef.current).forEach((entryIds) => {
+          entryIds.forEach((activeEntryId) => {
+            if (activeEntryId !== entryId) {
+              replacedEntryIds.add(activeEntryId);
+            }
+          });
+          entryIds.clear();
+        });
         activeEntryIds.add(entryId);
+        replacedEntryIds.forEach((replacedEntryId) => {
+          pendingEntryToastFactoriesRef.current.get(replacedEntryId)?.();
+        });
       } else {
         activeEntryIds.delete(entryId);
       }
 
-      const hasActiveEditorOfType = activeEntryIds.size > 0;
-      if (editorType === "descriptionOrDuration") {
-        setIsEditingCell(hasActiveEditorOfType);
-      } else if (editorType === "project") {
-        setIsProjectSelectorOpen(hasActiveEditorOfType);
-      } else if (editorType === "tags") {
-        setIsTagSelectorOpen(hasActiveEditorOfType);
-      } else {
-        setIsTimeEditorOpen(hasActiveEditorOfType);
-      }
+      publishActiveEditorState();
 
       // Ignore initial/duplicate notifications from mounted controls. Only a
       // real transition should pause or restart that entry's transaction.
@@ -2621,7 +2678,7 @@ export function TimeTrackerTable({
         }
       }
     },
-    []
+    [publishActiveEditorState]
   );
 
   const handleDescriptionOrDurationEditorChange = React.useCallback(
@@ -2676,6 +2733,27 @@ export function TimeTrackerTable({
     Set<number>
   >(new Set());
   const tableRef = React.useRef<HTMLDivElement>(null);
+
+  // Clicking anywhere other than the contents of a live row editor closes
+  // the parent-side editor lock. Normal editor handlers still save/cancel the
+  // visible control; this additionally provides a way out of stale state.
+  React.useEffect(() => {
+    const handleOutsideRowEditorPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-row-editor-content="true"]')) return;
+
+      clearRowEditorRegistrations();
+    };
+
+    document.addEventListener("mousedown", handleOutsideRowEditorPointerDown);
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideRowEditorPointerDown
+      );
+    };
+  }, [clearRowEditorRegistrations]);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const deleteDialogOpenRef = React.useRef(false);
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(

@@ -762,6 +762,7 @@ export function TimeEditor({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        data-row-editor-content="true"
         className="w-auto p-4 border-border/60"
         align="start"
         side="bottom"

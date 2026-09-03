@@ -376,6 +376,7 @@ export function DurationEditor({
     return (
       <div
         className="flex items-center gap-0 font-mono text-xs px-1 py-0.5"
+        data-row-editor-content="true"
         data-testid={dataTestId}
       >
         <Input

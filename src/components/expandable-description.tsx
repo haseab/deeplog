@@ -749,7 +749,11 @@ export function ExpandableDescription({
           cancelEditing();
         }}
       >
-        <div className="w-full editor-container" data-testid={dataTestId}>
+        <div
+          className="w-full editor-container"
+          data-row-editor-content="true"
+          data-testid={dataTestId}
+        >
           <div className="relative">
             <EditorContent
               editor={editor}
