@@ -142,7 +142,10 @@ export function TagSelector({
     setSearchTerm(e.target.value);
   };
 
-  const handleToggleTag = async (tagName: string) => {
+  const handleToggleTag = async (
+    tagName: string,
+    dismissAfterToggle = false
+  ) => {
     setIsChanging(true);
 
     // Brief delay for smooth animation
@@ -157,8 +160,9 @@ export function TagSelector({
     setHighlightedIndex(0);
     setIsChanging(false);
     
-    // Close the selector if closeOnSelect is true
-    if (closeOnSelect) {
+    // Cmd/Ctrl+Enter commits the highlighted tag and dismisses the selector,
+    // while regular selection keeps the multi-select workflow open.
+    if (closeOnSelect || dismissAfterToggle) {
       setIsOpen(false);
     }
   };
@@ -267,7 +271,10 @@ export function TagSelector({
         if (e.metaKey && canCreateSearchTag && !isCreatingTag) {
           void createTag(trimmedSearchTerm);
         } else if (allOptions[highlightedIndex]) {
-          handleToggleTag(allOptions[highlightedIndex].name);
+          void handleToggleTag(
+            allOptions[highlightedIndex].name,
+            e.metaKey || e.ctrlKey
+          );
         }
         break;
       case "Tab":
