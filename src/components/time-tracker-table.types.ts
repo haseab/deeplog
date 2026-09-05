@@ -2,6 +2,7 @@ import type { useEncryptionContext } from "@/contexts/encryption-context";
 import type { DateRange } from "react-day-picker";
 import type { Project, SelectedCell, Tag, TimeEntry } from "@/types";
 import type React from "react";
+import type { ProjectSelectorHandle } from "./project-selector";
 
 // Memoized component prop types for time-tracker-table.tsx
 // These interfaces define the props for memoized cell and row components
@@ -19,6 +20,7 @@ export interface MemoizedProjectCellProps {
   navigateToPrevCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   onProjectCreated: (project: Project) => void;
+  projectSelectorRef: React.RefObject<ProjectSelectorHandle | null>;
 }
 
 export interface MemoizedTagCellProps {

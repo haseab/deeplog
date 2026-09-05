@@ -92,7 +92,10 @@ import { DurationEditor } from "./duration-editor";
 import { EncryptionStatus } from "./encryption-status";
 import { ExpandableDescription } from "./expandable-description";
 import { PinDialog } from "./pin-dialog";
-import { ProjectSelector } from "./project-selector";
+import {
+  ProjectSelector,
+  type ProjectSelectorHandle,
+} from "./project-selector";
 import { SetProjectConfirmationDialog } from "./set-project-confirmation-dialog";
 import { SplitEntryDialog } from "./split-entry-dialog";
 import { TagSelector } from "./tag-selector";
@@ -221,6 +224,7 @@ const MemoizedProjectCell = React.memo(
     navigateToPrevCell,
     navigateToAdjacentRow,
     onProjectCreated,
+    projectSelectorRef,
   }: MemoizedProjectCellProps) {
     const cellIndex = isFullscreen ? 1 : 2;
     const isSelected =
@@ -237,6 +241,7 @@ const MemoizedProjectCell = React.memo(
         onClick={() => onSelectCell(rowIndex, cellIndex)}
       >
         <MemoizedProjectSelector
+          ref={projectSelectorRef}
           currentProject={entry.project_name || ""}
           currentProjectColor={entry.project_color}
           onProjectChange={(newProject) =>
@@ -1393,6 +1398,8 @@ const MemoizedTableRow = React.memo(
     navigateToNextCell,
     navigateToPrevCell,
     navigateToAdjacentRow,
+    navigateFromDescription,
+    registerProjectSelector,
     isNewlyLoaded,
     syncStatus,
     aiSummaryStatus,
@@ -1474,6 +1481,11 @@ const MemoizedTableRow = React.memo(
     navigateToAdjacentRow: (
       direction: "up" | "down" | "left" | "right"
     ) => void;
+    navigateFromDescription: (entryId: number, rowIndex: number) => void;
+    registerProjectSelector: (
+      entryId: number,
+      open: () => void
+    ) => () => void;
     isNewlyLoaded: boolean;
     syncStatus?: SyncStatus;
     aiSummaryStatus?: AiSummaryStatus;
@@ -1482,6 +1494,19 @@ const MemoizedTableRow = React.memo(
     timeZone: string;
   }) {
     const stableEntryKey = entry.tempId ?? entry.id;
+    const mobileProjectSelectorRef = React.useRef<ProjectSelectorHandle>(null);
+    const desktopProjectSelectorRef = React.useRef<ProjectSelectorHandle>(null);
+
+    React.useEffect(
+      () =>
+        registerProjectSelector(entry.id, () => {
+          const selector = window.matchMedia("(min-width: 768px)").matches
+            ? desktopProjectSelectorRef.current
+            : mobileProjectSelectorRef.current;
+          selector?.open();
+        }),
+      [entry.id, registerProjectSelector]
+    );
 
     // Check if this row is selected (use Set for accurate non-contiguous selection)
     const isInSelectedRange = selectedRows.has(rowIndex);
@@ -1543,7 +1568,9 @@ const MemoizedTableRow = React.memo(
                     onEditingChange={(editing) =>
                       setIsEditingCell(entry.id, editing)
                     }
-                    onNavigateNext={navigateToNextCell}
+                    onNavigateNext={() =>
+                      navigateFromDescription(entry.id, rowIndex)
+                    }
                     onNavigateVertical={navigateToAdjacentRow}
                     projects={projects}
                     availableTags={availableTags}
@@ -1578,6 +1605,7 @@ const MemoizedTableRow = React.memo(
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="shrink-0 max-w-[52%]">
                     <MemoizedProjectSelector
+                      ref={mobileProjectSelectorRef}
                       currentProject={entry.project_name || ""}
                       currentProjectColor={entry.project_color}
                       onProjectChange={(newProject) =>
@@ -1825,6 +1853,7 @@ const MemoizedTableRow = React.memo(
                 navigateToPrevCell={navigateToPrevCell}
                 navigateToAdjacentRow={navigateToAdjacentRow}
                 onProjectCreated={onProjectCreated}
+                projectSelectorRef={desktopProjectSelectorRef}
               />
               <MemoizedDescriptionCell
                 entry={entry}
@@ -1834,7 +1863,9 @@ const MemoizedTableRow = React.memo(
                 onSelectCell={onSelectCell}
                 onDescriptionSave={onDescriptionSave}
                 setIsEditingCell={setIsEditingCell}
-                navigateToNextCell={navigateToNextCell}
+                navigateToNextCell={() =>
+                  navigateFromDescription(entry.id, rowIndex)
+                }
                 navigateToAdjacentRow={navigateToAdjacentRow}
                 projects={projects}
                 availableTags={availableTags}
@@ -1865,7 +1896,9 @@ const MemoizedTableRow = React.memo(
                 onSelectCell={onSelectCell}
                 onDescriptionSave={onDescriptionSave}
                 setIsEditingCell={setIsEditingCell}
-                navigateToNextCell={navigateToNextCell}
+                navigateToNextCell={() =>
+                  navigateFromDescription(entry.id, rowIndex)
+                }
                 navigateToAdjacentRow={navigateToAdjacentRow}
                 projects={projects}
                 availableTags={availableTags}
@@ -1884,6 +1917,7 @@ const MemoizedTableRow = React.memo(
                 navigateToPrevCell={navigateToPrevCell}
                 navigateToAdjacentRow={navigateToAdjacentRow}
                 onProjectCreated={onProjectCreated}
+                projectSelectorRef={desktopProjectSelectorRef}
               />
               <MemoizedTagCell
                 entry={entry}
@@ -2590,6 +2624,27 @@ export function TimeTrackerTable({
     tags: new Set<number>(),
     time: new Set<number>(),
   });
+  const justClosedDescriptionEntryIdRef = React.useRef<number | null>(null);
+  const projectSelectorOpenersRef = React.useRef(
+    new Map<number, () => void>()
+  );
+
+  const registerProjectSelector = React.useCallback(
+    (entryId: number, open: () => void) => {
+      projectSelectorOpenersRef.current.set(entryId, open);
+
+      return () => {
+        if (projectSelectorOpenersRef.current.get(entryId) === open) {
+          projectSelectorOpenersRef.current.delete(entryId);
+        }
+      };
+    },
+    []
+  );
+
+  const openProject = React.useCallback((entryId: number) => {
+    projectSelectorOpenersRef.current.get(entryId)?.();
+  }, []);
 
   const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
@@ -2682,8 +2737,17 @@ export function TimeTrackerTable({
   );
 
   const handleDescriptionOrDurationEditorChange = React.useCallback(
-    (entryId: number, open: boolean) =>
-      handleRowEditorStateChange(entryId, "descriptionOrDuration", open),
+    (entryId: number, open: boolean) => {
+      const wasOpen =
+        activeEditorEntryIdsRef.current.descriptionOrDuration.has(entryId);
+      handleRowEditorStateChange(entryId, "descriptionOrDuration", open);
+
+      if (open) {
+        justClosedDescriptionEntryIdRef.current = null;
+      } else if (wasOpen) {
+        justClosedDescriptionEntryIdRef.current = entryId;
+      }
+    },
     [handleRowEditorStateChange]
   );
   const handleProjectEditorChange = React.useCallback(
@@ -6731,6 +6795,20 @@ export function TimeTrackerTable({
     [isFullscreen] // Need isFullscreen to determine column mapping
   );
 
+  const navigateFromDescription = React.useCallback(
+    (entryId: number, rowIndex: number) => {
+      if (isFullscreen) {
+        setSelectedCell({ rowIndex, cellIndex: 3 });
+        activateCell(rowIndex, 3);
+        return;
+      }
+
+      setSelectedCell({ rowIndex, cellIndex: 2 });
+      openProject(entryId);
+    },
+    [activateCell, isFullscreen, openProject]
+  );
+
   const navigateToNextCell = React.useCallback(
     (wrapToSameRow = false) => {
       // Store current cell info before updating state
@@ -7587,11 +7665,15 @@ export function TimeTrackerTable({
       // If Tab lands in that gap, treat it as navigation from the description
       // instead of letting the browser move focus to the page body.
       const descriptionCellIndex = isFullscreen ? 2 : 1;
+      const selectedDescriptionEntry =
+        selectedCell?.cellIndex === descriptionCellIndex
+          ? timeEntriesRef.current[selectedCell.rowIndex]
+          : undefined;
       const isTabLeavingJustClosedDescription =
         e.key === "Tab" &&
         isEditingCell &&
-        selectedCell?.cellIndex === descriptionCellIndex &&
-        !document.querySelector(".editor-container .ProseMirror");
+        selectedDescriptionEntry?.id ===
+          justClosedDescriptionEntryIdRef.current;
 
       if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
         console.log('[Global KeyDown] After checks - isInInput:', isInInput, 'isEditingCell:', isEditingCell, 'isActionShortcut:', isActionShortcut, 'will return:', (isEditingCell || isProjectSelectorOpen || isTagSelectorOpen || isTimeEditorOpen || (isActionsMenuOpen && !isActionShortcut)));
@@ -8182,6 +8264,23 @@ export function TimeTrackerTable({
               }
             } else {
               // Tab or Option+Tab: Move forward
+              const descriptionCellIndex = isFullscreen ? 2 : 1;
+              if (
+                !e.altKey &&
+                !isFullscreen &&
+                selectedCell.cellIndex === descriptionCellIndex
+              ) {
+                const entry = timeEntriesRef.current[selectedCell.rowIndex];
+                if (entry) {
+                  justClosedDescriptionEntryIdRef.current = null;
+                  setSelectedCell({
+                    rowIndex: selectedCell.rowIndex,
+                    cellIndex: 2,
+                  });
+                  openProject(entry.id);
+                  break;
+                }
+              }
               navigateToNextCell(e.altKey);
             }
           }
@@ -8516,6 +8615,7 @@ export function TimeTrackerTable({
     // Stable callback functions
     activateCell,
     navigateToNextCell,
+    openProject,
     handleNewTimer,
     handleNewStoppedEntry,
     handleRefreshData,
@@ -8955,6 +9055,8 @@ export function TimeTrackerTable({
                       navigateToNextCell={navigateToNextCell}
                       navigateToPrevCell={navigateToPrevCell}
                       navigateToAdjacentRow={navigateToAdjacentRow}
+                      navigateFromDescription={navigateFromDescription}
+                      registerProjectSelector={registerProjectSelector}
                       isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
                       syncStatus={entrySyncStatus.get(entry.id)}
                       aiSummaryStatus={entryAiSummaryStatus.get(entry.id)}

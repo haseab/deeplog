@@ -409,10 +409,8 @@ export function ExpandableDescription({
             setShowRecentTimers(false);
             setHighlightedIndex(0);
             // Then navigate to next cell (same as normal Tab behavior)
-            saveAndExit();
-            setTimeout(() => {
-              onNavigateNext?.();
-            }, 100);
+            saveAndExit(true);
+            onNavigateNext?.();
             return true;
           }
           // For any other key when popover is open, let it through to the editor
@@ -503,10 +501,8 @@ export function ExpandableDescription({
           event.preventDefault();
           event.stopPropagation();
 
-          saveAndExit();
-          setTimeout(() => {
-            onNavigateNext?.();
-          }, 100);
+          saveAndExit(true);
+          onNavigateNext?.();
 
           return true; // Handled
         }

@@ -27,25 +27,35 @@ interface ProjectSelectorProps {
   "data-testid"?: string;
 }
 
+export interface ProjectSelectorHandle {
+  open: () => void;
+}
+
 // Common color palette for projects
 const PROJECT_COLORS = [
   "#525266", "#e36a00", "#d92b2b", "#c56bff", "#8b46ff",
   "#06aaf5", "#00b5ad", "#4ecb73", "#d5d5d5", "#ffc800",
 ];
 
-export function ProjectSelector({
-  currentProject,
-  currentProjectColor,
-  onProjectChange,
-  projects,
-  onOpenChange,
-  isOpen: controlledIsOpen,
-  onNavigateNext,
-  onNavigatePrev,
-  onNavigateVertical,
-  onProjectCreated,
-  "data-testid": dataTestId,
-}: ProjectSelectorProps) {
+export const ProjectSelector = React.forwardRef<
+  ProjectSelectorHandle,
+  ProjectSelectorProps
+>(function ProjectSelector(
+  {
+    currentProject,
+    currentProjectColor,
+    onProjectChange,
+    projects,
+    onOpenChange,
+    isOpen: controlledIsOpen,
+    onNavigateNext,
+    onNavigatePrev,
+    onNavigateVertical,
+    onProjectCreated,
+    "data-testid": dataTestId,
+  },
+  ref
+) {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [internalIsOpen, setInternalIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
@@ -57,13 +67,16 @@ export function ProjectSelector({
 
   // Use controlled state if provided, otherwise use internal state
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
-  const setIsOpen = (value: boolean | ((prev: boolean) => boolean)) => {
-    const newValue = typeof value === 'function' ? value(isOpen) : value;
-    if (controlledIsOpen === undefined) {
-      setInternalIsOpen(newValue);
-    }
-    onOpenChange?.(newValue);
-  };
+  const setIsOpen = React.useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const newValue = typeof value === "function" ? value(isOpen) : value;
+      if (controlledIsOpen === undefined) {
+        setInternalIsOpen(newValue);
+      }
+      onOpenChange?.(newValue);
+    },
+    [controlledIsOpen, isOpen, onOpenChange]
+  );
 
   // Notify parent of open state changes
   React.useEffect(() => {
@@ -238,19 +251,30 @@ export function ProjectSelector({
     }
   };
 
-  const handleOpenChange = (open: boolean) => {
-    setIsOpen(open);
-    if (open) {
-      // Focus search input when opening
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 100);
-    } else {
-      // Reset state when closing
-      setSearchTerm("");
-      setHighlightedIndex(0);
-    }
-  };
+  const handleOpenChange = React.useCallback(
+    (open: boolean) => {
+      setIsOpen(open);
+      if (open) {
+        // Focus search input when opening
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+        }, 100);
+      } else {
+        // Reset state when closing
+        setSearchTerm("");
+        setHighlightedIndex(0);
+      }
+    },
+    [setIsOpen]
+  );
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      open: () => handleOpenChange(true),
+    }),
+    [handleOpenChange]
+  );
 
   return (
     <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -424,4 +448,4 @@ export function ProjectSelector({
       </PopoverContent>
     </Popover>
   );
-}
+});
