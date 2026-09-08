@@ -51,7 +51,7 @@ export function RecentTimersPopover({
   searchQuery,
   projects,
   availableTags,
-  maxResults = 10,
+  maxResults = 20,
   onSelect,
   highlightedIndex,
   onHighlightedIndexChange,
@@ -61,6 +61,7 @@ export function RecentTimersPopover({
   children,
 }: RecentTimersPopoverProps) {
   const [recentTimers, setRecentTimers] = React.useState<RecentTimerEntry[]>([]);
+  const timerItemRefs = React.useRef<Array<HTMLDivElement | null>>([]);
 
   const refreshTimers = React.useCallback((): RecentTimerEntry[] => {
     // Re-read local storage when a keyboard ranking reset increments this revision.
@@ -94,6 +95,17 @@ export function RecentTimersPopover({
     }
   }, [recentTimers.length, highlightedIndex, onHighlightedIndexChange]);
 
+  // Keep keyboard navigation usable when the result set is taller than the
+  // popover. `nearest` moves only as much as needed and leaves manual
+  // wheel/trackpad scrolling undisturbed.
+  React.useEffect(() => {
+    if (!open) return;
+
+    timerItemRefs.current[highlightedIndex]?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [highlightedIndex, open]);
+
   const getProjectById = (projectId: number | null) => {
     if (!projectId) return null;
     return projects.find((p) => p.id === projectId);
@@ -108,7 +120,7 @@ export function RecentTimersPopover({
     <Popover open={open && recentTimers.length > 0} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        className="w-[500px] max-w-[calc(100vw-2rem)] p-2 border-border/60 max-h-[60vh] overflow-y-auto"
+        className="w-[500px] max-w-[calc(100vw-2rem)] p-2 border-border/60 max-h-[60vh] overflow-y-auto overscroll-contain"
         align="start"
         side="bottom"
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -144,6 +156,9 @@ export function RecentTimersPopover({
             return (
               <div
                 key={index}
+                ref={(element) => {
+                  timerItemRefs.current[index] = element;
+                }}
                 className={cn(
                   "relative flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-150 rounded-md group",
                   index === highlightedIndex && "bg-gray-200 dark:bg-gray-700"

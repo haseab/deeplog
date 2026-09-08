@@ -755,7 +755,7 @@ export function ExpandableDescription({
         searchQuery={searchQuery}
         projects={projects}
         availableTags={availableTags}
-        maxResults={5}
+        maxResults={20}
         onSelect={(entry) => {
           justSelectedTimerRef.current = true;
           onRecentTimerSelect?.(entry);
