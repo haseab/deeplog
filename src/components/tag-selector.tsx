@@ -160,8 +160,8 @@ export function TagSelector({
     setHighlightedIndex(0);
     setIsChanging(false);
     
-    // Cmd/Ctrl+Enter commits the highlighted tag and dismisses the selector,
-    // while regular selection keeps the multi-select workflow open.
+    // Enter dismisses after toggling; Shift+Enter keeps the multi-select
+    // workflow open. Mouse selection continues to follow closeOnSelect.
     if (closeOnSelect || dismissAfterToggle) {
       setIsOpen(false);
     }
@@ -273,7 +273,7 @@ export function TagSelector({
         } else if (allOptions[highlightedIndex]) {
           void handleToggleTag(
             allOptions[highlightedIndex].name,
-            e.metaKey || e.ctrlKey
+            !e.shiftKey
           );
         }
         break;
