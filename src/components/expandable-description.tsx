@@ -11,35 +11,18 @@ import {
 import Link from "@tiptap/extension-link";
 import { Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import MarkdownIt from "markdown-it";
 import * as React from "react";
 import { flushSync } from "react-dom";
 import ReactMarkdown from "react-markdown";
-import TurndownService from "turndown";
+import {
+  descriptionHtmlToMarkdown,
+  descriptionMarkdownToHtml,
+} from "@/lib/description-markdown";
 import { RecentTimersPopover } from "./recent-timers-popover";
 import { resetRecentTimerRanking } from "@/lib/recent-timers-cache";
 
 const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
 const MARKDOWN_LIST_DETECTION_REGEX = /^\s*(?:[-+*]|\d+[.)])\s+/m;
-const MARKDOWN_ESCAPE_REGEX = /\\([\\`*_[\]{}()#+\-.!])/g;
-
-const markdownParser = new MarkdownIt({
-  breaks: true,
-  html: false,
-  linkify: false,
-});
-
-function decodeMarkdownEscapes(text: string): string {
-  let decoded = text;
-  let previous = "";
-
-  while (decoded !== previous) {
-    previous = decoded;
-    decoded = decoded.replace(MARKDOWN_ESCAPE_REGEX, "$1");
-  }
-
-  return decoded;
-}
 
 type Project = {
   id: number;
@@ -106,35 +89,7 @@ export function ExpandableDescription({
 
   const MAX_CHARS = 3000;
 
-  // Initialize Turndown service for HTML to markdown conversion
-  const turndownService = React.useMemo(() => {
-    const service = new TurndownService({
-      headingStyle: "atx",
-      bulletListMarker: "-",
-      codeBlockStyle: "fenced",
-    });
-
-    // Keep link formatting as markdown
-    service.addRule("links", {
-      filter: "a",
-      replacement: function (content: string, node: Node) {
-        const href = (node as HTMLAnchorElement).getAttribute("href") || "";
-        const title = (node as HTMLAnchorElement).getAttribute("title");
-        return title
-          ? `[${content}](${href} "${title}")`
-          : `[${content}](${href})`;
-      },
-    });
-
-    return service;
-  }, []);
-
-  // Convert markdown to HTML for TipTap
-  const markdownToHtml = React.useCallback((markdown: string): string => {
-    if (!markdown) return "";
-
-    return markdownParser.render(markdown);
-  }, []);
+  const markdownToHtml = descriptionMarkdownToHtml;
 
   // Create a ref for the editor to avoid dependency issues
   const editorRef = React.useRef<Editor>(null);
@@ -146,9 +101,8 @@ export function ExpandableDescription({
   const getMarkdownContent = React.useCallback(() => {
     if (!editorRef.current) return "";
     const html = editorRef.current.getHTML();
-    const markdown = turndownService.turndown(html);
-    return decodeMarkdownEscapes(markdown);
-  }, [turndownService]);
+    return descriptionHtmlToMarkdown(html);
+  }, []);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
