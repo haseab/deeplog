@@ -120,9 +120,10 @@ export function RecentTimersPopover({
     <Popover open={open && recentTimers.length > 0} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        className="w-[500px] max-w-[calc(100vw-2rem)] p-2 border-border/60 max-h-[60vh] overflow-y-auto overscroll-contain"
+        className="w-[500px] max-w-[calc(100vw-2rem)] p-2 border-border/60 max-h-[min(320px,var(--radix-popover-content-available-height))] overflow-y-auto overscroll-contain"
         align="start"
         side="bottom"
+        collisionPadding={8}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onEscapeKeyDown={(event) => {
           console.debug("[RecentTimersPopover] Radix handled Escape", {
