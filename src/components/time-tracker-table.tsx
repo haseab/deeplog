@@ -2344,10 +2344,18 @@ export function TimeTrackerTable({
       // that mode separate prevents the default dates from being written
       // straight back into the URL and frozen there.
       setIsRollingDateRange(true);
-      setDate(getDefaultDateRange(timeZone));
+      const nextDate = getDefaultDateRange(timeZone);
+      setDate((currentDate) =>
+        dateRangesMatch(currentDate, nextDate) ? currentDate : nextDate
+      );
     } else {
       setIsRollingDateRange(false);
-      setDate(urlDateRange);
+      // Router refreshes can provide a new searchParams object for the same
+      // dates. Keep the existing range so the date-change fetch does not
+      // unmount row editors and discard their unsaved text.
+      setDate((currentDate) =>
+        dateRangesMatch(currentDate, urlDateRange) ? currentDate : urlDateRange
+      );
     }
   }, [searchParams, timeZone]);
 
@@ -6989,6 +6997,22 @@ export function TimeTrackerTable({
     const debouncedFetch = () => {
       if (!isMounted) return; // Don't fetch on initial mount
 
+      // Check live registrations before rolling the date range as well as
+      // fetching. Either can replace rows and discard an open editor's draft.
+      // Refs also cover focus events before the editing state has rendered.
+      if (
+        Object.values(activeEditorEntryIdsRef.current).some(
+          (entryIds) => entryIds.size > 0
+        ) ||
+        isEditingCell ||
+        isProjectSelectorOpen ||
+        isTagSelectorOpen ||
+        isActionsMenuOpen ||
+        isTimeEditorOpen
+      ) {
+        return;
+      }
+
       if (isRollingDateRange) {
         const nextDate = getDefaultDateRange(timeZone);
         if (!dateRangesMatch(date, nextDate)) {
@@ -7011,17 +7035,6 @@ export function TimeTrackerTable({
       );
       if (hasActiveSync) {
         return;
-      }
-
-      // Don't sync if any input field is being edited
-      if (
-        isEditingCell ||
-        isProjectSelectorOpen ||
-        isTagSelectorOpen ||
-        isActionsMenuOpen ||
-        isTimeEditorOpen
-      ) {
-        return; // Skip auto-sync while editing
       }
 
       const now = Date.now();
