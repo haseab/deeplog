@@ -71,7 +71,6 @@ export async function PATCH(
 
     // Update the time entry using the workspace-based PUT endpoint
     const updateData = {
-      ...currentEntry,
       ...(description !== undefined && { description }),
       ...(project_name !== undefined && { project_id }),
       ...(tag_ids !== undefined && { tag_ids }),

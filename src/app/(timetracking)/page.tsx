@@ -4,6 +4,7 @@ import { TimeTrackerTable } from "@/components/time-tracker-table";
 import { AppSettings } from "@/components/app-settings";
 import { WelcomeForm } from "@/components/welcome-form";
 import { EncryptionProvider } from "@/contexts/encryption-context";
+import { DescriptionDraftsProvider } from "@/contexts/description-drafts-context";
 import Image from "next/image";
 import * as React from "react";
 
@@ -119,7 +120,7 @@ export default function Home() {
           </div>
         )}
 
-        <TimeTrackerTable onFullscreenChange={handleFullscreenChange} />
+        <DescriptionDraftsProvider><TimeTrackerTable onFullscreenChange={handleFullscreenChange} /></DescriptionDraftsProvider>
       </div>
     </main>
     </EncryptionProvider>

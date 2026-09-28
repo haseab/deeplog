@@ -16,6 +16,7 @@ import {
   triggerToastSubmit,
   triggerUndo,
 } from "@/lib/toast";
+import { DescriptionDraftIcon, useDescriptionDrafts } from "@/contexts/description-drafts-context";
 import type { PinnedEntry, SyncStatus } from "@/types";
 import { endOfDay, format, parse, startOfDay, subDays } from "date-fns";
 import {
@@ -380,6 +381,7 @@ const MemoizedDescriptionCell = React.memo(
         onClick={() => onSelectCell(rowIndex, cellIndex)}
       >
         <MemoizedExpandableDescription
+          entryId={entry.id}
           description={entry.description || ""}
           onSave={(newDescription) =>
             onDescriptionSave(entry.id)(newDescription)
@@ -1532,6 +1534,7 @@ const MemoizedTableRow = React.memo(
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
             <div className="flex items-start gap-2">
+              <DescriptionDraftIcon entryId={entry.id} />
               <div
                 className={cn(
                   "h-4 w-4 mt-1 flex-shrink-0 cursor-pointer",
@@ -1561,6 +1564,7 @@ const MemoizedTableRow = React.memo(
                 {/* Description */}
                 <div className="max-w-full overflow-hidden">
                   <MemoizedExpandableDescription
+          entryId={entry.id}
                     description={entry.description || ""}
                     onSave={(newDescription) =>
                       onDescriptionSave(entry.id)(newDescription)
@@ -1784,6 +1788,7 @@ const MemoizedTableRow = React.memo(
           onMouseLeave={onRowMouseLeave}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
+            <DescriptionDraftIcon entryId={entry.id} />
             {aiSummaryStatus === "processing" && (
               <Loader2
                 className="w-4 h-4 animate-spin text-violet-500"
@@ -2219,6 +2224,10 @@ export function TimeTrackerTable({
   const searchParams = useSearchParams();
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const encryption = useEncryptionContext();
+  const descriptionDrafts = useDescriptionDrafts();
+  const saveDraftRef = React.useRef(descriptionDrafts?.save);
+  saveDraftRef.current = descriptionDrafts?.save;
+  const descriptionBasesRef = React.useRef(new Map<number, string>());
   const { timeZone, setProfileTimeZone } = useTimezonePreference();
 
   // Decrypt pinned entries for display
@@ -2409,6 +2418,20 @@ export function TimeTrackerTable({
   React.useEffect(() => {
     timeEntriesRef.current = timeEntries;
   }, [timeEntries]);
+
+  React.useEffect(() => {
+    const onSynced = (event: Event) => {
+      const { id, description } = (event as CustomEvent<{ id: number; description: string }>).detail;
+      descriptionBasesRef.current.set(id, description);
+      setTimeEntries(current => {
+        const next = current.map(entry => entry.id === id ? { ...entry, description } : entry);
+        timeEntriesRef.current = next;
+        return next;
+      });
+    };
+    window.addEventListener("deeplog-description-synced", onSynced);
+    return () => window.removeEventListener("deeplog-description-synced", onSynced);
+  }, []);
 
   // Cache decrypted entries by ID to survive array reordering
   const decryptedEntriesById = React.useRef<
@@ -2750,6 +2773,10 @@ export function TimeTrackerTable({
         activeEditorEntryIdsRef.current.descriptionOrDuration.has(entryId);
       handleRowEditorStateChange(entryId, "descriptionOrDuration", open);
 
+      if (open && !wasOpen) {
+        const entry = timeEntriesRef.current.find(e => e.id === entryId);
+        if (entry) descriptionBasesRef.current.set(entryId, entry.description || "");
+      }
       if (open) {
         justClosedDescriptionEntryIdRef.current = null;
       } else if (wasOpen) {
@@ -3269,95 +3296,10 @@ export function TimeTrackerTable({
 
       if (wasQueued) return;
 
-      // Original logic for real IDs
-      setTimeEntries((currentEntries) => {
-        const originalEntries = [...currentEntries];
-
-        const updatedEntries = currentEntries.map((entry) =>
-          entry.id === entryId
-            ? { ...entry, description: newDescription }
-            : entry
-        );
-
-        queueEntryMutation(
-          "Description updated.",
-          entryId,
-          () => setTimeEntries(originalEntries),
-          async () => {
-            const sessionToken = localStorage.getItem("toggl_session_token");
-
-            // Encrypt description if E2EE is enabled and unlocked
-            let finalDescription = newDescription;
-            console.log("[E2EE DEBUG] Editing entry:", {
-              isE2EEEnabled: encryption.isE2EEEnabled,
-              isUnlocked: encryption.isUnlocked,
-              hasSessionKey: !!encryption.getSessionKey(),
-              originalDescription: newDescription,
-              entryId,
-            });
-
-            if (encryption.isE2EEEnabled && encryption.isUnlocked) {
-              const sessionKey = encryption.getSessionKey();
-              if (sessionKey) {
-                try {
-                  finalDescription = encryptDescription(
-                    newDescription,
-                    sessionKey,
-                    entryId
-                  );
-                  encryption.markEntryEncrypted(entryId);
-                  console.log("[E2EE DEBUG] Encrypted edited description:", {
-                    original: newDescription,
-                    encrypted: finalDescription,
-                    lengthMatch:
-                      newDescription.length === finalDescription.length,
-                  });
-                } catch (error) {
-                  console.error("[E2EE] Failed to encrypt description:", error);
-                }
-              }
-            } else {
-              console.log(
-                "[E2EE DEBUG] Skipping encryption - not enabled or locked"
-              );
-            }
-
-            const response = await fetch(`/api/time-entries/${entryId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify({ description: finalDescription }),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error("API Error:", response.status, errorText);
-
-              let errorMessage = `Failed to update description (${response.status})`;
-              if (errorText.includes("Maximum length for description")) {
-                errorMessage = "Description is too long (max 3000 characters)";
-              } else if (errorText.includes("exceeded")) {
-                errorMessage = "Description exceeds maximum length";
-              } else if (response.status === 401) {
-                errorMessage =
-                  "Authentication failed. Please check your API key";
-              } else if (response.status === 403) {
-                errorMessage = "Permission denied";
-              }
-
-              throw new Error(errorMessage);
-            }
-
-            await response.json();
-          }
-        );
-
-        return updatedEntries;
-      });
+      const entry = timeEntriesRef.current.find(e => e.id === entryId);
+      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription);
     },
-    [queueEntryMutation, handleUpdateWithQueue, encryption]
+    [handleUpdateWithQueue, encryption]
   );
 
   const handleProjectChange = React.useCallback(
@@ -3589,6 +3531,10 @@ export function TimeTrackerTable({
           onCommit?.();
         };
 
+        if (entryId > 0 && updates.description !== undefined) {
+          handleDescriptionSave(entryId)(updates.description);
+          updates = { ...updates, description: undefined };
+        }
         // Encrypt description if E2EE is enabled
         let finalDescription = updates.description;
         if (
@@ -3842,7 +3788,7 @@ export function TimeTrackerTable({
           return updatedEntries;
         });
       },
-    [queueEntryMutation, projects, availableTags, encryption]
+    [queueEntryMutation, projects, availableTags, encryption, handleDescriptionSave]
   );
 
   // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)

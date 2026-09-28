@@ -1,5 +1,6 @@
 "use client";
 
+import { useDescriptionDrafts } from "@/contexts/description-drafts-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ type Tag = {
 };
 
 interface ExpandableDescriptionProps {
+  entryId?: number;
   description: string;
   onSave?: (newDescription: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
@@ -52,7 +54,8 @@ interface ExpandableDescriptionProps {
 }
 
 export function ExpandableDescription({
-  description,
+  entryId,
+  description: serverDescription,
   onSave,
   onEditingChange,
   onNavigateNext,
@@ -62,6 +65,15 @@ export function ExpandableDescription({
   onRecentTimerSelect,
   "data-testid": dataTestId,
 }: ExpandableDescriptionProps) {
+  const drafts = useDescriptionDrafts();
+  const draft = entryId === undefined ? undefined : drafts?.drafts.get(entryId);
+  let description = serverDescription;
+  if (draft && draft.status !== "synced") {
+    try { description = drafts!.decode(draft.local, entryId!); } catch { /* Keep encrypted content locked. */ }
+  }
+  const autosaveRef = React.useRef(onSave);
+  autosaveRef.current = onSave;
+  const offlineDrafting = !!entryId && entryId > 0 && !!drafts;
   const [isEditing, setIsEditing] = React.useState(false);
   const [showLinkDialog, setShowLinkDialog] = React.useState(false);
   const [linkUrl, setLinkUrl] = React.useState("");
@@ -470,6 +482,7 @@ export function ExpandableDescription({
         !isApplyingExternalContentRef.current
       ) {
         hasLocalEditsRef.current = true;
+        if (offlineDrafting) autosaveRef.current?.(getMarkdownContent());
       }
       updateCharCount();
       // Show recent timers if content is empty or has only 1 character
