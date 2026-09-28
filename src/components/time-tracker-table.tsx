@@ -1,5 +1,6 @@
 "use client";
 
+import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { useTimezonePreference } from "@/hooks/use-timezone-preference";
@@ -5582,10 +5583,8 @@ export function TimeTrackerTable({
 
   const handleCombine = React.useCallback(
     (entry: TimeEntry) => {
-      // Find chronologically previous entry (older entry, which is at HIGHER index since list is sorted newest first)
-      const currentIndex = timeEntries.findIndex((e) => e.id === entry.id);
-      if (currentIndex === timeEntries.length - 1) {
-        toast.error("Cannot combine the last entry (oldest entry)");
+      if (!getCombineEntryPair(timeEntries, entry.id)) {
+        toast.error("No older row below to combine into");
         return;
       }
 
@@ -5599,10 +5598,8 @@ export function TimeTrackerTable({
 
   const handleCombineReverse = React.useCallback(
     (entry: TimeEntry) => {
-      // Find chronologically previous entry (older entry, which is at HIGHER index since list is sorted newest first)
-      const currentIndex = timeEntries.findIndex((e) => e.id === entry.id);
-      if (currentIndex === timeEntries.length - 1) {
-        toast.error("Cannot combine the last entry (oldest entry)");
+      if (!getCombineEntryPair(timeEntries, entry.id, true)) {
+        toast.error("No newer row above to combine into");
         return;
       }
 
@@ -5633,22 +5630,20 @@ export function TimeTrackerTable({
     // The split request may finish while this confirmation dialog is open,
     // replacing its temporary entry ID with the server ID. Resolve the dialog
     // snapshot back to the current list entry before applying the combine.
-    const currentEntry = resolveCurrentEntry(entryToCombine);
-    if (!currentEntry) {
+    const selectedEntry = resolveCurrentEntry(entryToCombine);
+    if (!selectedEntry) {
       toast.error("The selected entry is no longer available");
       return;
     }
 
-    // Find the older entry again (chronologically previous, at higher index)
-    const currentIndex = timeEntries.findIndex(
-      (e) => e.id === currentEntry.id
-    );
-    if (currentIndex < 0 || currentIndex === timeEntries.length - 1) {
-      toast.error("Cannot combine the last entry (oldest entry)");
+    const pair = getCombineEntryPair(timeEntries, selectedEntry.id, isReverseCombineSingle);
+    if (!pair) {
+      toast.error(isReverseCombineSingle ? "No newer row above to combine into" : "No older row below to combine into");
       return;
     }
 
-    const olderEntry = timeEntries[currentIndex + 1];
+    // The API expects chronological IDs regardless of the selected source row.
+    const { newer: currentEntry, older: olderEntry } = pair;
     const currentApiId = resolveEntryId(currentEntry.id);
     const olderApiId = resolveEntryId(olderEntry.id);
     const currentIsTempId = syncQueue.isTempId(currentApiId);
@@ -5658,9 +5653,8 @@ export function TimeTrackerTable({
 
     let originalEntries: TimeEntry[] = [];
 
-    // Determine which entry's metadata to keep based on reverse mode
-    const entryToKeep = isReverseCombineSingle ? currentEntry : olderEntry;
-    const entryToDelete = isReverseCombineSingle ? olderEntry : currentEntry;
+    const entryToKeep = pair.destination;
+    const entryToDelete = pair.selected;
 
     // Two unresolved creations need a dependency-aware multi-ID operation,
     // which this queue does not support yet.
@@ -5724,6 +5718,12 @@ export function TimeTrackerTable({
 
     if (selectedEntryIsBeingDeleted) {
       selectedCellEntryIdRef.current = entryToKeepSelectionId;
+      const destinationRowIndex = timeEntries
+        .filter(entry => entry.id !== entryToDelete.id)
+        .findIndex(entry => entry.id === entryToKeep.id);
+      setSelectedCell(current => current && destinationRowIndex >= 0
+        ? { ...current, rowIndex: destinationRowIndex }
+        : current);
     }
 
     const sessionToken = localStorage.getItem("toggl_session_token");
@@ -5767,10 +5767,11 @@ export function TimeTrackerTable({
 
           const data = await response.json();
 
-          // Update UI with server response
+          const keptId = isReverseCombineSingle ? finalCurrentId : finalOlderId;
+          // Update the surviving row with server response
           setTimeEntries((currentEntries) =>
             currentEntries.map((e) =>
-              e.id === finalOlderId
+              e.id === keptId
                 ? {
                     ...e,
                     stop: data.updatedEntry.stop,
@@ -5780,10 +5781,10 @@ export function TimeTrackerTable({
             )
           );
 
-          // Update sync status to synced on the older entry
+          // Update sync status on the surviving entry
           setEntrySyncStatus((prev) => {
             const newMap = new Map(prev);
-            newMap.set(finalOlderId, "synced");
+            newMap.set(keptId, "synced");
             return newMap;
           });
 
@@ -5791,7 +5792,7 @@ export function TimeTrackerTable({
           setTimeout(() => {
             setEntrySyncStatus((prev) => {
               const newMap = new Map(prev);
-              newMap.delete(finalOlderId);
+              newMap.delete(keptId);
               return newMap;
             });
           }, 2000);
@@ -5803,9 +5804,8 @@ export function TimeTrackerTable({
       };
 
       syncQueue.queueOperation(operation);
-      // Set sync status on the older entry (the one that remains visible)
-      // Even though we queue on the temp ID, we display status on the older entry
-      setEntrySyncStatus((prev) => new Map(prev).set(olderEntry.id, "pending"));
+      // Display pending status on the destination even when the source has a temporary ID.
+      setEntrySyncStatus((prev) => new Map(prev).set(entryToKeep.id, "pending"));
 
       toast("Combine queued", {
         description: "Changes will sync once entry is created",
@@ -5844,7 +5844,7 @@ export function TimeTrackerTable({
         // Update only stop and duration from server response, keep everything else
         setTimeEntries((currentEntries) =>
           currentEntries.map((e) =>
-            e.id === olderEntry.id
+            e.id === entryToKeep.id
               ? {
                   ...e,
                   stop: data.updatedEntry.stop,
@@ -5866,6 +5866,10 @@ export function TimeTrackerTable({
           selectedCellEntryIdRef.current === entryToKeepSelectionId
         ) {
           selectedCellEntryIdRef.current = selectedCellIdBeforeCombine;
+          const sourceRowIndex = originalEntries.findIndex(entry => entry.id === entryToDelete.id);
+          setSelectedCell(current => current && sourceRowIndex >= 0
+            ? { ...current, rowIndex: sourceRowIndex }
+            : current);
         }
         setTimeEntries(originalEntries);
         // Reset reverse mode flag on error too
@@ -7615,7 +7619,7 @@ export function TimeTrackerTable({
       // If we're editing a cell, any selector is open, or actions menu is open, don't handle global navigation
       // Exception: allow action shortcuts (d, x, c, s, p) to work when actions menu is open
       // Note: 'p' with Cmd/Ctrl is NOT an action shortcut (it's for Pendant/Retrace navigation)
-      const isActionShortcut = ["d", "x", "c", "s", "p"].includes(
+      const isActionShortcut = ["d", "x", "c", "ç", "s", "p"].includes(
         e.key.toLowerCase()
       ) && !(e.metaKey || e.ctrlKey);
 
@@ -8784,6 +8788,10 @@ export function TimeTrackerTable({
     };
   }, [timeEntries]);
 
+  const combinePreview = entryToCombine
+    ? getCombineEntryPair(decryptedEntries, entryToCombine.id, isReverseCombineSingle)
+    : null;
+
   // Handle encryption lock/unlock
   const handleLockEncryption = React.useCallback(() => {
     encryption.lockE2EE();
@@ -9143,16 +9151,8 @@ export function TimeTrackerTable({
             setCombineDialogOpen(open);
             // Don't reset isReverseCombineSingle here - it will be reset after the operation completes
           }}
-          currentEntry={entryToCombine}
-          previousEntry={
-            entryToCombine
-              ? decryptedEntries[
-                  decryptedEntries.findIndex(
-                    (e) => e.id === entryToCombine.id
-                  ) + 1
-                ]
-              : null
-          }
+          currentEntry={combinePreview?.newer ?? null}
+          previousEntry={combinePreview?.older ?? null}
           onConfirm={handleConfirmCombine}
           reverse={isReverseCombineSingle}
         />

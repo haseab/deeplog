@@ -91,8 +91,8 @@ export function CombineEntryDialog({
           </div>
           <DialogDescription className="text-left pt-2">
             {reverse
-              ? "This will delete the earlier entry and extend the later one (using most recent entry's details)."
-              : "This will delete the later entry and extend the earlier one (using earliest entry's details)."}
+              ? "This will fold the selected row into the newer row above, keeping the newer row’s details."
+              : "This will fold the selected row into the older row below, keeping the older row’s details."}
           </DialogDescription>
         </DialogHeader>
 

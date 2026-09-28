@@ -52,8 +52,8 @@ export function ActionsMenu({
   const menuOptions = [
     { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true, shortcut: "D" },
     { label: "✂️ Split", action: onSplit || (() => {}), shortcut: "X" },
-    { label: "🔗 Combine", action: onCombine || (() => {}), shortcut: "C" },
-    { label: "🔗 Combine (Reverse)", action: onCombineReverse || (() => {}), shortcut: "⌥C" },
+    { label: "🔗 Combine into older row", action: onCombine || (() => {}), shortcut: "C" },
+    { label: "🔗 Combine into newer row", action: onCombineReverse || (() => {}), shortcut: "⌥C" },
     isPinned
       ? { label: "📌 Unpin", action: onUnpin || (() => {}), shortcut: "P" }
       : { label: "📌 Pin", action: onPin || (() => {}), shortcut: "P" },
