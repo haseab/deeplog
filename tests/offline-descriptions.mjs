@@ -64,8 +64,8 @@ try {
   await page.reload();
   await poll(async()=> (await records())[0]?.status==='conflict', 'conflict not detected after reload');
   await page.getByRole('button',{name:'Description conflict — click to resolve'}).first().click();
-  assert.equal(await page.locator('#local-description').inputValue(),'Planning launch');
-  assert.equal(await page.locator('#remote-description').inputValue(),'Planning budget');
+  assert.equal(await page.locator('#local-description').textContent(),'Planning launch');
+  assert.equal(await page.locator('#remote-description').textContent(),'Planning budget');
   await page.addStyleTag({content:'react-scan-toolbar, #react-scan-root { display:none !important; }'});
   await page.screenshot({path:'/tmp/deeplog-description-conflict.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -75,8 +75,9 @@ try {
   await page.setViewportSize({width:1280,height:720});
   // A change during review must refresh the comparison without writing.
   remote='Planning revised budget';
-  await page.getByRole('button',{name:'Keep mine',exact:true}).click();
-  await poll(async()=>await page.locator('#remote-description').inputValue()==='Planning revised budget','review did not recheck Toggl');
+  await page.getByRole('button',{name:'Keep mine',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  await poll(async()=>await page.locator('#remote-description').textContent()==='Planning revised budget','review did not recheck Toggl');
   assert.equal(writes,0);
   await page.getByRole('button',{name:'Merge/edit',exact:true}).click();
   await page.locator('#merged-description').fill('Planning launch and budget');
@@ -119,7 +120,7 @@ try {
   await other.close();
   offline=false;
   await page.getByRole('button',{name:'Description conflict — click to resolve'}).first().click();
-  await poll(async()=>await page.locator('#remote-description').inputValue()===remote,'remote not loaded for local conflict');
+  await poll(async()=>await page.locator('#remote-description').textContent()===remote,'remote not loaded for local conflict');
   const beforeKeep=writes;
   await page.getByRole('button',{name:'Keep Toggl',exact:true}).click();
   await poll(async()=> (await records())[0]?.status==='synced','keep Toggl not acknowledged');
@@ -173,7 +174,7 @@ try {
   await poll(async()=> (await records())[0]?.deleted===true,'deletion not detected');
   await page.getByRole('button',{name:'Description conflict — click to resolve'}).first().click();
   assert.equal(await page.getByRole('button',{name:'Keep mine',exact:true}).count(),0);
-  assert.equal(await page.locator('#local-description').inputValue(),'Recover deleted entry');
+  assert.equal(await page.locator('#local-description').textContent(),'Recover deleted entry');
   console.log('PASS: deleted-entry recovery');
   await page.getByRole('button',{name:'Close',exact:true}).click();
   const storedBefore=(await records())[0].local;

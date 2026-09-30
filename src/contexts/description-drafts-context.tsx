@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, HardDrive, Loader2, History, Check } from "lucide-react";
+import { AlertTriangle, HardDrive, Loader2, History, Check, Cloud, ArrowUpRight, Pencil, GitCompareArrows } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -265,28 +265,57 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(setHistory).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
     <Dialog open={selected !== null} onOpenChange={open => { if (!open && !busy) { setSelected(null); setMerge(null); } }}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogTitle>{selectedDraft?.status === "conflict" ? "Resolve description conflict" : "Local description"}</DialogTitle>
-        <DialogDescription>Entry {selected}. Both versions stay saved until you choose. Other entries can continue syncing.</DialogDescription>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-xl max-h-[85vh] overflow-y-auto rounded-xl p-5 sm:p-6" onKeyDown={event => event.stopPropagation()} onOpenAutoFocus={event => { event.preventDefault(); document.getElementById("description-review-title")?.focus(); }}>
+        <div className="flex items-center gap-3 pr-6">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <GitCompareArrows className="h-5 w-5" />
+          </div>
+          <div className="space-y-1.5">
+            <DialogTitle id="description-review-title" tabIndex={-1} className="outline-none">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</DialogTitle>
+            <DialogDescription>{selectedDraft?.status === "conflict" && !selectedDraft.deleted ? "Two versions of this entry. Click the one to keep." : "Review your saved description."}</DialogDescription>
+          </div>
+        </div>
         {selectedDraft && <>
-          <p className="text-xs text-muted-foreground">Last edited locally: {new Date(selectedDraft.updatedAt).toLocaleString()}</p>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
-          {selectedDraft.deleted && <p className="text-sm text-amber-600">This entry was deleted in Toggl. Copy your draft below to recover it; it will not be recreated automatically.</p>}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div><label htmlFor="local-description" className="text-sm font-medium">Your local draft</label><textarea id="local-description" readOnly value={safeDecode(selectedDraft.local, selectedDraft.entryId)} className="mt-2 min-h-48 w-full rounded-md border bg-muted/30 p-3 text-sm" /></div>
-            <div><label htmlFor="remote-description" className="text-sm font-medium">Current Toggl description</label><textarea id="remote-description" readOnly value={selectedDraft.deleted ? "Entry deleted" : selectedDraft.remote === undefined ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId)} className="mt-2 min-h-48 w-full rounded-md border bg-muted/30 p-3 text-sm" /></div>
+          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">This entry was deleted in Toggl. Copy your draft below to recover it; it will not be recreated automatically.</p>}
+          <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
+            {(["mine", "toggl"] as const).map(choice => {
+              const isLocal = choice === "mine";
+              const available = isLocal || selectedDraft.remote !== undefined;
+              const canChoose = selectedDraft.status === "conflict" && !selectedDraft.deleted && available;
+              const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? "Entry deleted" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
+              const label = isLocal ? "Your local draft" : "Current Toggl description";
+              const Icon = isLocal ? HardDrive : Cloud;
+              const content = <>
+                <span className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                  <span className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</span>
+                  {canChoose && <ArrowUpRight className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:translate-x-0.5" />}
+                </span>
+                <span id={isLocal ? "local-description" : "remote-description"} className="block whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{text || <span className="italic text-muted-foreground">No description</span>}</span>
+                <span className="mt-auto flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground group-hover:text-primary group-focus-visible:text-primary">
+                  {canChoose ? <><Check className="h-3.5 w-3.5" />Keep this description</> : isLocal ? "Saved on this device" : "Toggl version"}
+                </span>
+              </>;
+              const className = "group flex min-h-40 min-w-0 flex-col gap-4 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
+              return canChoose ? <button key={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} disabled={busy} onClick={() => void resolve(choice)} className={`${className} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
+            })}
           </div>
-          {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-40 w-full rounded-md border bg-background p-3 text-sm" /></div>}
-          <div className="flex flex-wrap justify-end gap-2">
-            {selectedDraft.status === "conflict" && !selectedDraft.deleted ? <>
-              <Button variant="outline" disabled={busy} onClick={() => void resolve("toggl")}>Keep Toggl</Button>
-              <Button variant="outline" disabled={busy} onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Merge/edit</Button>
-              <Button disabled={busy} onClick={() => void resolve(merge === null ? "mine" : "merge")}>{busy ? "Checking…" : merge === null ? "Keep mine" : "Save merged description"}</Button>
-            </> : !selectedDraft.deleted && <>
-              <Button variant="outline" onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Edit draft</Button>
-              {merge !== null ? <Button onClick={() => void save(selectedDraft.entryId, selectedDraft.base, merge).then(() => setMerge(null))}>Save draft</Button> : <Button disabled={busy || !account} onClick={() => void retry(selectedDraft)}>Retry sync</Button>}
-            </>}
+          {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" autoFocus disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" /></div>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">{busy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Checking latest version…</> : <>Your draft stays saved until you choose.</>}</p>
+            <div className="flex flex-wrap gap-2">
+              {selectedDraft.status === "conflict" && !selectedDraft.deleted ? <>
+                {merge === null ? <Button variant="ghost" size="sm" aria-label="Merge/edit" disabled={busy} onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit instead</Button> : <>
+                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMerge(null)}>Cancel edit</Button>
+                  <Button size="sm" disabled={busy} onClick={() => void resolve("merge")}>Save merged description</Button>
+                </>}
+              </> : !selectedDraft.deleted && <>
+                <Button variant="ghost" size="sm" onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Edit draft</Button>
+                {merge !== null ? <Button size="sm" onClick={() => void save(selectedDraft.entryId, selectedDraft.base, merge).then(() => setMerge(null))}>Save draft</Button> : <Button size="sm" disabled={busy || !account} onClick={() => void retry(selectedDraft)}>Retry sync</Button>}
+              </>}
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground/70">Entry {selected} · Edited locally {new Date(selectedDraft.updatedAt).toLocaleString()}</p>
         </>}
       </DialogContent>
     </Dialog>
