@@ -108,6 +108,7 @@ export function ExpandableDescription({
   const editorContainerRef = React.useRef<HTMLDivElement>(null);
   const isEditingRef = React.useRef(false);
   const hasLocalEditsRef = React.useRef(false);
+  const editStartDescriptionRef = React.useRef(description);
   const isApplyingExternalContentRef = React.useRef(false);
 
   const getMarkdownContent = React.useCallback(() => {
@@ -590,6 +591,7 @@ export function ExpandableDescription({
         editor.commands.setContent(markdownToHtml(description), false);
         isApplyingExternalContentRef.current = false;
       }
+      editStartDescriptionRef.current = description;
       hasLocalEditsRef.current = false;
       isEditingRef.current = true;
       setIsEditing(true);
@@ -641,13 +643,20 @@ export function ExpandableDescription({
       isEditing,
       showRecentTimers,
     });
+    const hadLocalEdits = hasLocalEditsRef.current;
+    const originalDescription = hadLocalEdits ? editStartDescriptionRef.current : description;
     isEditingRef.current = false;
     hasLocalEditsRef.current = false;
+    // Typing persists offline drafts immediately. Restore the edit-session
+    // snapshot through the same revision-aware path so an in-flight upload
+    // cannot acknowledge or overwrite the cancellation.
+    if (offlineDrafting && hadLocalEdits) {
+      autosaveRef.current?.(originalDescription);
+    }
     setIsEditing(false);
-    setCurrentCharCount(description.length);
-    // Reset to original content
+    setCurrentCharCount(originalDescription.length);
     isApplyingExternalContentRef.current = true;
-    editor?.commands.setContent(markdownToHtml(description), false);
+    editor?.commands.setContent(markdownToHtml(originalDescription), false);
     isApplyingExternalContentRef.current = false;
     // setContent can synchronously run onUpdate while the previous editing
     // state is still visible, so close the recent-timers UI after the reset.
