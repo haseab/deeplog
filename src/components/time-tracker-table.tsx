@@ -384,8 +384,8 @@ const MemoizedDescriptionCell = React.memo(
         <MemoizedExpandableDescription
           entryId={entry.id}
           description={entry.description || ""}
-          onSave={(newDescription) =>
-            onDescriptionSave(entry.id)(newDescription)
+          onSave={(newDescription, notify) =>
+            onDescriptionSave(entry.id)(newDescription, notify)
           }
           onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
           onNavigateNext={navigateToNextCell}
@@ -1421,7 +1421,7 @@ const MemoizedTableRow = React.memo(
     onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
     onRowMouseEnter: (rowIndex: number) => void;
     onRowMouseLeave: () => void;
-    onDescriptionSave: (entryId: number) => (newDescription: string) => void;
+    onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
     onBulkEntryUpdate: (
@@ -1535,7 +1535,7 @@ const MemoizedTableRow = React.memo(
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
             <div className="flex items-start gap-2">
-              <DescriptionDraftIcon entryId={entry.id} />
+              <DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} />
               <div
                 className={cn(
                   "h-4 w-4 mt-1 flex-shrink-0 cursor-pointer",
@@ -1567,8 +1567,8 @@ const MemoizedTableRow = React.memo(
                   <MemoizedExpandableDescription
           entryId={entry.id}
                     description={entry.description || ""}
-                    onSave={(newDescription) =>
-                      onDescriptionSave(entry.id)(newDescription)
+                    onSave={(newDescription, notify) =>
+                      onDescriptionSave(entry.id)(newDescription, notify)
                     }
                     onEditingChange={(editing) =>
                       setIsEditingCell(entry.id, editing)
@@ -1721,7 +1721,7 @@ const MemoizedTableRow = React.memo(
                 </div>
 
                 {/* Sync status indicator */}
-                {(syncStatus || aiSummaryStatus) && (
+                {aiSummaryStatus && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {aiSummaryStatus === "processing" && (
                       <>
@@ -1740,33 +1740,6 @@ const MemoizedTableRow = React.memo(
                         <AlertCircle className="w-3 h-3 text-red-500" />
                         <span className="text-red-500">Summary failed</span>
                       </>
-                    )}
-                    {syncStatus === "pending" && (
-                      <>
-                        <Clock className="w-3 h-3 text-yellow-500" />
-                        <span>Pending</span>
-                      </>
-                    )}
-                    {syncStatus === "syncing" && (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                        <span>Syncing...</span>
-                      </>
-                    )}
-                    {syncStatus === "synced" && (
-                      <>
-                        <Check className="w-3 h-3 text-green-500" />
-                        <span>Synced</span>
-                      </>
-                    )}
-                    {syncStatus === "error" && (
-                      <button
-                        onClick={() => onRetrySync(entry.id)}
-                        className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-                      >
-                        <AlertCircle className="w-3 h-3 text-red-500" />
-                        <span className="text-red-500">Failed - retry</span>
-                      </button>
                     )}
                   </div>
                 )}
@@ -1789,7 +1762,7 @@ const MemoizedTableRow = React.memo(
           onMouseLeave={onRowMouseLeave}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
-            <DescriptionDraftIcon entryId={entry.id} />
+            <DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} />
             {aiSummaryStatus === "processing" && (
               <Loader2
                 className="w-4 h-4 animate-spin text-violet-500"
@@ -1807,26 +1780,6 @@ const MemoizedTableRow = React.memo(
                 className="w-4 h-4 text-red-500"
                 aria-label="AI summary failed"
               />
-            )}
-            {syncStatus === "pending" && (
-              <div title="Pending local changes">
-                <Clock className="w-4 h-4 text-yellow-500" />
-              </div>
-            )}
-            {syncStatus === "syncing" && (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-            )}
-            {syncStatus === "synced" && (
-              <Check className="w-4 h-4 text-green-500" />
-            )}
-            {syncStatus === "error" && (
-              <button
-                onClick={() => onRetrySync(entry.id)}
-                className="hover:opacity-70 transition-opacity"
-                title="Click to retry"
-              >
-                <AlertCircle className="w-4 h-4 text-red-500" />
-              </button>
             )}
           </TableCell>
           <MemoizedCheckboxCell
@@ -3258,7 +3211,7 @@ export function TimeTrackerTable({
   );
 
   const handleDescriptionSave = React.useCallback(
-    (entryId: number) => (newDescription: string) => {
+    (entryId: number) => (newDescription: string, notify = false) => {
       // Try to queue if temp ID
       const wasQueued = handleUpdateWithQueue(
         entryId,
@@ -3298,7 +3251,7 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
-      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription);
+      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify);
     },
     [handleUpdateWithQueue, encryption]
   );

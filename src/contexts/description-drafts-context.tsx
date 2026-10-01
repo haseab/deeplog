@@ -14,7 +14,7 @@ import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-st
 type DraftContext = {
   drafts: Map<number, DescriptionDraft>;
   syncing: Set<number>;
-  save: (id: number, base: string, text: string) => Promise<void>;
+  save: (id: number, base: string, text: string, notify?: boolean) => Promise<void>;
   decode: (text: string, id: number) => string;
   open: (id: number) => void;
   ready: boolean;
@@ -181,19 +181,25 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }).catch(error => setStorageError(error instanceof Error ? error.message : "Local storage unavailable"));
   };
 
-  const save = React.useCallback(async (entryId: number, base: string, text: string) => {
+  const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false) => {
     const active = accountRef.current;
     try {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed. Reopen the app before editing.");
       if (!active) throw new Error("Connect once to verify your account before saving offline drafts.");
       const local = encode(text, entryId, base);
-      await changeDraft(`${active}:${entryId}`, old => {
-        if (old && decode(old.local, entryId) === text && old.status !== "synced") return old;
+      const saved = await changeDraft(`${active}:${entryId}`, old => {
+        if (old && decode(old.local, entryId) === text && (old.status !== "synced" || old.base === base)) return old;
         return { ...old, key: `${active}:${entryId}`, account: active, entryId, base: old && old.status !== "synced" ? old.base : base,
           local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined };
       });
       failedDrafts.current.delete(entryId);
       setStorageError(""); await publish(); schedule();
+      if (notify) {
+        toast.success("Description updated.", {
+          description: saved?.status === "synced" ? "Synced with Toggl." : saved?.status === "conflict" ? "Saved locally. Resolve the conflict to sync." : "Saved locally. Waiting to sync with Toggl.",
+          id: `description-submit-${entryId}`,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Local storage is unavailable";
       const failed: DescriptionDraft = { key: `${active}:${entryId}`, account: active, entryId, base, local: text, revision: 0, updatedAt: Date.now(), status: "error", error: `NOT SAVED LOCALLY: ${message}` };
@@ -326,14 +332,59 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   </Context.Provider>;
 }
 
-export function DescriptionDraftIcon({ entryId }: { entryId: number }) {
+export function DescriptionDraftIcon({ entryId, rowStatus, onRetry }: {
+  entryId: number;
+  rowStatus?: "pending" | "syncing" | "synced" | "error";
+  onRetry?: (id: number) => void;
+}) {
   const context = useDescriptionDrafts();
   const draft = context?.drafts.get(entryId);
-  if (!context || !draft) return null;
-  const syncing = context.syncing.has(entryId);
-  const warning = draft.status === "conflict" || draft.status === "error";
-  const title = syncing ? "Syncing description" : draft.status === "conflict" ? "Description conflict — click to resolve" : draft.status === "error" ? (draft.error?.startsWith("NOT SAVED") ? draft.error : `Saved locally · ${draft.error}`) : draft.status === "synced" ? "Description synced" : "Saved locally · Waiting to sync";
-  return <button type="button" title={title} aria-label={title} onClick={e => { e.stopPropagation(); context.open(entryId); }} className="inline-flex shrink-0 items-center p-0.5">
-    {syncing ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : warning ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : draft.status === "synced" ? <Check className="h-4 w-4 text-green-500" /> : <HardDrive className="h-4 w-4 text-muted-foreground" />}
-  </button>;
+  const syncing = context?.syncing.has(entryId) ?? false;
+  const previousStatus = React.useRef(draft?.status);
+  const [recentlySynced, setRecentlySynced] = React.useState(false);
+
+  // A persisted success is quiet on load. Only a new acknowledgement flashes.
+  React.useEffect(() => {
+    const justSynced = draft?.status === "synced" &&
+      previousStatus.current !== undefined && previousStatus.current !== "synced";
+    previousStatus.current = draft?.status;
+    if (!justSynced) {
+      if (draft?.status !== "synced") setRecentlySynced(false);
+      return;
+    }
+    setRecentlySynced(true);
+    const timeout = setTimeout(() => setRecentlySynced(false), 2000);
+    return () => clearTimeout(timeout);
+  }, [draft?.status]);
+
+  // Problems and unfinished work take priority over either success signal.
+  const warning = draft?.status === "conflict" || draft?.status === "error";
+  const descriptionPending = !!draft && draft.status !== "synced";
+  let title: string;
+  let icon: React.ReactNode;
+  let action: (() => void) | undefined;
+  if (warning) {
+    title = draft.status === "conflict" ? "Description conflict — click to resolve" :
+      draft.error?.startsWith("NOT SAVED") ? draft.error : `Saved locally · ${draft.error ?? "Description sync failed"}`;
+    icon = <AlertTriangle className="h-4 w-4 text-amber-500" />;
+    action = () => context?.open(entryId);
+  } else if (rowStatus === "error") {
+    title = "Changes failed to sync — click to retry";
+    icon = <AlertTriangle className="h-4 w-4 text-amber-500" />;
+    action = () => onRetry?.(entryId);
+  } else if (syncing || rowStatus === "syncing") {
+    title = "Syncing changes";
+    icon = <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+  } else if (descriptionPending || rowStatus === "pending") {
+    title = descriptionPending ? "Saved locally · Waiting to sync" : "Pending changes · Waiting to sync";
+    icon = <HardDrive className="h-4 w-4 text-muted-foreground" />;
+    if (descriptionPending) action = () => context?.open(entryId);
+  } else if (recentlySynced || rowStatus === "synced") {
+    title = "Changes synced";
+    icon = <Check className="h-4 w-4 text-green-500" />;
+  } else {
+    return null;
+  }
+  return action ? <button type="button" title={title} aria-label={title} onClick={e => { e.stopPropagation(); action(); }} className="inline-flex shrink-0 items-center p-0.5">{icon}</button> :
+    <span title={title} aria-label={title} className="inline-flex shrink-0 items-center p-0.5">{icon}</span>;
 }
