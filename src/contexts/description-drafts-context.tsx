@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AlertTriangle, HardDrive, Loader2, History, Check, Cloud, ArrowUpRight, Pencil, GitCompareArrows } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useEncryptionContext } from "./encryption-context";
@@ -14,7 +14,7 @@ import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-st
 type DraftContext = {
   drafts: Map<number, DescriptionDraft>;
   syncing: Set<number>;
-  save: (id: number, base: string, text: string, notify?: boolean) => Promise<void>;
+  save: (id: number, base: string, text: string, notify?: boolean, undoDescription?: string) => Promise<void>;
   decode: (text: string, id: number) => string;
   open: (id: number) => void;
   ready: boolean;
@@ -181,7 +181,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }).catch(error => setStorageError(error instanceof Error ? error.message : "Local storage unavailable"));
   };
 
-  const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false) => {
+  const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false, undoDescription?: string) => {
     const active = accountRef.current;
     try {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed. Reopen the app before editing.");
@@ -194,10 +194,42 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       });
       failedDrafts.current.delete(entryId);
       setStorageError(""); await publish(); schedule();
-      if (notify) {
-        toast.success("Description updated.", {
-          description: saved?.status === "synced" ? "Synced with Toggl." : saved?.status === "conflict" ? "Saved locally. Resolve the conflict to sync." : "Saved locally. Waiting to sync with Toggl.",
+      if (notify && saved) {
+        const submitted = saved;
+        const undoText = undoDescription ?? decode(base, entryId);
+        const configuredDuration = Number(localStorage.getItem("toast_duration") ?? 4000);
+        toast("Description updated.", {
           id: `description-submit-${entryId}`,
+          duration: Number.isFinite(configuredDuration) && configuredDuration > 0 ? configuredDuration : 4000,
+          action: {
+            label: "Undo (⌘Z)",
+            onClick: () => {
+              void (async () => {
+                try {
+                  if (accountRef.current !== active || localStorage.getItem("toggl_session_token") !== tokenRef.current) {
+                    throw new Error("Account changed. Reopen the entry before undoing.");
+                  }
+                  const restored = encode(undoText, entryId, submitted.local);
+                  let changed = false;
+                  await changeDraft(submitted.key, current => {
+                    // Sync acknowledgements may advance the base, but a newer
+                    // edit (including another tab's) must never be overwritten.
+                    if (!current || current.revision !== submitted.revision || current.local !== submitted.local) return current;
+                    changed = true;
+                    return { ...current, local: restored, owner: owner.current,
+                      revision: current.revision + 1, updatedAt: Date.now(),
+                      status: current.status === "conflict" ? "conflict" : "local",
+                      error: undefined, attempts: 0, retryAt: undefined };
+                  });
+                  if (!changed) throw new Error("Description changed again. Undo skipped to preserve the newer edit.");
+                  await publish();
+                  schedule();
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Could not undo description.");
+                }
+              })();
+            },
+          },
         });
       }
     } catch (error) {

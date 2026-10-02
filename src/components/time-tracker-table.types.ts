@@ -44,7 +44,7 @@ export interface MemoizedDescriptionCellProps {
   selectedCell: SelectedCell;
   isFullscreen: boolean;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
-  onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean) => void;
+  onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean, undoDescription?: string) => void;
   setIsEditingCell: (entryId: number, editing: boolean) => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;

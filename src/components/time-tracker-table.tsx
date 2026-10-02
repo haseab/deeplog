@@ -383,8 +383,8 @@ const MemoizedDescriptionCell = React.memo(
         <MemoizedExpandableDescription
           entryId={entry.id}
           description={entry.description || ""}
-          onSave={(newDescription, notify) =>
-            onDescriptionSave(entry.id)(newDescription, notify)
+          onSave={(newDescription, notify, undoDescription) =>
+            onDescriptionSave(entry.id)(newDescription, notify, undoDescription)
           }
           onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
           onNavigateNext={navigateToNextCell}
@@ -1420,7 +1420,7 @@ const MemoizedTableRow = React.memo(
     onCheckboxToggle: (rowIndex: number, shiftKey: boolean) => void;
     onRowMouseEnter: (rowIndex: number) => void;
     onRowMouseLeave: () => void;
-    onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean) => void;
+    onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean, undoDescription?: string) => void;
     onProjectChange: (entryId: number) => (newProject: string) => void;
     onTagsChange: (entryId: number) => (newTags: string[]) => void;
     onBulkEntryUpdate: (
@@ -1566,8 +1566,8 @@ const MemoizedTableRow = React.memo(
                   <MemoizedExpandableDescription
           entryId={entry.id}
                     description={entry.description || ""}
-                    onSave={(newDescription, notify) =>
-                      onDescriptionSave(entry.id)(newDescription, notify)
+                    onSave={(newDescription, notify, undoDescription) =>
+                      onDescriptionSave(entry.id)(newDescription, notify, undoDescription)
                     }
                     onEditingChange={(editing) =>
                       setIsEditingCell(entry.id, editing)
@@ -3210,7 +3210,7 @@ export function TimeTrackerTable({
   );
 
   const handleDescriptionSave = React.useCallback(
-    (entryId: number) => (newDescription: string, notify = false) => {
+    (entryId: number) => (newDescription: string, notify = false, undoDescription?: string) => {
       // Try to queue if temp ID
       const wasQueued = handleUpdateWithQueue(
         entryId,
@@ -3250,7 +3250,7 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
-      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify);
+      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription);
     },
     [handleUpdateWithQueue, encryption]
   );

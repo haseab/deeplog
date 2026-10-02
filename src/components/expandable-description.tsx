@@ -39,7 +39,7 @@ type Tag = {
 interface ExpandableDescriptionProps {
   entryId?: number;
   description: string;
-  onSave?: (newDescription: string, notify?: boolean) => void;
+  onSave?: (newDescription: string, notify?: boolean, undoDescription?: string) => void;
   onEditingChange?: (isEditing: boolean) => void;
   onNavigateNext?: () => void;
   onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
@@ -160,7 +160,7 @@ export function ExpandableDescription({
         // Save and close
         const newContent = getMarkdownContent();
         if (newContent !== description || (hasLocalEditsRef.current && newContent !== editStartDescriptionRef.current)) {
-          onSave?.(newContent, true);
+          onSave?.(newContent, true, editStartDescriptionRef.current);
         }
         setIsEditing(false);
       }
@@ -618,7 +618,7 @@ export function ExpandableDescription({
 
       // Only save if content has actually changed
       if (currentContent !== description || (hasLocalEditsRef.current && currentContent !== editStartDescriptionRef.current)) {
-        onSave?.(currentContent, true);
+        onSave?.(currentContent, true, editStartDescriptionRef.current);
       }
       if (synchronous) {
         // Cmd/Ctrl+Enter is commonly followed immediately by Tab. Flush both

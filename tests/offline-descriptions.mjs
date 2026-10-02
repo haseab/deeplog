@@ -52,7 +52,7 @@ const edit = async text => {
   await editor.fill(text);
 };
 try {
-  await page.goto('http://127.0.0.1:3000');
+  await page.goto(process.env.TEST_BASE_URL ?? 'http://127.0.0.1:3000');
   await page.locator('[data-testid="expandable-description"]:visible').first().waitFor();
   await poll(() => page.evaluate(() => Object.keys(localStorage).some(k=>k.startsWith('deeplog-draft-account:'))), 'account not verified');
   // Escape must restore the edit-session baseline, even after autosave.
@@ -67,7 +67,7 @@ try {
   await edit('Existing offline draft');
   await page.keyboard.press('Control+Enter');
   await page.getByText('Description updated.',{exact:true}).waitFor();
-  await page.getByText('Saved locally. Waiting to sync with Toggl.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).waitFor();
   assert.equal(await page.getByText('Description updated.',{exact:true}).count(),1);
   await edit('Discard only this session');
   await page.keyboard.press('Escape');
@@ -99,9 +99,29 @@ try {
   await edit('Submitted after autosync');
   await poll(async()=>remote==='Submitted after autosync' && (await records())[0]?.status==='synced','autosync missing');
   await page.keyboard.press('Control+Enter');
-  await page.getByText('Synced with Toggl.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).waitFor();
   assert.equal(await page.getByText('Description updated.',{exact:true}).count(),1);
   console.log('PASS: silent autosave and Escape, one offline or synced submission toast');
+  const descriptionToast = page.locator('[data-sonner-toast]').filter({has: page.getByText('Description updated.', {exact:true})});
+  assert.notEqual(await descriptionToast.getAttribute('data-type'), 'success', 'description toast should be neutral');
+  await page.keyboard.press('Control+z');
+  await poll(async()=>remote==='Existing offline draft' && (await records())[0]?.status==='synced', 'keyboard Undo did not restore an already uploaded edit');
+  for (const mode of ['offline', 'in-flight']) {
+    offline = mode === 'offline';
+    delay = mode === 'in-flight' ? 2500 : 0;
+    started = false;
+    await edit(`Undo ${mode} edit`);
+    await poll(async()=> (await records())[0]?.local===`Undo ${mode} edit`, 'undo test draft not saved');
+    if (mode === 'in-flight') await poll(()=>started, 'undo test upload did not start');
+    await page.keyboard.press('Control+Enter');
+    await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).click();
+    await poll(async()=> (await records())[0]?.local==='Existing offline draft', `${mode} Undo did not restore the opening text`);
+    offline=false;
+    await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+    await poll(async()=>remote==='Existing offline draft' && (await records())[0]?.status==='synced', `${mode} Undo did not sync the restored text`);
+    delay=0;
+  }
+  console.log('PASS: neutral toast and Undo offline, after upload, and during upload');
   writes=0;
   offline=true;
   await edit('Planning launch');
@@ -158,7 +178,7 @@ try {
   await page.keyboard.press('Control+Enter');
   offline=false;
   const other=await context.newPage();
-  await other.goto('http://127.0.0.1:3000');
+  await other.goto(process.env.TEST_BASE_URL ?? 'http://127.0.0.1:3000');
   await other.locator('[data-testid="expandable-description"]:visible').first().waitFor();
   offline=true;
   await other.locator('[data-testid="expandable-description"]:visible').first().click();
