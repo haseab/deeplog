@@ -201,6 +201,16 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         toast("Description updated.", {
           id: `description-submit-${entryId}`,
           duration: Number.isFinite(configuredDuration) && configuredDuration > 0 ? configuredDuration : 4000,
+          submitAction: () => {
+            if (accountRef.current !== active || localStorage.getItem("toggl_session_token") !== tokenRef.current) {
+              toast.error("Account changed. Reopen the entry before syncing.");
+              return false;
+            }
+            // Use the same immediate-submit action as the other Undo toasts.
+            // The worker preserves offline drafts and skips already-synced ones.
+            void work.current();
+            return true;
+          },
           action: {
             label: "Undo (⌘Z)",
             onClick: () => {

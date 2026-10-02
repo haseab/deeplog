@@ -122,6 +122,28 @@ try {
     delay=0;
   }
   console.log('PASS: neutral toast and Undo offline, after upload, and during upload');
+  delay=2500; started=false;
+  await edit('Instant submit');
+  await page.keyboard.press('Control+Enter');
+  await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).waitFor();
+  assert.equal(started,false, 'upload started before testing immediate submit');
+  const submitAt = Date.now();
+  await page.keyboard.press('Meta+Enter');
+  await poll(()=>started, 'Cmd+Enter did not trigger sync');
+  assert.ok(Date.now()-submitAt < 1100, 'Cmd+Enter waited for the autosave debounce');
+  await poll(async()=> await descriptionToast.count()===0, 'Cmd+Enter did not dismiss the toast');
+  assert.notEqual(remote,'Instant submit', 'test must verify dismissal during upload');
+  await poll(async()=>remote==='Instant submit' && (await records())[0]?.status==='synced', 'instant submit did not finish');
+  delay=0;
+  await edit('Already synced submit');
+  await poll(async()=>remote==='Already synced submit' && (await records())[0]?.status==='synced', 'autosync missing before toast dismissal');
+  await page.keyboard.press('Control+Enter');
+  await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).waitFor();
+  const writesBeforeDismiss = writes;
+  await page.keyboard.press('Meta+Enter');
+  await poll(async()=>await descriptionToast.count()===0, 'already synced toast did not dismiss');
+  assert.equal(writes,writesBeforeDismiss, 'dismissing a synced toast duplicated its upload');
+  console.log('PASS: Cmd+Enter dismisses and submits immediately, including already-synced saves');
   writes=0;
   offline=true;
   await edit('Planning launch');
