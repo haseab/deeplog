@@ -25,7 +25,6 @@ import {
   BarChart3,
   Calendar as CalendarIcon,
   Check,
-  Clock,
   Loader2,
   Maximize2,
   Minimize2,
