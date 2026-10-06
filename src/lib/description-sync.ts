@@ -32,6 +32,21 @@ export interface DescriptionHistory {
   at: number;
 }
 
+/** A new edit supersedes the known conflict; the server still checks this base. */
+export function resolveEditedDescription(draft: DescriptionDraft): DescriptionDraft {
+  if (draft.status !== "conflict" || draft.deleted || draft.remote === undefined) return draft;
+  return {
+    ...draft,
+    base: draft.remote,
+    status: "local",
+    remote: undefined,
+    sent: undefined,
+    error: undefined,
+    attempts: 0,
+    retryAt: undefined,
+  };
+}
+
 export function acknowledgeDraft(current: DescriptionDraft, sent: DescriptionDraft, remote: string): DescriptionDraft {
   return {
     ...current,

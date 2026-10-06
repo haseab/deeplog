@@ -25,6 +25,11 @@ upload checks again. Choosing Keep Toggl does not write to Toggl. Both versions 
 copied to local recovery history in the same IndexedDB transaction as resolution.
 Deleted entries retain a copyable draft and are not recreated.
 
+Editing the description after a conflict resumes syncing against the known
+conflicting Toggl version and preserves both earlier versions in recovery history.
+If Toggl changes again, the upload raises a new conflict. Deleted entries and
+conflicts whose remote version has not been fetched still require review.
+
 Uploads are serialized across tabs with Web Locks. Revision numbers prevent an
 older response from clearing newer typing. The outgoing value is saved before
 sending so a lost response can be reconciled on the next attempt. Competing local

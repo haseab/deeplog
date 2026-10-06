@@ -36,6 +36,9 @@ export async function changeDraft(key: string, change: (old?: DescriptionDraft) 
           tx.objectStore("history").put({ key: crypto.randomUUID(), account: previous.account, entryId: previous.entryId, local: previous.local, remote: previous.remote, at: Date.now() });
           result = { ...result, status: "conflict", remote: undefined, error: "Another browser tab edited this draft. Its version is preserved in recovery history." };
         }
+        if (previous?.status === "conflict" && result?.status === "local" && !history) {
+          tx.objectStore("history").put({ key: crypto.randomUUID(), account: previous.account, entryId: previous.entryId, local: previous.local, remote: previous.remote, at: Date.now() });
+        }
         if (result) store.put(result); else store.delete(key);
         if (history) tx.objectStore("history").put(history);
       } catch { tx.abort(); }

@@ -169,12 +169,13 @@ try {
   await page.keyboard.press('Enter');
   await poll(async()=>await page.locator('#remote-description').textContent()==='Planning revised budget','review did not recheck Toggl');
   assert.equal(writes,0);
-  await page.getByRole('button',{name:'Merge/edit',exact:true}).click();
-  await page.locator('#merged-description').fill('Planning launch and budget');
-  await page.getByRole('button',{name:'Save merged description',exact:true}).click();
-  await poll(()=>remote==='Planning launch and budget','merged text not uploaded');
-  await poll(async()=> (await records())[0]?.status==='synced', 'merge not marked synced');
-  console.log('PASS: local persistence, refresh recovery, remote conflict, review recheck, merge');
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await edit('Planning launch and budget');
+  await page.keyboard.press('Control+Enter');
+  await poll(()=>remote==='Planning launch and budget','post-conflict edit not uploaded');
+  await poll(async()=> (await records())[0]?.status==='synced', 'post-conflict edit not marked synced');
+  assert.equal(await page.getByRole('button',{name:'Description conflict — click to resolve'}).count(),0);
+  console.log('PASS: local persistence, refresh recovery, remote conflict, review recheck, edit resolves conflict');
   // A response for an older revision must not delete newer typing.
   delay=2500; started=false;
   await edit('First upload');

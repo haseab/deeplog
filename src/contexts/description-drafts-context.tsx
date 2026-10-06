@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { useEncryptionContext } from "./encryption-context";
 import { encryptDescription, decryptDescription } from "@/lib/encryption";
 import { isEncryptedDescription } from "@/lib/ai-summary";
-import { acknowledgeDraft, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
+import { acknowledgeDraft, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
 import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-store";
 
 type DraftContext = {
@@ -189,8 +189,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       const local = encode(text, entryId, base);
       const saved = await changeDraft(`${active}:${entryId}`, old => {
         if (old && decode(old.local, entryId) === text && (old.status !== "synced" || old.base === base)) return old;
-        return { ...old, key: `${active}:${entryId}`, account: active, entryId, base: old && old.status !== "synced" ? old.base : base,
-          local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined };
+        return resolveEditedDescription({ ...old, key: `${active}:${entryId}`, account: active, entryId, base: old && old.status !== "synced" ? old.base : base,
+          local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined });
       });
       failedDrafts.current.delete(entryId);
       setStorageError(""); await publish(); schedule();
