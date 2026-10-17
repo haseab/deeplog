@@ -1,3 +1,4 @@
+import { KeyboardShortcutProvider } from "@/components/keyboard-shortcut-provider";
 import ReactScan from "@/components/react-scan";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -37,6 +38,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <ReactScan />
+          <KeyboardShortcutProvider />
           {children}
           <Toaster />
         </ThemeProvider>

@@ -29,7 +29,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Settings, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield, Check, ChevronsUpDown, Search } from "lucide-react";
+import { KeyboardShortcutSettings } from "@/components/keyboard-shortcut-settings";
+import { Settings, Keyboard, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield, Check, ChevronsUpDown, Search } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useTheme } from "next-themes";
 import { useEncryptionContext } from "@/contexts/encryption-context";
@@ -42,7 +43,7 @@ interface AppSettingsProps {
   onResetCredentials?: () => void;
 }
 
-type SettingsSection = "general" | "api-keys" | "danger-zone";
+type SettingsSection = "general" | "api-keys" | "danger-zone" | "shortcuts";
 type TimeZoneChoice = { value: string; label: string };
 
 export function AppSettings({
@@ -370,12 +371,15 @@ export function AppSettings({
 
   const menuItems = [
     { id: "general" as const, label: "General", icon: LayoutGrid },
+    { id: "shortcuts" as const, label: "Keyboard Shortcuts", icon: Keyboard },
     { id: "api-keys" as const, label: "API Keys", icon: Key },
     { id: "danger-zone" as const, label: "Danger Zone", icon: AlertTriangle },
   ];
 
   const settingsWindowTitle = useMemo(() => {
     switch (activeSection) {
+      case "shortcuts":
+        return "deeplog - Settings - Keyboard Shortcuts";
       case "api-keys":
         return "deeplog - Settings - API Keys";
       case "danger-zone":
@@ -471,6 +475,7 @@ export function AppSettings({
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-4 md:p-8">
+              {activeSection === "shortcuts" && <KeyboardShortcutSettings />}
               {activeSection === "general" && (
                 <div className="space-y-6">
                   <div>

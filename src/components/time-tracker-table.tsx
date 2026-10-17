@@ -7543,6 +7543,7 @@ export function TimeTrackerTable({
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.documentElement.hasAttribute("data-settings-open")) return;
       // Log ALL 'c' key presses to debug Option+C with comprehensive event properties
       if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
         console.log('[Global KeyDown] Key event detected:', {
