@@ -69,6 +69,24 @@ try {
   await page.getByText('Description updated.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Undo (⌘Z)',exact:true}).waitFor();
   assert.equal(await page.getByText('Description updated.',{exact:true}).count(),1);
+  // An older row Undo must not steal text undo from the reopened editor.
+  await page.locator('[data-testid="expandable-description"]:visible').first().click();
+  const textEditor = page.locator('[contenteditable="true"]:visible');
+  await textEditor.focus();
+  await page.keyboard.press('End');
+  await page.waitForTimeout(600); // Start a separate TipTap history group.
+  await page.keyboard.insertText(' extra text');
+  await poll(async()=> (await records())[0]?.local==='Existing offline draft extra text', 'typing was not saved locally with an active Undo toast');
+  await page.keyboard.press('Meta+z');
+  await poll(async()=> (await records())[0]?.local==='Existing offline draft', 'Cmd+Z did not persist text undo');
+  assert.equal(await textEditor.innerText(), 'Existing offline draft');
+  assert.equal(await page.getByText('Description updated.',{exact:true}).count(),1, 'text undo consumed the row mutation toast');
+  await page.keyboard.press('Meta+Shift+z');
+  await poll(async()=> (await records())[0]?.local==='Existing offline draft extra text', 'text redo was not saved locally');
+  await page.keyboard.press('Meta+z');
+  await poll(async()=> (await records())[0]?.local==='Existing offline draft', 'second text undo was not saved locally');
+  await page.keyboard.press('Escape');
+  console.log('PASS: open description owns text undo/redo while local recovery saves continue');
   await edit('Discard only this session');
   await page.keyboard.press('Escape');
   await poll(async()=> (await records())[0]?.local==='Existing offline draft', 'Escape discarded the pre-existing draft');

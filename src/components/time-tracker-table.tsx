@@ -7482,9 +7482,7 @@ export function TimeTrackerTable({
     };
   }, [handleCancelSync]);
 
-  // Give active toast actions priority over editor and selector key handlers.
-  // When no matching toast action exists, the event continues to the focused
-  // control normally (including native text undo for Cmd/Ctrl+Z).
+  // Toast actions may submit from anywhere, but text editors own text undo.
   React.useEffect(() => {
     const handleToastActionKeyDown = (e: KeyboardEvent) => {
       if (
@@ -7505,6 +7503,12 @@ export function TimeTrackerTable({
         !e.shiftKey &&
         !e.altKey
       ) {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        if (
+          activeEditorEntryIdsRef.current.descriptionOrDuration.size > 0 ||
+          target?.closest('input, textarea, [contenteditable="true"], [role="textbox"]')
+        ) return;
+
         const undoResult = triggerUndo();
         if (!undoResult) return;
 
@@ -7704,6 +7708,10 @@ export function TimeTrackerTable({
         e.key.toLowerCase() === "z" &&
         (e.metaKey || e.ctrlKey) &&
         !e.shiftKey &&
+        !e.altKey &&
+        !e.defaultPrevented &&
+        !isInInput &&
+        activeEditorEntryIdsRef.current.descriptionOrDuration.size === 0 &&
         triggerUndo()
       ) {
         e.preventDefault();

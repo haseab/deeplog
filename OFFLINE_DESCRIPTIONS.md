@@ -5,6 +5,10 @@ icon at the left of the row shows local storage, upload progress, errors, or a
 conflict. Hover/focus provides the label; click opens the draft. The bottom-right
 controls also expose drafts outside the current table filter and recovery history.
 
+While a description editor is open, Command/Ctrl+Z belongs to text editing,
+even if a row mutation has an active Undo toast. Text undo and redo continue
+saving the resulting draft locally without creating an autosave toast.
+
 After 1.2 seconds without typing, the app attempts to sync. Reconnection,
 reauthentication, and reopening the app trigger another attempt. Transient failures
 retain the draft and use bounded exponential retry delays. A retry is also available
