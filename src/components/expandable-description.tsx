@@ -391,6 +391,7 @@ export function ExpandableDescription({
           setHighlightedIndex(0);
           // Maintain focus on the editor after popover opens
           setTimeout(() => {
+            if (document.activeElement?.closest('[role="dialog"]')) return;
             editor?.commands.focus();
           }, 0);
           // Don't prevent default - let the space be typed
@@ -533,6 +534,7 @@ export function ExpandableDescription({
     // But don't refocus if we just selected a timer (we want to exit editing mode)
     if (!showRecentTimers && isEditing && editor && !justSelectedTimerRef.current) {
       setTimeout(() => {
+        if (document.activeElement?.closest('[role="dialog"]')) return;
         editor.commands.focus();
       }, 0);
     }
@@ -605,6 +607,7 @@ export function ExpandableDescription({
 
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {
+        if (document.activeElement?.closest('[role="dialog"]')) return;
         editor?.commands.focus("end");
         updateCharCount();
         if (editor) updateCaretLine(editor);

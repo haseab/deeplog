@@ -18,8 +18,10 @@ in the draft dialog. Escape closes an existing-entry editor; edits are autosaved
 
 Press **Cmd+;** (Ctrl+; on Windows/Linux) to open a local description conflict,
 including conflicts outside the current date range. Press it again to cycle
-through remaining conflicts. The review receives keyboard focus; Tab moves to
-the choices and Escape closes it. Customize the binding in keyboard shortcut settings.
+through remaining conflicts, ordered by the most recently updated draft first.
+The first copy (Local) is selected and focused automatically. Arrow keys switch
+between copies, Enter keeps the selected copy, and Escape closes the review.
+Customize the binding in keyboard shortcut settings.
 
 The browser saves the original server description alongside the local draft. The
 server reads Toggl immediately before an update:

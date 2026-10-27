@@ -29,6 +29,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const [syncing, setSyncing] = React.useState(new Set<number>());
   const [selected, setSelected] = React.useState<number | null>(null);
   const reviewRef = React.useRef<HTMLElement>(null);
+  const choiceRefs = React.useRef<Partial<Record<"mine" | "toggl", HTMLButtonElement | null>>>({});
+  const [selectedChoice, setSelectedChoice] = React.useState<"mine" | "toggl">("mine");
   const [merge, setMerge] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [historyIndex, setHistoryIndex] = React.useState(0);
@@ -44,6 +46,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const work = React.useRef<() => Promise<void>>(async () => {});
   const encryptionRef = React.useRef(encryption);
   encryptionRef.current = encryption;
+  const pending = React.useMemo(() => [...drafts.values()]
+    .filter(d => d.status !== "synced")
+    .sort((a, b) => b.updatedAt - a.updatedAt || b.entryId - a.entryId), [drafts]);
 
   const refresh = React.useCallback(async () => {
     const active = accountRef.current;
@@ -277,7 +282,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (history?.[index]) void navigateToEntry(history[index].entryId);
   };
   const openDraft = React.useCallback(async (id: number) => {
-    setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
+    setSelectedChoice("mine"); setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
     const draft = drafts.get(id);
     if (draft?.status === "conflict" && draft.remote === undefined && !draft.deleted && navigator.onLine) {
       try {
@@ -289,10 +294,6 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   }, [drafts, request, publish, navigateToEntry]);
 
   React.useEffect(() => {
-    if (selected !== null) reviewRef.current?.focus();
-  }, [selected]);
-
-  React.useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing ||
           document.documentElement.hasAttribute("data-settings-open") ||
@@ -301,7 +302,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       event.preventDefault();
       event.stopImmediatePropagation();
       if (busy || event.repeat) return;
-      const conflicts = [...drafts.values()].filter(d => d.status === "conflict");
+      const conflicts = pending.filter(d => d.status === "conflict");
       if (!conflicts.length) {
         toast("No local description conflicts.", { id: "description-no-conflicts" });
         return;
@@ -313,7 +314,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     // Document capture also works inside editors and the review panel.
     document.addEventListener("keydown", handle, true);
     return () => document.removeEventListener("keydown", handle, true);
-  }, [busy, drafts, selected, openDraft]);
+  }, [busy, pending, selected, openDraft]);
   const retry = async (draft: DescriptionDraft) => {
     if (failedDrafts.current.has(draft.entryId)) {
       await save(draft.entryId, draft.base, draft.local);
@@ -323,6 +324,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }
   };
   const selectedDraft = selected === null ? undefined : drafts.get(selected);
+  React.useEffect(() => {
+    if (selected !== null && !busy) (choiceRefs.current.mine ?? reviewRef.current)?.focus();
+  }, [selected, selectedDraft?.status, selectedDraft?.deleted, selectedDraft?.remote, busy]);
   const safeDecode = (text: string | undefined, id: number) => { try { return decode(text ?? "", id); } catch { return "Unlock encryption to view this description."; } };
   const resolve = async (choice: "mine" | "toggl") => {
     if (!selectedDraft || busy || !navigator.locks) return;
@@ -343,7 +347,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, deleted: false, error: undefined };
         }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
         if (updated?.status === "synced") notifySynced(shown.entryId, local);
-        const remaining = [...drafts.values()].filter(d => d.status !== "synced" && d.entryId !== shown.entryId);
+        const remaining = pending.filter(d => d.entryId !== shown.entryId);
         if (remaining.length) void openDraft(remaining[0].entryId);
         else { setSelected(null); setMerge(null); }
         schedule();
@@ -351,7 +355,6 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not resolve conflict"); }
     finally { await publish(); setBusy(false); }
   };
-  const pending = [...drafts.values()].filter(d => d.status !== "synced");
   return <Context.Provider value={{ drafts, syncing, save, decode, open: id => { void openDraft(id); }, ready: !!account }}>
     {children}
     <div className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
@@ -359,7 +362,22 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} />)}
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
-    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape" && !busy) { setSelected(null); navigationRevision.current++; } }}>
+    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
+      event.stopPropagation();
+      if (event.key === "Escape" && !busy) { setSelected(null); navigationRevision.current++; }
+      if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target as HTMLElement;
+      if (target !== event.currentTarget && !target.closest("[data-description-choice]")) return;
+      if (busy) { event.preventDefault(); return; }
+      if (["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+        const choice = selectedChoice === "mine" ? "toggl" : "mine";
+        choiceRefs.current[choice]?.focus();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (!event.repeat) choiceRefs.current[selectedChoice]?.click();
+      }
+    }}>
         <button aria-label="Close review" disabled={busy} className="absolute right-4 top-4" onClick={() => { setSelected(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
         <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</h2>
         <p className="my-2 text-sm text-muted-foreground">Entry {selected} · {selectedDraft?.status === "synced" ? "Synced" : selectedDraft?.status === "conflict" ? "Conflict" : "Waiting to sync"}</p>
@@ -371,19 +389,20 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
           {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">This entry was deleted in Toggl. Copy your draft below to recover it; it will not be recreated automatically.</p>}
+          {selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined && <p className="mb-3 text-xs text-muted-foreground">Use arrow keys to select a copy. Press Enter to keep it.</p>}
           <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
             {(["mine", "toggl"] as const).map(choice => {
               const isLocal = choice === "mine";
               const available = isLocal || selectedDraft.remote !== undefined;
-              const canChoose = selectedDraft.status === "conflict" && !selectedDraft.deleted && available;
+              const canChoose = selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined;
               const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? "Entry deleted" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
               const label = isLocal ? "Local" : "Toggl";
               const content = <>
-                <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">{label}{canChoose && selectedChoice === choice && <Check aria-hidden="true" className="h-4 w-4 text-primary" />}</span>
                 <span id={isLocal ? "local-description" : "remote-description"} className="block whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{text || <span className="italic text-muted-foreground">No description</span>}</span>
               </>;
               const className = "flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
-              return canChoose ? <button key={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} disabled={busy} onClick={() => void resolve(choice)} className={`${className} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
+              return canChoose ? <button key={choice} ref={node => { choiceRefs.current[choice] = node; }} data-description-choice={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} aria-pressed={selectedChoice === choice} disabled={busy} onFocus={() => setSelectedChoice(choice)} onClick={() => void resolve(choice)} className={`${className} ${selectedChoice === choice ? "border-primary bg-primary/5 ring-2 ring-primary/40" : ""} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
             })}
           </div>
           {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" autoFocus disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" /></div>}

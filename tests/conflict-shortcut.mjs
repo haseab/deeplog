@@ -6,12 +6,15 @@ try {
   const context = await browser.newContext();
   await context.addInitScript(() => localStorage.setItem('toggl_session_token', 'conflict-shortcut-test'));
   let writes = 0;
+  const remote = new Map([3, 4, 5].map(id => [id, 'Remote']));
   await context.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/validate-session-token') return route.fulfill({ json: { user: { id: 1 }, workspace: { id: 2 } } });
     if (path.endsWith('/description')) {
-      if (!route.request().postDataJSON().reviewOnly) writes++;
-      return route.fulfill({ json: { description: 'Remote' } });
+      const body = route.request().postDataJSON();
+      const id = Number(path.split('/')[3]);
+      if (!body.reviewOnly) { writes++; remote.set(id, body.local); }
+      return route.fulfill({ json: { description: remote.get(id) } });
     }
     if (path === '/api/time-entries') return route.fulfill({ json: {
       timeEntries: [{ id: 3, description: 'Remote', project_id: null, project_name: '', project_color: '#666666', start: new Date(Date.now()-3600000).toISOString(), stop: new Date().toISOString(), duration: 3600, tags: [], tag_ids: [] }],
@@ -26,7 +29,8 @@ try {
     const r = indexedDB.open('deeplog-description-drafts', 1);
     r.onsuccess = () => {
       const tx = r.result.transaction('drafts', 'readwrite');
-      for (const id of [3, 4]) tx.objectStore('drafts').put({ key: `1:2:${id}`, account: '1:2', entryId: id, base: 'Original', local: `Local ${id}`, remote: 'Remote', status: 'conflict', revision: 1, updatedAt: Date.now() });
+      // Deliberately differ from IndexedDB key order and entry ID order.
+      for (const [id, age] of [[3, 3000], [4, 1000], [5, 2000]]) tx.objectStore('drafts').put({ key: `1:2:${id}`, account: '1:2', entryId: id, base: 'Original', local: `Local ${id}`, remote: 'Remote', status: 'conflict', revision: 1, updatedAt: Date.now() - age });
       tx.oncomplete = () => { r.result.close(); resolve(); };
       tx.onerror = () => reject(tx.error);
     };
@@ -40,12 +44,39 @@ try {
   await page.keyboard.press('Meta+;');
   const review = page.getByRole('dialog', { name: 'Choose a description' });
   await review.waitFor();
-  assert.match(await review.innerText(), /Entry 3/);
-  assert.equal(await review.evaluate(el => el === document.activeElement), true);
+  const mine = review.getByRole('button', { name: 'Keep mine', exact: true });
+  const toggl = review.getByRole('button', { name: 'Keep Toggl', exact: true });
+  const assertSelected = async choice => {
+    assert.equal(await choice.getAttribute('aria-pressed'), 'true');
+    await page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label, await choice.getAttribute('aria-label'), { timeout: 5000 }).catch(async error => {
+      console.error('Unexpected focus:', await page.evaluate(() => document.activeElement?.outerHTML));
+      throw error;
+    });
+  };
+  assert.match(await review.innerText(), /Entry 4/);
+  await assertSelected(mine);
+  await page.keyboard.press('ArrowRight');
+  await assertSelected(toggl);
+  await page.keyboard.press('ArrowLeft');
+  await assertSelected(mine);
+  await page.keyboard.press('ArrowDown');
+  await assertSelected(toggl);
+  await page.keyboard.press('ArrowUp');
+  await assertSelected(mine);
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Meta+;');
-  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 4');
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 5');
+  await assertSelected(mine);
   await page.keyboard.press('Meta+;');
   await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 3');
+  await page.keyboard.press('Meta+;');
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 4');
+  await review.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 5');
+  await assertSelected(mine);
+  await review.getByRole('button', { name: 'Previous', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 4');
+  await assertSelected(mine);
   await page.keyboard.press('Escape');
   await review.waitFor({ state: 'detached' });
   // Rebinding disables Cmd+; and routes the custom binding to the same action.
@@ -62,6 +93,64 @@ try {
   await page.keyboard.press('Meta+g');
   assert.equal(await review.count(), 0);
   assert.equal(writes, 0, 'Reviewing must never choose a version or upload changes');
+  await page.evaluate(() => document.documentElement.removeAttribute('data-settings-open'));
+  await page.keyboard.press('Meta+g');
+  await review.waitFor();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 5');
+  await assertSelected(mine);
+  assert.equal(writes, 0, 'Keeping Toggl must not upload changes');
+  // Enter alone keeps the default Local copy and advances newest-first.
+  const localUpload = page.waitForResponse(response => response.url().endsWith('/5/description') && !response.request().postDataJSON().reviewOnly);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 3');
+  await assertSelected(mine);
+  await localUpload;
+  let copiesSaved = false;
+  const deadline = Date.now() + 5000;
+  while (!copiesSaved && Date.now() < deadline) {
+    copiesSaved = await page.evaluate(() => new Promise(resolve => {
+      const r = indexedDB.open('deeplog-description-drafts', 1);
+      r.onsuccess = () => {
+        const tx = r.result.transaction(['drafts', 'history']);
+        const drafts = tx.objectStore('drafts').getAll();
+        const history = tx.objectStore('history').getAll();
+        tx.oncomplete = () => {
+          r.result.close();
+          resolve(drafts.result.find(d => d.entryId === 4)?.local === 'Remote' &&
+            drafts.result.find(d => d.entryId === 5)?.status === 'synced' &&
+            history.result.filter(h => h.entryId === 4 || h.entryId === 5).length === 2);
+        };
+      };
+    }));
+    if (!copiesSaved) await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(copiesSaved, 'Both choices should persist and preserve recovery history');
+  assert.equal(writes, 1);
+  assert.equal(remote.get(5), 'Local 5');
+  // Deleted entries remain recoverable, without allowing keyboard resolution.
+  await page.evaluate(() => new Promise(resolve => {
+    const r = indexedDB.open('deeplog-description-drafts', 1);
+    r.onsuccess = () => {
+      const tx = r.result.transaction('drafts', 'readwrite');
+      const store = tx.objectStore('drafts');
+      const draft = store.get('1:2:3');
+      draft.onsuccess = () => store.put({ ...draft.result, deleted: true, remote: undefined });
+      tx.oncomplete = () => { r.result.close(); resolve(); };
+    };
+  }));
+  await page.reload();
+  await page.getByRole('button', { name: 'Description conflict — click to resolve' }).first().waitFor();
+  await page.keyboard.press('Meta+g');
+  await review.waitFor();
+  await page.getByText('Entry deleted', { exact: true }).waitFor();
+  assert.equal(await mine.count(), 0);
+  assert.equal(await toggl.count(), 0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  assert.equal(writes, 1);
+  assert.equal(await review.count(), 1);
   await page.evaluate(() => new Promise((resolve, reject) => {
     localStorage.removeItem('deeplog_keyboard_shortcuts');
     const r = indexedDB.open('deeplog-description-drafts', 1);
@@ -78,7 +167,7 @@ try {
   await page.keyboard.press('Meta+;');
   await page.getByText('No local description conflicts.', { exact: true }).waitFor();
   assert.equal(await review.count(), 0);
-  console.log('PASS: Cmd+; from editor, conflict cycling, keyboard focus, Escape, customization, settings isolation, no writes, empty state');
+  console.log('PASS: newest-first review and navigation, default Local selection, all arrow keys, Enter keeps either copy, recovery history, deleted-entry safety, Escape, customization, settings isolation, empty state');
 } finally {
   await browser.close();
 }
