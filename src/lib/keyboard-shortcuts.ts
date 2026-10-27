@@ -4,6 +4,7 @@ export const shortcuts = [
   ["new-timer", "New timer / show pinned timers", "n", "Time entries"],
   ["new-entry", "New stopped entry", "e", "Time entries"],
   ["refresh", "Refresh entries", "r", "Application"],
+  ["resolve-conflicts", "Review local description conflicts", "Mod+;", "Application"],
   ["fullscreen", "Toggle fullscreen", "f", "Application"],
   ["reset-range", "Reset date range", "Mod+Alt+r", "Application"],
   ["delete", "Delete selected entries", "d", "Time entries"],

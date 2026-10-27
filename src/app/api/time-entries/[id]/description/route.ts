@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (entry.server_deleted_at) return NextResponse.json({ deleted: true }, { status: 409 });
     if ((entry.workspace_id ?? entry.wid) !== workspaceId || (entry.user_id ?? entry.uid) !== userId) return NextResponse.json({ error: "Entry belongs to another account or workspace" }, { status: 403 });
     const remote = entry.description ?? "";
-    if (body.reviewOnly) return NextResponse.json({ description: remote });
+    if (body.reviewOnly) return NextResponse.json({ description: remote, start: entry.start });
     const comparison = compareDescription(body.base, body.local, remote);
     if (comparison === "conflict") return NextResponse.json({ description: remote }, { status: 409 });
     if (comparison === "synced") return NextResponse.json({ description: remote });

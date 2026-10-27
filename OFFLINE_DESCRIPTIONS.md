@@ -16,6 +16,11 @@ in the draft dialog. Escape closes an existing-entry editor; edits are autosaved
 
 ## Conflict behavior
 
+Press **Cmd+;** (Ctrl+; on Windows/Linux) to open a local description conflict,
+including conflicts outside the current date range. Press it again to cycle
+through remaining conflicts. The review receives keyboard focus; Tab moves to
+the choices and Escape closes it. Customize the binding in keyboard shortcut settings.
+
 The browser saves the original server description alongside the local draft. The
 server reads Toggl immediately before an update:
 
@@ -23,7 +28,7 @@ server reads Toggl immediately before an update:
 - Current Toggl text already equals the draft: acknowledge without another write.
 - Otherwise: return a conflict and preserve the local text.
 
-The dialog offers **Keep mine**, **Keep Toggl**, and **Merge/edit**. It rereads Toggl
+The dialog offers **Keep mine** and **Keep Toggl**. It rereads Toggl
 before accepting a choice, and refreshes the comparison if it changed. The next
 upload checks again. Choosing Keep Toggl does not write to Toggl. Both versions are
 copied to local recovery history in the same IndexedDB transaction as resolution.

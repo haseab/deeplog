@@ -8576,6 +8576,37 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries.length]);
 
+  const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const navigate = (event: Event) => {
+      const { id, start } = (event as CustomEvent<{ id: number; start?: string }>).detail;
+      if (!start && !timeEntriesRef.current.some(entry => entry.id === id)) return;
+      setDescriptionReviewTarget(id);
+      if (!timeEntriesRef.current.some(entry => entry.id === id) && start) {
+        const day = formatDateInTimeZone(start, timeZone);
+        const targetDate = new Date(`${day}T12:00:00`);
+        handleDateChange({ from: targetDate, to: targetDate });
+      }
+    };
+    window.addEventListener("deeplog-description-navigate", navigate);
+    return () => window.removeEventListener("deeplog-description-navigate", navigate);
+  }, [timeZone, handleDateChange]);
+
+  React.useEffect(() => {
+    if (descriptionReviewTarget === null || loading || isLoadingMore) return;
+    const rowIndex = timeEntries.findIndex(entry => entry.id === descriptionReviewTarget);
+    if (rowIndex < 0) {
+      if (hasMore) void loadMore();
+      return;
+    }
+    setSelectedCell({ rowIndex, cellIndex: isFullscreen ? 2 : 1 });
+    requestAnimationFrame(() => {
+      const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${descriptionReviewTarget}"]`)).find(element => element.offsetParent !== null);
+      row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setDescriptionReviewTarget(null);
+  }, [descriptionReviewTarget, timeEntries, loading, isLoadingMore, hasMore, loadMore, isFullscreen]);
+
   // Scroll selected cell into view when it moves past viewport
   React.useEffect(() => {
     if (selectedCell && timeEntries.length > 0) {

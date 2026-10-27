@@ -1,15 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, HardDrive, Loader2, History, Check, Cloud, ArrowUpRight, Pencil, GitCompareArrows } from "lucide-react";
+import { AlertTriangle, HardDrive, Loader2, History, Check, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useEncryptionContext } from "./encryption-context";
 import { encryptDescription, decryptDescription } from "@/lib/encryption";
 import { isEncryptedDescription } from "@/lib/ai-summary";
 import { acknowledgeDraft, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
 import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-store";
+import { bindingFromEvent } from "@/lib/keyboard-shortcuts";
 
 type DraftContext = {
   drafts: Map<number, DescriptionDraft>;
@@ -28,8 +28,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const [drafts, setDrafts] = React.useState(new Map<number, DescriptionDraft>());
   const [syncing, setSyncing] = React.useState(new Set<number>());
   const [selected, setSelected] = React.useState<number | null>(null);
+  const reviewRef = React.useRef<HTMLElement>(null);
   const [merge, setMerge] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [historyIndex, setHistoryIndex] = React.useState(0);
+  const navigationRevision = React.useRef(0);
   const [history, setHistory] = React.useState<DescriptionHistory[] | null>(null);
   const [storageError, setStorageError] = React.useState("");
   const owner = React.useRef("");
@@ -136,7 +139,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     });
     const data = await response.json();
     if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
-    return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted };
+    return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, start: data.start as string | undefined };
   }, []);
   const notifySynced = (id: number, description: string) => window.dispatchEvent(new CustomEvent("deeplog-description-synced", { detail: { id, description } }));
 
@@ -259,8 +262,22 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
 
-  const openDraft = async (id: number) => {
-    setSelected(id); setMerge(null);
+  const navigateToEntry = React.useCallback(async (id: number) => {
+    const revision = ++navigationRevision.current;
+    window.dispatchEvent(new CustomEvent("deeplog-description-navigate", { detail: { id } }));
+    try {
+      const check = await request({ account: accountRef.current, entryId: id, base: "", local: "" } as DescriptionDraft, true);
+      if (revision !== navigationRevision.current) return;
+      if (check.deleted) { toast.error("This entry was deleted in Toggl. Its saved descriptions are still available here."); return; }
+      if (check.start) window.dispatchEvent(new CustomEvent("deeplog-description-navigate", { detail: { id, start: check.start } }));
+    } catch (error) { if (revision === navigationRevision.current) toast.error(error instanceof Error ? error.message : "Could not locate entry"); }
+  }, [request]);
+  const openHistory = (index: number) => {
+    setHistoryIndex(index); setSelected(null);
+    if (history?.[index]) void navigateToEntry(history[index].entryId);
+  };
+  const openDraft = React.useCallback(async (id: number) => {
+    setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
     const draft = drafts.get(id);
     if (draft?.status === "conflict" && draft.remote === undefined && !draft.deleted && navigator.onLine) {
       try {
@@ -269,7 +286,34 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         await publish();
       } catch (e) { toast.error((e as Error).message); }
     }
-  };
+  }, [drafts, request, publish, navigateToEntry]);
+
+  React.useEffect(() => {
+    if (selected !== null) reviewRef.current?.focus();
+  }, [selected]);
+
+  React.useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing ||
+          document.documentElement.hasAttribute("data-settings-open") ||
+          document.documentElement.hasAttribute("data-shortcut-recording") ||
+          bindingFromEvent(event) !== "Mod+;") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (busy || event.repeat) return;
+      const conflicts = [...drafts.values()].filter(d => d.status === "conflict");
+      if (!conflicts.length) {
+        toast("No local description conflicts.", { id: "description-no-conflicts" });
+        return;
+      }
+      const index = conflicts.findIndex(d => d.entryId === selected);
+      void openDraft(conflicts[(index + 1) % conflicts.length].entryId);
+    };
+    // Window capture normalizes customized shortcuts before this listener runs.
+    // Document capture also works inside editors and the review panel.
+    document.addEventListener("keydown", handle, true);
+    return () => document.removeEventListener("keydown", handle, true);
+  }, [busy, drafts, selected, openDraft]);
   const retry = async (draft: DescriptionDraft) => {
     if (failedDrafts.current.has(draft.entryId)) {
       await save(draft.entryId, draft.base, draft.local);
@@ -280,7 +324,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   };
   const selectedDraft = selected === null ? undefined : drafts.get(selected);
   const safeDecode = (text: string | undefined, id: number) => { try { return decode(text ?? "", id); } catch { return "Unlock encryption to view this description."; } };
-  const resolve = async (choice: "mine" | "toggl" | "merge") => {
+  const resolve = async (choice: "mine" | "toggl") => {
     if (!selectedDraft || busy || !navigator.locks) return;
     setBusy(true);
     try {
@@ -293,13 +337,16 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted }));
           throw new Error(check.deleted ? "This entry was deleted. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
         }
-        const local = choice === "toggl" ? check.remote! : choice === "merge" ? encode(merge ?? "", shown.entryId, shown.local) : shown.local;
+        const local = choice === "toggl" ? check.remote! : shown.local;
         const updated = await changeDraft(shown.key, current => {
           if (!current || current.revision !== shown.revision) throw new Error("Draft changed");
           return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, deleted: false, error: undefined };
         }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
         if (updated?.status === "synced") notifySynced(shown.entryId, local);
-        setSelected(null); setMerge(null); schedule();
+        const remaining = [...drafts.values()].filter(d => d.status !== "synced" && d.entryId !== shown.entryId);
+        if (remaining.length) void openDraft(remaining[0].entryId);
+        else { setSelected(null); setMerge(null); }
+        schedule();
       });
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not resolve conflict"); }
     finally { await publish(); setBusy(false); }
@@ -310,18 +357,16 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     <div className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
       {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} />)}
-      <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(setHistory).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
+      <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
-    <Dialog open={selected !== null} onOpenChange={open => { if (!open && !busy) { setSelected(null); setMerge(null); } }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-xl max-h-[85vh] overflow-y-auto rounded-xl p-5 sm:p-6" onKeyDown={event => event.stopPropagation()} onOpenAutoFocus={event => { event.preventDefault(); document.getElementById("description-review-title")?.focus(); }}>
-        <div className="flex items-center gap-3 pr-6">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <GitCompareArrows className="h-5 w-5" />
-          </div>
-          <div className="space-y-1.5">
-            <DialogTitle id="description-review-title" tabIndex={-1} className="outline-none">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</DialogTitle>
-            <DialogDescription>{selectedDraft?.status === "conflict" && !selectedDraft.deleted ? "Two versions of this entry. Click the one to keep." : "Review your saved description."}</DialogDescription>
-          </div>
+    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape" && !busy) { setSelected(null); navigationRevision.current++; } }}>
+        <button aria-label="Close review" disabled={busy} className="absolute right-4 top-4" onClick={() => { setSelected(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
+        <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</h2>
+        <p className="my-2 text-sm text-muted-foreground">Entry {selected} · {selectedDraft?.status === "synced" ? "Synced" : selectedDraft?.status === "conflict" ? "Conflict" : "Waiting to sync"}</p>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId)}>Previous</Button>
+          <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} pending</span>
+          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) < 0 || pending.findIndex(d => d.entryId === selected) >= pending.length - 1} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) + 1].entryId)}>Next</Button>
         </div>
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
@@ -332,45 +377,36 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
               const available = isLocal || selectedDraft.remote !== undefined;
               const canChoose = selectedDraft.status === "conflict" && !selectedDraft.deleted && available;
               const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? "Entry deleted" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
-              const label = isLocal ? "Your local draft" : "Current Toggl description";
-              const Icon = isLocal ? HardDrive : Cloud;
+              const label = isLocal ? "Local" : "Toggl";
               const content = <>
-                <span className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-                  <span className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</span>
-                  {canChoose && <ArrowUpRight className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:translate-x-0.5" />}
-                </span>
+                <span className="text-xs font-medium text-muted-foreground">{label}</span>
                 <span id={isLocal ? "local-description" : "remote-description"} className="block whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{text || <span className="italic text-muted-foreground">No description</span>}</span>
-                <span className="mt-auto flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground group-hover:text-primary group-focus-visible:text-primary">
-                  {canChoose ? <><Check className="h-3.5 w-3.5" />Keep this description</> : isLocal ? "Saved on this device" : "Toggl version"}
-                </span>
               </>;
-              const className = "group flex min-h-40 min-w-0 flex-col gap-4 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
+              const className = "flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
               return canChoose ? <button key={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} disabled={busy} onClick={() => void resolve(choice)} className={`${className} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
             })}
           </div>
           {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" autoFocus disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" /></div>}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-            <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">{busy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Checking latest version…</> : <>Your draft stays saved until you choose.</>}</p>
-            <div className="flex flex-wrap gap-2">
-              {selectedDraft.status === "conflict" && !selectedDraft.deleted ? <>
-                {merge === null ? <Button variant="ghost" size="sm" aria-label="Merge/edit" disabled={busy} onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit instead</Button> : <>
-                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMerge(null)}>Cancel edit</Button>
-                  <Button size="sm" disabled={busy} onClick={() => void resolve("merge")}>Save merged description</Button>
-                </>}
-              </> : !selectedDraft.deleted && <>
-                <Button variant="ghost" size="sm" onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Edit draft</Button>
-                {merge !== null ? <Button size="sm" onClick={() => void save(selectedDraft.entryId, selectedDraft.base, merge).then(() => setMerge(null))}>Save draft</Button> : <Button size="sm" disabled={busy || !account} onClick={() => void retry(selectedDraft)}>Retry sync</Button>}
-              </>}
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground/70">Entry {selected} · Edited locally {new Date(selectedDraft.updatedAt).toLocaleString()}</p>
+          {selectedDraft.status !== "conflict" && !selectedDraft.deleted && <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Edit draft</Button>
+            {merge !== null ? <Button size="sm" onClick={() => void save(selectedDraft.entryId, selectedDraft.base, merge).then(() => setMerge(null))}>Save draft</Button> : <Button size="sm" disabled={busy || !account} onClick={() => void retry(selectedDraft)}>Retry sync</Button>}
+          </div>}
         </>}
-      </DialogContent>
-    </Dialog>
-    <Dialog open={history !== null} onOpenChange={open => { if (!open) setHistory(null); }}><DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto"><DialogTitle>Description recovery history</DialogTitle><DialogDescription>Copies preserved when resolving conflicts. Select text to copy it. Stored only in this browser.</DialogDescription>
-      {history?.length === 0 && <p className="text-sm text-muted-foreground">No resolved conflicts yet.</p>}
-      {history?.map(item => <div key={item.key} className="space-y-2 border-t pt-3"><p className="text-sm">Entry {item.entryId} · {new Date(item.at).toLocaleString()}</p><div className="grid gap-3 sm:grid-cols-2"><textarea aria-label="Recovered local description" readOnly className="min-h-32 w-full rounded border bg-background p-2 text-sm" value={safeDecode(item.local, item.entryId)} /><textarea aria-label="Recovered Toggl description" readOnly className="min-h-32 w-full rounded border bg-background p-2 text-sm" value={safeDecode(item.remote, item.entryId)} /></div></div>)}
-    </DialogContent></Dialog>
+    </section>}
+    {history !== null && <section role="dialog" aria-labelledby="recovery-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { setHistory(null); navigationRevision.current++; } }}>
+      <button aria-label="Close history" className="absolute right-4 top-4" onClick={() => { setHistory(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
+      <h2 id="recovery-title" className="pr-6 text-lg font-semibold">Description recovery history</h2>
+      <p className="my-2 text-sm text-muted-foreground">Saved copies from resolved conflicts. Stored only in this browser.</p>
+      {history.length === 0 ? <p className="text-sm">No resolved conflicts yet.</p> : <>
+        <div className="my-3 flex items-center justify-between">
+          <Button variant="outline" size="sm" disabled={historyIndex === 0} onClick={() => openHistory(historyIndex - 1)}>Previous</Button>
+          <span className="text-xs">{historyIndex + 1} of {history.length}</span>
+          <Button variant="outline" size="sm" disabled={historyIndex >= history.length - 1} onClick={() => openHistory(historyIndex + 1)}>Next</Button>
+        </div>
+        <p className="mb-3 text-sm">Entry {history[historyIndex].entryId} · Recovered {new Date(history[historyIndex].at).toLocaleString()}</p>
+        <div className="grid gap-3 sm:grid-cols-2">{(["local", "remote"] as const).map(side => <label key={side} className="text-sm">{side === "local" ? "Local copy" : "Toggl copy"}<textarea readOnly className="mt-1 min-h-32 w-full rounded border bg-background p-2" value={safeDecode(history[historyIndex][side], history[historyIndex].entryId)} /></label>)}</div>
+      </>}
+    </section>}
   </Context.Provider>;
 }
 
