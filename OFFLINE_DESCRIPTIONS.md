@@ -34,7 +34,9 @@ The dialog offers **Keep mine** and **Keep Toggl**. It rereads Toggl
 before accepting a choice, and refreshes the comparison if it changed. The next
 upload checks again. Choosing Keep Toggl does not write to Toggl. Both versions are
 copied to local recovery history in the same IndexedDB transaction as resolution.
-Deleted entries retain a copyable draft and are not recreated.
+Clicking the **Toggl / Entry deleted** card marks a deleted entry complete,
+removes it from pending, and preserves the draft in recovery history, including
+while offline. The entry is not recreated.
 
 Editing the description after a conflict resumes syncing against the known
 conflicting Toggl version and preserves both earlier versions in recovery history.

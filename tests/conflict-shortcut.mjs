@@ -47,6 +47,8 @@ try {
   const mine = review.getByRole('button', { name: 'Keep mine', exact: true });
   const toggl = review.getByRole('button', { name: 'Keep Toggl', exact: true });
   const assertSelected = async choice => {
+    await choice.waitFor();
+    await page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label, await choice.getAttribute('aria-label'));
     assert.equal(await choice.getAttribute('aria-pressed'), 'true');
     await page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label, await choice.getAttribute('aria-label'), { timeout: 5000 }).catch(async error => {
       console.error('Unexpected focus:', await page.evaluate(() => document.activeElement?.outerHTML));
@@ -88,7 +90,9 @@ try {
   assert.equal(await review.count(), 0);
   await page.keyboard.press('Meta+g');
   await review.waitFor();
+  await assertSelected(mine);
   await page.keyboard.press('Escape');
+  await review.waitFor({ state: 'detached' });
   await page.evaluate(() => document.documentElement.setAttribute('data-settings-open', 'true'));
   await page.keyboard.press('Meta+g');
   assert.equal(await review.count(), 0);
@@ -96,6 +100,7 @@ try {
   await page.evaluate(() => document.documentElement.removeAttribute('data-settings-open'));
   await page.keyboard.press('Meta+g');
   await review.waitFor();
+  await assertSelected(mine);
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 5');
@@ -129,7 +134,7 @@ try {
   assert.ok(copiesSaved, 'Both choices should persist and preserve recovery history');
   assert.equal(writes, 1);
   assert.equal(remote.get(5), 'Local 5');
-  // Deleted entries remain recoverable, without allowing keyboard resolution.
+  // Deleted entries require explicit completion and keep their recovery copy.
   await page.evaluate(() => new Promise(resolve => {
     const r = indexedDB.open('deeplog-description-drafts', 1);
     r.onsuccess = () => {
@@ -137,6 +142,7 @@ try {
       const store = tx.objectStore('drafts');
       const draft = store.get('1:2:3');
       draft.onsuccess = () => store.put({ ...draft.result, deleted: true, remote: undefined });
+      store.put({ key: '1:2:6', account: '1:2', entryId: 6, base: 'Original', local: 'Local 6', deleted: true, status: 'conflict', revision: 1, updatedAt: 1 });
       tx.oncomplete = () => { r.result.close(); resolve(); };
     };
   }));
@@ -146,11 +152,39 @@ try {
   await review.waitFor();
   await page.getByText('Entry deleted', { exact: true }).waitFor();
   assert.equal(await mine.count(), 0);
-  assert.equal(await toggl.count(), 0);
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('Enter');
+  assert.equal(await toggl.count(), 1);
+  assert.equal(await review.getByRole('button', { name: 'Mark complete', exact: true }).count(), 0);
   assert.equal(writes, 1);
   assert.equal(await review.count(), 1);
+  // If recovery storage fails, completion must leave the draft pending.
+  await page.evaluate(() => {
+    window.originalDraftPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'history') throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      return window.originalDraftPut.apply(this, args);
+    };
+  });
+  await review.getByText('Entry deleted', { exact: true }).click();
+  await page.getByText('Local draft could not be saved.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#local-description').textContent(), 'Local 3');
+  await page.evaluate(() => { IDBObjectStore.prototype.put = window.originalDraftPut; });
+  await context.setOffline(true);
+  await review.getByText('Entry deleted', { exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 6');
+  await review.getByText('Entry deleted', { exact: true }).click();
+  await review.waitFor({ state: 'detached' });
+  assert.equal(writes, 1, 'Completing deleted entries must not upload or recreate them');
+  await context.setOffline(false);
+  await page.reload();
+  await page.locator('[data-testid="expandable-description"]:visible').first().waitFor();
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Description conflict — click to resolve"]'));
+  await page.getByRole('button', { name: 'Description recovery history', exact: true }).click();
+  const historyDialog = page.getByRole('dialog', { name: 'Description recovery history' });
+  await historyDialog.waitFor();
+  assert.equal(await historyDialog.getByRole('textbox', { name: 'Local copy', exact: true }).inputValue(), 'Local 6');
+  await historyDialog.getByRole('button', { name: 'Next', exact: true }).click();
+  assert.equal(await historyDialog.getByRole('textbox', { name: 'Local copy', exact: true }).inputValue(), 'Local 3');
+  await historyDialog.getByRole('button', { name: 'Close history', exact: true }).click();
   await page.evaluate(() => new Promise((resolve, reject) => {
     localStorage.removeItem('deeplog_keyboard_shortcuts');
     const r = indexedDB.open('deeplog-description-drafts', 1);
@@ -167,7 +201,7 @@ try {
   await page.keyboard.press('Meta+;');
   await page.getByText('No local description conflicts.', { exact: true }).waitFor();
   assert.equal(await review.count(), 0);
-  console.log('PASS: newest-first review and navigation, default Local selection, all arrow keys, Enter keeps either copy, recovery history, deleted-entry safety, Escape, customization, settings isolation, empty state');
+  console.log('PASS: conflict navigation and choices, deleted-entry completion offline, recovery after reload, storage-failure safety, no Toggl writes on completion, shortcuts and empty state');
 } finally {
   await browser.close();
 }

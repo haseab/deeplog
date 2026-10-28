@@ -346,25 +346,35 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     return () => cancelAnimationFrame(frame);
   }, [selected, selectedDraft?.status, selectedDraft?.deleted, selectedDraft?.remote, busy]);
   const safeDecode = (text: string | undefined, id: number) => { try { return decode(text ?? "", id); } catch { return "Unlock encryption to view this description."; } };
-  const resolve = async (choice: "mine" | "toggl") => {
+  const resolve = async (choice: "mine" | "toggl" | "complete") => {
     if (!selectedDraft || busy || !navigator.locks) return;
     setBusy(true);
     try {
       await navigator.locks.request(`deeplog-description-sync:${selectedDraft.account}`, async () => {
         const shown = selectedDraft;
+        if (shown.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before resolving drafts.");
         const latest = (await listDrafts(shown.account)).find(d => d.key === shown.key);
         if (!latest || latest.revision !== shown.revision) throw new Error("Your local draft changed. Review the updated comparison.");
-        const check = await request(shown, true);
-        if (check.deleted || check.remote !== shown.remote) {
-          await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
-          throw new Error(check.deleted ? "This entry was deleted. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
+        if (choice === "complete") {
+          // Archive and clear atomically, including offline. A failed history
+          // write must leave the pending draft available for recovery.
+          await changeDraft(shown.key, current => {
+            if (!current?.deleted || current.revision !== shown.revision) throw new Error("Draft changed");
+            return undefined;
+          }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: shown.remote, at: Date.now() });
+        } else {
+          const check = await request(shown, true);
+          if (check.deleted || check.remote !== shown.remote) {
+            await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
+            throw new Error(check.deleted ? "This entry was deleted. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
+          }
+          const local = choice === "toggl" ? check.remote! : shown.local;
+          const updated = await changeDraft(shown.key, current => {
+            if (!current || current.revision !== shown.revision) throw new Error("Draft changed");
+            return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, deleted: false, error: undefined };
+          }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
+          if (updated?.status === "synced") notifySynced(shown.entryId, local);
         }
-        const local = choice === "toggl" ? check.remote! : shown.local;
-        const updated = await changeDraft(shown.key, current => {
-          if (!current || current.revision !== shown.revision) throw new Error("Draft changed");
-          return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, deleted: false, error: undefined };
-        }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
-        if (updated?.status === "synced") notifySynced(shown.entryId, local);
         const remaining = pending.filter(d => d.entryId !== shown.entryId);
         if (remaining.length) void openDraft(remaining[0].entryId);
         else { setSelected(null); setMerge(null); }
@@ -411,13 +421,13 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         </div>
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
-          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">This entry was deleted in Toggl. Copy your draft below to recover it; it will not be recreated automatically.</p>}
+          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">This entry was deleted in Toggl. Click the Toggl copy to mark complete. Your draft will remain in recovery history.</p>}
           {selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined && <p className="mb-3 text-xs text-muted-foreground">Use arrow keys to select a copy. Press Enter to keep it.</p>}
           <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
             {(["mine", "toggl"] as const).map(choice => {
               const isLocal = choice === "mine";
               const available = isLocal || selectedDraft.remote !== undefined;
-              const canChoose = selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined;
+              const canChoose = selectedDraft.deleted ? !isLocal : selectedDraft.status === "conflict" && selectedDraft.remote !== undefined;
               const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? "Entry deleted" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
               const label = isLocal ? "Local" : "Toggl";
               const content = <>
@@ -425,7 +435,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
                 <span id={isLocal ? "local-description" : "remote-description"} className="block whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{text || <span className="italic text-muted-foreground">No description</span>}</span>
               </>;
               const className = "flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
-              return canChoose ? <button key={choice} ref={node => { choiceRefs.current[choice] = node; }} data-description-choice={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} aria-pressed={selectedChoice === choice} disabled={busy} onFocus={() => setSelectedChoice(choice)} onClick={() => void resolve(choice)} className={`${className} ${selectedChoice === choice ? "border-primary bg-primary/5 ring-2 ring-primary/40" : ""} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
+              return canChoose ? <button key={choice} ref={node => { choiceRefs.current[choice] = node; }} data-description-choice={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} aria-pressed={selectedChoice === choice} disabled={busy} onFocus={() => setSelectedChoice(choice)} onClick={() => void resolve(selectedDraft.deleted ? "complete" : choice)} className={`${className} ${selectedChoice === choice ? "border-primary bg-primary/5 ring-2 ring-primary/40" : ""} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
             })}
           </div>
           {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" autoFocus disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" /></div>}
