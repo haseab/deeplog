@@ -3250,7 +3250,7 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
-      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription);
+      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription, entry.start);
     },
     [handleUpdateWithQueue, encryption]
   );
@@ -8576,13 +8576,17 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries.length]);
 
-  const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<number | null>(null);
+  const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<{
+    id: number; start?: string; deleted?: boolean; previousEntries?: TimeEntry[];
+  } | null>(null);
   React.useEffect(() => {
     const navigate = (event: Event) => {
-      const { id, start } = (event as CustomEvent<{ id: number; start?: string }>).detail;
-      if (!start && !timeEntriesRef.current.some(entry => entry.id === id)) return;
-      setDescriptionReviewTarget(id);
-      if (!timeEntriesRef.current.some(entry => entry.id === id) && start) {
+      const { id, start, deleted } = (event as CustomEvent<{ id: number; start?: string; deleted?: boolean }>).detail;
+      const visible = timeEntriesRef.current.some(entry => entry.id === id);
+      if (!visible && (!start || !Number.isFinite(Date.parse(start)))) return;
+      event.preventDefault(); // Acknowledge that the timeline can show context.
+      setDescriptionReviewTarget({ id, start, deleted, previousEntries: visible ? undefined : timeEntriesRef.current });
+      if (!visible && start) {
         const day = formatDateInTimeZone(start, timeZone);
         const targetDate = new Date(`${day}T12:00:00`);
         handleDateChange({ from: targetDate, to: targetDate });
@@ -8594,14 +8598,25 @@ export function TimeTrackerTable({
 
   React.useEffect(() => {
     if (descriptionReviewTarget === null || loading || isLoadingMore) return;
-    const rowIndex = timeEntries.findIndex(entry => entry.id === descriptionReviewTarget);
+    if (descriptionReviewTarget.previousEntries === timeEntries) return;
+    let rowIndex = timeEntries.findIndex(entry => entry.id === descriptionReviewTarget.id);
     if (rowIndex < 0) {
-      if (hasMore) void loadMore();
-      return;
+      if (hasMore) { void loadMore(); return; }
+      if (descriptionReviewTarget.deleted && descriptionReviewTarget.start && timeEntries.length) {
+        const targetTime = Date.parse(descriptionReviewTarget.start);
+        rowIndex = timeEntries.reduce((closest, entry, index) =>
+          Math.abs(Date.parse(entry.start) - targetTime) < Math.abs(Date.parse(timeEntries[closest].start) - targetTime) ? index : closest, 0);
+        toast("This entry was deleted. Showing the nearest entry from its original day.", { id: "description-deleted-context" });
+      } else {
+        toast(descriptionReviewTarget.deleted ? "This entry was deleted. Showing its original day; no other entries are available." : "This entry is not present in the timeline for its original day.", { id: "description-missing-context" });
+        setDescriptionReviewTarget(null);
+        return;
+      }
     }
     setSelectedCell({ rowIndex, cellIndex: isFullscreen ? 2 : 1 });
+    const targetId = timeEntries[rowIndex].id;
     requestAnimationFrame(() => {
-      const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${descriptionReviewTarget}"]`)).find(element => element.offsetParent !== null);
+      const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${targetId}"]`)).find(element => element.offsetParent !== null);
       row?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     setDescriptionReviewTarget(null);

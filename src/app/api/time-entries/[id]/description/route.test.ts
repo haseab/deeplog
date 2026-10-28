@@ -45,6 +45,18 @@ test("review refreshes without writing, even when baseline matches", async () =>
   const result = await run({ reviewOnly: true });
   assert.equal(result.body.description, "base"); assert.deepEqual(result.writes, []);
 });
+test("review returns the original time of a soft-deleted entry without writing", async () => {
+  const start = "2026-01-15T10:00:00Z";
+  const result = await run({ reviewOnly: true }, { wid: 2, uid: 1, start, server_deleted_at: "2026-01-16T00:00:00Z" });
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.body, { deleted: true, start });
+  assert.deepEqual(result.writes, []);
+});
+test("deleted entry context is still scoped to the authenticated account", async () => {
+  const result = await run({ reviewOnly: true }, { wid: 9, uid: 1, start: "2026-01-15T10:00:00Z", server_deleted_at: "2026-01-16T00:00:00Z" });
+  assert.equal(result.status, 403);
+  assert.deepEqual(result.writes, []);
+});
 test("empty descriptions can be saved", async () => {
   const result = await run({ local: "" });
   assert.deepEqual(result.writes, [{ description: "" }]);

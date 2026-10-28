@@ -14,7 +14,7 @@ import { bindingFromEvent } from "@/lib/keyboard-shortcuts";
 type DraftContext = {
   drafts: Map<number, DescriptionDraft>;
   syncing: Set<number>;
-  save: (id: number, base: string, text: string, notify?: boolean, undoDescription?: string) => Promise<void>;
+  save: (id: number, base: string, text: string, notify?: boolean, undoDescription?: string, start?: string) => Promise<void>;
   decode: (text: string, id: number) => string;
   open: (id: number) => void;
   ready: boolean;
@@ -171,7 +171,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           if (!snapshot || snapshot.status === "conflict") continue;
           const result = await request(snapshot);
           if (result.conflict) {
-            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, sent: undefined, error: undefined }));
+            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, start: result.start ?? current.start, sent: undefined, error: undefined }));
           } else {
             await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
             notifySynced(id, result.remote!);
@@ -189,15 +189,15 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }).catch(error => setStorageError(error instanceof Error ? error.message : "Local storage unavailable"));
   };
 
-  const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false, undoDescription?: string) => {
+  const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false, undoDescription?: string, start?: string) => {
     const active = accountRef.current;
     try {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed. Reopen the app before editing.");
       if (!active) throw new Error("Connect once to verify your account before saving offline drafts.");
       const local = encode(text, entryId, base);
       const saved = await changeDraft(`${active}:${entryId}`, old => {
-        if (old && decode(old.local, entryId) === text && (old.status !== "synced" || old.base === base)) return old;
-        return resolveEditedDescription({ ...old, key: `${active}:${entryId}`, account: active, entryId, base: old && old.status !== "synced" ? old.base : base,
+        if (old && decode(old.local, entryId) === text && (old.status !== "synced" || old.base === base)) return { ...old, start: start ?? old.start };
+        return resolveEditedDescription({ ...old, key: `${active}:${entryId}`, account: active, entryId, start: start ?? old?.start, base: old && old.status !== "synced" ? old.base : base,
           local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined });
       });
       failedDrafts.current.delete(entryId);
@@ -252,7 +252,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Local storage is unavailable";
-      const failed: DescriptionDraft = { key: `${active}:${entryId}`, account: active, entryId, base, local: text, revision: 0, updatedAt: Date.now(), status: "error", error: `NOT SAVED LOCALLY: ${message}` };
+      const failed: DescriptionDraft = { key: `${active}:${entryId}`, account: active, entryId, base, local: text, start, revision: 0, updatedAt: Date.now(), status: "error", error: `NOT SAVED LOCALLY: ${message}` };
       failedDrafts.current.set(entryId, failed);
       setDrafts(old => new Map(old).set(entryId, failed));
       setStorageError(message); toast.error(message, { id: "description-storage-error" });
@@ -267,16 +267,31 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
 
-  const navigateToEntry = React.useCallback(async (id: number) => {
+  const navigateToEntry = React.useCallback(async (id: number, reveal = false) => {
     const revision = ++navigationRevision.current;
-    window.dispatchEvent(new CustomEvent("deeplog-description-navigate", { detail: { id } }));
+    const draft = drafts.get(id);
+    const navigate = (start?: string, deleted = false) => {
+      const event = new CustomEvent("deeplog-description-navigate", { cancelable: true, detail: { id, start, deleted } });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    if (navigate() || (draft?.start && navigate(draft.start, !!draft.deleted))) return true;
     try {
       const check = await request({ account: accountRef.current, entryId: id, base: "", local: "" } as DescriptionDraft, true);
-      if (revision !== navigationRevision.current) return;
-      if (check.deleted) { toast.error("This entry was deleted in Toggl. Its saved descriptions are still available here."); return; }
-      if (check.start) window.dispatchEvent(new CustomEvent("deeplog-description-navigate", { detail: { id, start: check.start } }));
-    } catch (error) { if (revision === navigationRevision.current) toast.error(error instanceof Error ? error.message : "Could not locate entry"); }
-  }, [request]);
+      if (revision !== navigationRevision.current) return false;
+      if (check.start) {
+        if (draft) {
+          await changeDraft(draft.key, current => current && ({ ...current, start: check.start }));
+          await publish();
+        }
+        return navigate(check.start, check.deleted);
+      }
+      if (reveal) toast.error(check.deleted
+        ? "This entry was deleted, and its original time wasn't saved. Its place in the timeline is unavailable."
+        : "The original entry time is unavailable. Please try again when connected.");
+    } catch (error) { if (reveal && revision === navigationRevision.current) toast.error(error instanceof Error ? error.message : "Could not locate entry"); }
+    return false;
+  }, [drafts, request, publish]);
   const openHistory = (index: number) => {
     setHistoryIndex(index); setSelected(null);
     if (history?.[index]) void navigateToEntry(history[index].entryId);
@@ -287,7 +302,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (draft?.status === "conflict" && draft.remote === undefined && !draft.deleted && navigator.onLine) {
       try {
         const check = await request(draft, true);
-        await changeDraft(draft.key, current => current && ({ ...current, remote: check.remote, deleted: check.deleted }));
+        await changeDraft(draft.key, current => current && ({ ...current, remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
         await publish();
       } catch (e) { toast.error((e as Error).message); }
     }
@@ -325,7 +340,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   };
   const selectedDraft = selected === null ? undefined : drafts.get(selected);
   React.useEffect(() => {
-    if (selected !== null && !busy) (choiceRefs.current.mine ?? reviewRef.current)?.focus();
+    if (selected === null || busy) return;
+    // Editors can have a focus request queued for the current frame.
+    const frame = requestAnimationFrame(() => (choiceRefs.current.mine ?? reviewRef.current)?.focus());
+    return () => cancelAnimationFrame(frame);
   }, [selected, selectedDraft?.status, selectedDraft?.deleted, selectedDraft?.remote, busy]);
   const safeDecode = (text: string | undefined, id: number) => { try { return decode(text ?? "", id); } catch { return "Unlock encryption to view this description."; } };
   const resolve = async (choice: "mine" | "toggl") => {
@@ -338,7 +356,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         if (!latest || latest.revision !== shown.revision) throw new Error("Your local draft changed. Review the updated comparison.");
         const check = await request(shown, true);
         if (check.deleted || check.remote !== shown.remote) {
-          await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted }));
+          await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
           throw new Error(check.deleted ? "This entry was deleted. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
         }
         const local = choice === "toggl" ? check.remote! : shown.local;
@@ -381,6 +399,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         <button aria-label="Close review" disabled={busy} className="absolute right-4 top-4" onClick={() => { setSelected(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
         <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</h2>
         <p className="my-2 text-sm text-muted-foreground">Entry {selected} · {selectedDraft?.status === "synced" ? "Synced" : selectedDraft?.status === "conflict" ? "Conflict" : "Waiting to sync"}</p>
+        <Button variant="outline" size="sm" className="mb-3" disabled={busy} onClick={() => {
+          void navigateToEntry(selected, true).then(located => {
+            if (located) { setSelected(current => current === selected ? null : current); setMerge(null); }
+          });
+        }}>Go to time entry</Button>
         <div className="mb-4 flex items-center justify-between gap-2">
           <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId)}>Previous</Button>
           <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} pending</span>
