@@ -59,6 +59,9 @@ export async function setupSessionApi(
   );
 
   if (!workspacesResponse.ok) {
+    if (workspacesResponse.status === 401) {
+      throw new Error("Session expired - please reauthenticate");
+    }
     console.error(
       "Failed to fetch workspaces:",
       await workspacesResponse.text()
@@ -84,7 +87,7 @@ export function createErrorResponse(message: string, status: number = 500) {
     JSON.stringify({
       error: message,
       status: status,
-      isSessionExpired: status === 401 && message.includes("session")
+      isSessionExpired: status === 401 && message.toLowerCase().includes("session")
     }),
     {
       status,
