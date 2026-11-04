@@ -3224,6 +3224,8 @@ export function TimeTrackerTable({
         };
 
         syncQueue.queueOperation(operation);
+        // Editing a split child commits the split before flushing this edit.
+        entryMutations.commit([entryId]);
         setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
 
         toast("Update queued", {
@@ -5428,12 +5430,22 @@ export function TimeTrackerTable({
       // Set initial sync status for the temp entry
       setEntrySyncStatus((prev) => new Map(prev).set(tempId, "pending"));
 
-      // Make API call
-      const sessionToken = localStorage.getItem("toggl_session_token");
+      const restoreSplit = () => {
+        const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
+        setTimeEntries(entries => entries.filter(entry => entry.id !== tempId).map(entry =>
+          entry.id === sourceId ? { ...entryToSplit, id: sourceId } : entry
+        ));
+        setEntrySyncStatus(previous => {
+          const next = new Map(previous);
+          next.delete(tempId);
+          return next;
+        });
+        if (shouldTransferSelectedCell && selectedCellEntryIdRef.current === tempId) {
+          selectedCellEntryIdRef.current = sourceId;
+        }
+      };
 
-      toast(`Splitting entry with ${offsetMinutes} minute offset...`, {
-        duration: toastDuration,
-      });
+      const sessionToken = localStorage.getItem("toggl_session_token");
 
       const releaseSplit = protectCombine([entryToSplit.id, tempId]);
       let splitStarted = false;
@@ -5557,8 +5569,30 @@ export function TimeTrackerTable({
 
             toast.success(data.message || "Entry split successfully");
           })
+      }, () => {
+        clearTimeout(timeoutId);
+        toast.dismiss(toastId);
       });
-      void operation.run().catch((error) => {
+      const submitNow = () => { void operation.run().catch(() => {}); };
+      const toastId = toast("Entry split", {
+        duration: Infinity,
+        submitAction: submitNow,
+        action: {
+          label: "Undo (⌘Z)",
+          onClick: () => {
+            if (!operation.cancel()) return;
+            clearTimeout(timeoutId);
+            restoreSplit();
+            releaseSplit();
+            toast.dismiss(toastId);
+            toast("Split undone", { duration: 2000 });
+          },
+        },
+      });
+      const timeoutId = setTimeout(submitNow, toastDuration);
+      void operation.completion.catch((error) => {
+          clearTimeout(timeoutId);
+          toast.dismiss(toastId);
           console.error("Failed to split time entry:", error);
           toast.error("Failed to split entry. Reverting changes.");
           if (selectedCellEntryIdRef.current === tempId) {

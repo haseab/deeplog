@@ -63,3 +63,37 @@ test("undo removes an unstarted reservation without issuing a write", async () =
   await queue.run([1], async () => { writes++; });
   assert.equal(writes, 1);
 });
+
+
+test("committing a pending child retires Undo before dependencies finish", async () => {
+  const queue = new EntryMutations();
+  const hold = gate();
+  let committed = false;
+  let splitWrites = 0;
+  queue.reserve([1], async () => { await hold.promise; });
+  const split = queue.reserve([1, -2], async () => { splitWrites++; }, () => { committed = true; });
+  queue.commit([-2]);
+  assert.equal(committed, true);
+  assert.equal(split.cancel(), false);
+  assert.equal(splitWrites, 0);
+  hold.resolve();
+  await split.completion;
+  assert.equal(splitWrites, 1);
+});
+
+
+test("undoing a queued split keeps its in-flight predecessor as a dependency", async () => {
+  const queue = new EntryMutations();
+  const hold = gate();
+  let writes = 0;
+  queue.reserve([1, -2], async () => { await hold.promise; writes++; });
+  const second = queue.reserve([-2, -3], async () => { writes += 100; });
+  assert.equal(second.cancel(), true);
+  const third = queue.run([-2, -4], async () => { writes++; });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(writes, 0);
+  hold.resolve();
+  await third;
+  assert.equal(writes, 2);
+});

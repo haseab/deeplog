@@ -30,9 +30,13 @@ failures return `502`. Responses are not cached.
 
 ## Successive entry actions
 
+Splits update immediately and show an Undo (⌘Z) toast before saving. Undo removes
+the new segment and restores the original; Cmd+Enter saves immediately. The undo
+window uses the same configured duration as combine (four seconds by default).
+
 Combine, split, description uploads, and delayed field edits share an entry-level
 mutation queue in the current browser tab. A follow-up action commits an earlier
-combine or field edit's undo window, then waits for its server acknowledgement.
+combine, split, or field edit's undo window, then waits for its server acknowledgement.
 The UI still updates immediately. Split children retain their queued actions when
 the server replaces their temporary IDs, and late acknowledgements do not replace
 newer optimistic times. If a prerequisite fails, dependent writes stop and the app
@@ -42,6 +46,7 @@ With the development server running, the mocked regressions are:
 
 ```sh
 node tests/combine-shortcuts.mjs
+node tests/split-undo.mjs
 node tests/successive-entry-actions.mjs
 TEST_BASE_URL=http://127.0.0.1:3020 node tests/offline-descriptions.mjs
 npx tsx --test src/lib/entry-mutations.test.ts

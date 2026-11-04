@@ -142,6 +142,8 @@ try {
       await page.keyboard.press('x');
       await page.getByLabel('Minutes', {exact:true}).fill('30');
       await page.getByRole('button', {name: 'Split Entry', exact:true}).click();
+      await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
+      await page.keyboard.press('Meta+Enter');
     }
     const poll = async (check, message) => {
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -184,6 +186,8 @@ try {
         await page.keyboard.press('x');
         await page.getByLabel('Minutes', {exact:true}).fill('15');
         await page.getByRole('button', {name: 'Split Entry', exact:true}).click();
+      await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
+      await page.keyboard.press('Meta+Enter');
         await page.waitForTimeout(250);
         assert.equal(splitWrites, 1);
         releaseSplit();
