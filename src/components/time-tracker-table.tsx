@@ -2857,6 +2857,7 @@ export function TimeTrackerTable({
     null
   );
   const clientMutationGenerationRef = React.useRef(0);
+  const activeCombineEntryIdsRef = React.useRef(new Map<number, number>());
   const startRequestChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const lastStartTempIdRef = React.useRef(0);
 
@@ -2872,6 +2873,26 @@ export function TimeTrackerTable({
       setIsLoadingMore(false);
     }
   }, []);
+
+  const protectCombine = React.useCallback((entryIds: number[]) => {
+    beginClientMutation();
+    const ids = activeCombineEntryIdsRef.current;
+    for (const id of entryIds) ids.set(id, (ids.get(id) ?? 0) + 1);
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      // A refresh started during the write can still contain pre-combine data.
+      // Invalidate it before releasing protection for the affected rows.
+      beginClientMutation();
+      for (const id of entryIds) {
+        const remaining = (ids.get(id) ?? 1) - 1;
+        if (remaining) ids.set(id, remaining);
+        else ids.delete(id);
+      }
+    };
+  }, [beginClientMutation]);
 
   // Keep ref in sync with state
   React.useEffect(() => {
@@ -5104,6 +5125,8 @@ export function TimeTrackerTable({
 
       let originalEntries: TimeEntry[] = [];
 
+      const releaseCombine = protectCombine(entries.map(entry => entry.id));
+
       // Optimistically update UI
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
@@ -5149,9 +5172,11 @@ export function TimeTrackerTable({
         action: {
           label: "Undo (⌘Z)",
           onClick: () => {
+            if (undone || state.apiCallStarted) return;
             undone = true;
             clearTimeout(timeoutId);
             setTimeEntries(originalEntries);
+            releaseCombine();
             toast.dismiss(toastId);
             toast("Combine undone", { duration: 2000 });
           },
@@ -5162,6 +5187,7 @@ export function TimeTrackerTable({
       const submitOperation = async () => {
         if (undone) return;
         state.apiCallStarted = true;
+        toast.dismiss(toastId);
         const sessionToken = localStorage.getItem("toggl_session_token");
         const errors: string[] = [];
 
@@ -5271,12 +5297,14 @@ export function TimeTrackerTable({
           toast.dismiss(toastId);
           toast.error("Failed to combine entries. Reverting changes.");
           setTimeEntries(originalEntries);
+        } finally {
+          releaseCombine();
         }
       };
 
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [toastDuration, timeZone]
+    [toastDuration, timeZone, protectCombine]
   );
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
@@ -5615,6 +5643,8 @@ export function TimeTrackerTable({
       return;
     }
 
+    const releaseCombine = protectCombine([currentEntry.id, olderEntry.id]);
+
     const selectedCellIdBeforeCombine = selectedCellEntryIdRef.current;
     const entryToKeepSelectionId = resolveEntryId(entryToKeep.id);
     const selectedEntryIsBeingDeleted =
@@ -5678,156 +5708,121 @@ export function TimeTrackerTable({
         : current);
     }
 
-    const sessionToken = localStorage.getItem("toggl_session_token");
-
-    // If either entry has a temp ID, queue the operation
-    if (currentIsTempId || olderIsTempId) {
-      // Only one is a temp ID - queue it
-      const operation: QueuedOperation = {
-        type: "COMBINE",
-        tempId: currentIsTempId ? currentApiId : olderApiId,
-        payload: {
-          currentEntryId: currentApiId,
-          olderEntryId: olderApiId,
-          isCurrentEntryRunning,
-        },
-        retryCount: 0,
-        timestamp: Date.now(),
-        execute: async (realId: number) => {
-          // Determine which ID to use - replace the temp ID with the real ID
-          const finalCurrentId = currentIsTempId ? realId : currentApiId;
-          const finalOlderId = olderIsTempId ? realId : olderApiId;
-
-          const response = await fetch("/api/time-entries/combine", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-toggl-session-token": sessionToken || "",
-            },
-            body: JSON.stringify({
-              currentEntryId: finalCurrentId,
-              olderEntryId: finalOlderId,
-              reverse: isReverseCombineSingle,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("API Error:", response.status, errorText);
-            throw new Error(`Combine failed (${response.status})`);
-          }
-
-          const data = await response.json();
-
-          const keptId = isReverseCombineSingle ? finalCurrentId : finalOlderId;
-          // Update the surviving row with server response
-          setTimeEntries((currentEntries) =>
-            currentEntries.map((e) =>
-              e.id === keptId
-                ? {
-                    ...e,
-                    stop: data.updatedEntry.stop,
-                    duration: data.updatedEntry.duration,
-                  }
-                : e
-            )
-          );
-
-          // Update sync status on the surviving entry
-          setEntrySyncStatus((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(keptId, "synced");
-            return newMap;
-          });
-
-          // Clear sync status after 2 seconds
-          setTimeout(() => {
-            setEntrySyncStatus((prev) => {
-              const newMap = new Map(prev);
-              newMap.delete(keptId);
-              return newMap;
-            });
-          }, 2000);
-
-          toast.success(data.message || "Entries combined successfully");
-          // Reset reverse mode flag after successful combine
-          setIsReverseCombineSingle(false);
-        },
-      };
-
-      syncQueue.queueOperation(operation);
-      // Display pending status on the destination even when the source has a temporary ID.
-      setEntrySyncStatus((prev) => new Map(prev).set(entryToKeep.id, "pending"));
-
-      toast("Combine queued", {
-        description: "Changes will sync once entry is created",
-        duration: 2000,
-      });
-
-      return;
-    }
-
-    // Both IDs are real - execute immediately
-    toast(`Combining entries...`, {
-      duration: toastDuration,
-    });
-
-    fetch("/api/time-entries/combine", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-toggl-session-token": sessionToken || "",
-      },
-      body: JSON.stringify({
-        currentEntryId: currentApiId,
-        olderEntryId: olderApiId,
-        reverse: isReverseCombineSingle,
-      }),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("API Error:", response.status, errorText);
-          throw new Error("Failed to combine entries");
+    const restoreCombine = () => {
+      const keepId = resolveEntryId(entryToKeep.id);
+      const deletedId = resolveEntryId(entryToDelete.id);
+      setTimeEntries(entries => {
+        const restored = entries.map(entry => entry.id === keepId ? {
+          ...entry,
+          start: entryToKeep.start,
+          stop: entryToKeep.stop,
+          duration: entryToKeep.duration,
+          syncStatus: entryToKeep.syncStatus,
+        } : entry);
+        if (!restored.some(entry => entry.id === deletedId)) {
+          restored.push({ ...entryToDelete, id: deletedId });
         }
-        return response.json();
-      })
-      .then((data) => {
-        // Update only stop and duration from server response, keep everything else
-        setTimeEntries((currentEntries) =>
-          currentEntries.map((e) =>
-            e.id === entryToKeep.id
-              ? {
-                  ...e,
-                  stop: data.updatedEntry.stop,
-                  duration: data.updatedEntry.duration,
-                }
-              : e
-          )
-        );
+        return restored.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
+      });
+      if (
+        selectedEntryIsBeingDeleted &&
+        selectedCellEntryIdRef.current === resolveEntryId(entryToKeepSelectionId)
+      ) {
+        selectedCellEntryIdRef.current = resolveEntryId(selectedCellIdBeforeCombine!);
+        const sourceRowIndex = originalEntries.findIndex(entry => entry.id === entryToDelete.id);
+        setSelectedCell(current => current && sourceRowIndex >= 0
+          ? { ...current, rowIndex: sourceRowIndex }
+          : current);
+      }
+      releaseCombine();
+      setIsReverseCombineSingle(false);
+    };
 
-        toast.success(data.message || "Entries combined successfully");
-        // Reset reverse mode flag after successful combine
-        setIsReverseCombineSingle(false);
-      })
-      .catch((error) => {
+    const executeCombine = async (finalCurrentId: number, finalOlderId: number) => {
+      const response = await fetch("/api/time-entries/combine", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": localStorage.getItem("toggl_session_token") || "",
+        },
+        body: JSON.stringify({
+          currentEntryId: finalCurrentId,
+          olderEntryId: finalOlderId,
+          reverse: isReverseCombineSingle,
+        }),
+      });
+      if (!response.ok) throw new Error(`Combine failed (${response.status})`);
+      const data = await response.json();
+      const keptId = isReverseCombineSingle ? finalCurrentId : finalOlderId;
+      setTimeEntries(entries => entries.map(entry => entry.id === keptId ? {
+        ...entry,
+        stop: data.updatedEntry.stop,
+        duration: data.updatedEntry.duration,
+      } : entry));
+      releaseCombine();
+      toast.success(data.message || "Entries combined successfully");
+      setIsReverseCombineSingle(false);
+    };
+
+    let undone = false;
+    let submitted = false;
+    const submitNow = () => {
+      if (undone || submitted) return;
+      submitted = true;
+      clearTimeout(timeoutId);
+      // Once the write starts, the destructive server operation cannot be
+      // cancelled. Remove Undo along with the pending toast at that boundary.
+      toast.dismiss(toastId);
+
+      // Creation may have finished during the undo window. Resolve IDs again
+      // so we don't enqueue work after that entry's queue was already flushed.
+      const finalCurrentId = resolveEntryId(currentEntry.id);
+      const finalOlderId = resolveEntryId(olderEntry.id);
+      const pendingId = syncQueue.isTempId(finalCurrentId) ? finalCurrentId
+        : syncQueue.isTempId(finalOlderId) ? finalOlderId : null;
+      if (pendingId !== null) {
+        const operation: QueuedOperation = {
+          type: "COMBINE",
+          tempId: pendingId,
+          payload: { currentEntryId: finalCurrentId, olderEntryId: finalOlderId },
+          retryCount: 0,
+          timestamp: Date.now(),
+          execute: realId => executeCombine(
+            finalCurrentId === pendingId ? realId : finalCurrentId,
+            finalOlderId === pendingId ? realId : finalOlderId
+          ),
+        };
+        syncQueue.queueOperation(operation);
+        toast("Combine queued", {
+          description: "Changes will sync once entry is created",
+          duration: 2000,
+        });
+        return;
+      }
+      void executeCombine(finalCurrentId, finalOlderId).catch(error => {
         console.error("Failed to combine time entries:", error);
+        restoreCombine();
         toast.error("Failed to combine entries. Reverting changes.");
-        if (
-          selectedEntryIsBeingDeleted &&
-          selectedCellEntryIdRef.current === entryToKeepSelectionId
-        ) {
-          selectedCellEntryIdRef.current = selectedCellIdBeforeCombine;
-          const sourceRowIndex = originalEntries.findIndex(entry => entry.id === entryToDelete.id);
-          setSelectedCell(current => current && sourceRowIndex >= 0
-            ? { ...current, rowIndex: sourceRowIndex }
-            : current);
-        }
-        setTimeEntries(originalEntries);
-        // Reset reverse mode flag on error too
-        setIsReverseCombineSingle(false);
       });
-  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle]);
+    };
+    const toastId = toast("Combined entries", {
+      duration: Infinity,
+      submitAction: submitNow,
+      action: {
+        label: "Undo (⌘Z)",
+        onClick: () => {
+          if (undone || submitted) return;
+          undone = true;
+          clearTimeout(timeoutId);
+          restoreCombine();
+          toast.dismiss(toastId);
+          toast("Combine undone", { duration: 2000 });
+        },
+      },
+    });
+    const timeoutId = setTimeout(submitNow, toastDuration);
+
+  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle, protectCombine]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -6378,6 +6373,17 @@ export function TimeTrackerTable({
 
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
+          const combineEntryIds = new Set(
+            Array.from(activeCombineEntryIdsRef.current.keys(), id =>
+              syncQueueRef.current.getRealId(id) ?? id
+            )
+          );
+          // Protected IDs absent locally are optimistic deletions. Suppress
+          // their stale server rows for both refreshes and pagination.
+          const localEntryIds = new Set(timeEntriesRef.current.map(entry => entry.id));
+          data.timeEntries = data.timeEntries.filter((entry: TimeEntry) =>
+            !combineEntryIds.has(entry.id) || localEntryIds.has(entry.id)
+          );
           if (resetData) {
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
@@ -6388,7 +6394,7 @@ export function TimeTrackerTable({
             // version the user expects to see.
             setTimeEntries((prevEntries) => {
               const protectedEntryIds = new Set(
-                entrySyncStatusRef.current.keys()
+                [...entrySyncStatusRef.current.keys(), ...combineEntryIds]
               );
 
               if (protectedEntryIds.size === 0) {
@@ -6935,7 +6941,7 @@ export function TimeTrackerTable({
       const hasActiveSync = Array.from(entrySyncStatusRef.current.values()).some(
         (status) => status === "syncing" || status === "pending" || status === "synced"
       );
-      if (hasActiveSync) {
+      if (hasActiveSync || activeCombineEntryIdsRef.current.size > 0) {
         return;
       }
 

@@ -171,5 +171,12 @@ toast.error = sonnerToast.error;
 toast.info = sonnerToast.info;
 toast.warning = sonnerToast.warning;
 toast.loading = sonnerToast.loading;
-toast.dismiss = sonnerToast.dismiss;
+toast.dismiss = (toastId?: ToastId) => {
+  // Programmatic dismissal (including the end of an undo window) must also
+  // retire its keyboard actions. Sonner doesn't call onDismiss for this path.
+  if (toastId === undefined) activeToastActions.clear();
+  else activeToastActions.delete(toastId);
+  refreshCurrentToastId();
+  return sonnerToast.dismiss(toastId);
+};
 toast.promise = sonnerToast.promise;
