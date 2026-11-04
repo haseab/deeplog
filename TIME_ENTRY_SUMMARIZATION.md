@@ -16,7 +16,7 @@ calls instead provide the current `x-toggl-session-token` and an `entryId`.
 Both forms require a JSON body with an ISO date-time range of at most 24 hours:
 
 ```bash
-curl -X POST http://localhost:3000/api/cron/summarize-time-entries \
+curl -X POST http://localhost:3020/api/cron/summarize-time-entries \
   -H "Authorization: Bearer $CRON_SECRET" \
   -H "Content-Type: application/json" \
   -d '{

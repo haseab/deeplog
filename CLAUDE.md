@@ -655,7 +655,7 @@ Recent timers cache can get out of sync if entries are edited in Toggl web/mobil
 3. Add Limitless API key (optional)
 4. Run `npm install`
 5. Run `npm run dev`
-6. Visit `http://localhost:3000`
+6. Visit `http://localhost:3020`
 
 ### Seeding Test Data
 ```bash

@@ -27,3 +27,10 @@ running timers and recent changes may not yet appear in Toggl Analytics.
 Invalid input or a missing session returns `400`; an expired session returns
 `401` with `isSessionExpired: true`; Toggl rate limits return `429`, and upstream
 failures return `502`. Responses are not cached.
+
+## Local development ports
+
+- The development server for **deeplog** uses **http://localhost:3020**.
+- Run `npm run dev` in the normal checkout; its development script sets port **3020** explicitly. Do not use localhost:3000 or silently increment ports.
+- Reuse an existing server for this checkout. If the assigned port is occupied by an unrelated process, inspect ownership rather than stopping another project's server.
+- Port changes must update the development script, README, environment examples, and local integration/callback URLs together. Keep real credentials in ignored local environment files; never commit them or change production URLs for local development.
