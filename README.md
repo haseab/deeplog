@@ -28,6 +28,25 @@ Invalid input or a missing session returns `400`; an expired session returns
 `401` with `isSessionExpired: true`; Toggl rate limits return `429`, and upstream
 failures return `502`. Responses are not cached.
 
+## Successive entry actions
+
+Combine, split, description uploads, and delayed field edits share an entry-level
+mutation queue in the current browser tab. A follow-up action commits an earlier
+combine or field edit's undo window, then waits for its server acknowledgement.
+The UI still updates immediately. Split children retain their queued actions when
+the server replaces their temporary IDs, and late acknowledgements do not replace
+newer optimistic times. If a prerequisite fails, dependent writes stop and the app
+shows an error; description drafts remain recoverable locally.
+
+With the development server running, the mocked regressions are:
+
+```sh
+node tests/combine-shortcuts.mjs
+node tests/successive-entry-actions.mjs
+TEST_BASE_URL=http://127.0.0.1:3020 node tests/offline-descriptions.mjs
+npx tsx --test src/lib/entry-mutations.test.ts
+```
+
 ## Local development ports
 
 - The development server for **deeplog** uses **http://localhost:3020**.

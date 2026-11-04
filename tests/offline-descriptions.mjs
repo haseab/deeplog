@@ -49,7 +49,9 @@ const records = () => page.evaluate(() => new Promise((resolve,reject) => { cons
 const edit = async text => {
   const editor=page.locator('[contenteditable="true"]:visible');
   if (!await editor.count()) await page.locator('[data-testid="expandable-description"]:visible').first().click();
-  await editor.fill(text);
+  await editor.focus();
+  await page.keyboard.press('Meta+a');
+  await page.keyboard.insertText(text);
 };
 try {
   await page.goto(process.env.TEST_BASE_URL ?? 'http://127.0.0.1:3000');
@@ -187,7 +189,7 @@ try {
   await page.keyboard.press('Enter');
   await poll(async()=>await page.locator('#remote-description').textContent()==='Planning revised budget','review did not recheck Toggl');
   assert.equal(writes,0);
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
   await edit('Planning launch and budget');
   await page.keyboard.press('Control+Enter');
   await poll(()=>remote==='Planning launch and budget','post-conflict edit not uploaded');
@@ -235,8 +237,22 @@ try {
   await poll(async()=> (await records())[0]?.status==='synced','keep Toggl not acknowledged');
   assert.equal(writes,beforeKeep);
   await page.getByRole('button',{name:'Description recovery history',exact:true}).click();
-  assert.ok((await page.getByLabel('Recovered local description').evaluateAll(nodes=>nodes.map(n=>n.value))).includes('First tab offline draft'));
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  const historyDialog = page.getByRole('dialog', {name:'Description recovery history'});
+  await historyDialog.getByRole('textbox').first().waitFor();
+  let recoveredFirstDraft = false;
+  for (;;) {
+    if (await historyDialog.getByRole('textbox').first().inputValue() === 'First tab offline draft') {
+      recoveredFirstDraft = true;
+      break;
+    }
+    const next = historyDialog.getByRole('button', {name:'Next', exact:true});
+    if (await next.isDisabled()) break;
+    const previousValue = await historyDialog.getByRole('textbox').first().inputValue();
+    await next.click();
+    await poll(async()=>await historyDialog.getByRole('textbox').first().inputValue() !== previousValue, 'history navigation did not advance');
+  }
+  assert.ok(recoveredFirstDraft, 'First tab draft must remain in recovery history');
+  await page.getByRole('button',{name:'Close history',exact:true}).click();
   console.log('PASS: competing browser tabs, Keep Toggl, recovery history');
   // E2EE drafts must be ciphertext in IndexedDB, including before upload.
   const hash=createHash('sha256').update('123456deeplog-e2ee-v1_pin_hash').digest('hex');
@@ -285,7 +301,7 @@ try {
   assert.equal(await page.getByRole('button',{name:'Keep mine',exact:true}).count(),0);
   assert.equal(await page.locator('#local-description').textContent(),'Recover deleted entry');
   console.log('PASS: deleted-entry recovery');
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
   const storedBefore=(await records())[0].local;
   await page.evaluate(()=>{
     IDBObjectStore.prototype.put=function(){throw new DOMException('Quota exceeded','QuotaExceededError');};

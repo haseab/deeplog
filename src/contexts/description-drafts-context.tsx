@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { entryMutations } from "@/lib/entry-mutations";
 import { AlertTriangle, HardDrive, Loader2, History, Check, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -138,13 +139,16 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   }, []);
   const request = React.useCallback(async (draft: DescriptionDraft, reviewOnly = false) => {
     if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
-    const response = await fetch(`/api/time-entries/${draft.entryId}/description`, {
-      method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current },
-      body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
+    return entryMutations.run([draft.entryId], async () => {
+      if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
+      const response = await fetch(`/api/time-entries/${draft.entryId}/description`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current },
+        body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
+      });
+      const data = await response.json();
+      if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
+      return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, start: data.start as string | undefined };
     });
-    const data = await response.json();
-    if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
-    return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, start: data.start as string | undefined };
   }, []);
   const notifySynced = (id: number, description: string) => window.dispatchEvent(new CustomEvent("deeplog-description-synced", { detail: { id, description } }));
 
