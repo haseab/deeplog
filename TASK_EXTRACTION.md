@@ -77,7 +77,7 @@ The file keeps last 1000 transcript IDs to prevent it from growing too large.
 ### Manual Trigger (for testing)
 
 ```bash
-curl -X POST http://localhost:3000/api/cron/extract-tasks \
+curl -X POST http://localhost:3020/api/cron/extract-tasks \
   -H "Authorization: Bearer your-cron-secret" \
   -H "Content-Type: application/json"
 ```
@@ -89,7 +89,7 @@ extraction pipeline without fetching Limitless transcripts, creating Todoist
 tasks, or advancing the processed timestamp:
 
 ```bash
-curl -X POST http://localhost:3000/api/cron/extract-tasks \
+curl -X POST http://localhost:3020/api/cron/extract-tasks \
   -H "Authorization: Bearer your-cron-secret" \
   -H "Content-Type: application/json" \
   -d '{"testTranscript":"Remind me to send Alex the revised contract tomorrow morning."}'
@@ -102,7 +102,7 @@ To create real Todoist tasks from the synthetic transcript, explicitly pass
 `createTestTasks: true`:
 
 ```bash
-curl -X POST http://localhost:3000/api/cron/extract-tasks \
+curl -X POST http://localhost:3020/api/cron/extract-tasks \
   -H "Authorization: Bearer your-cron-secret" \
   -H "Content-Type: application/json" \
   -d '{"testTranscript":"Remind me to verify the DeepLog task extractor.","createTestTasks":true}'
@@ -227,7 +227,7 @@ Check your deployment logs to monitor execution.
 
 1. **First Run** (processes last 24 hours):
 ```bash
-curl -X POST http://localhost:3000/api/cron/extract-tasks \
+curl -X POST http://localhost:3020/api/cron/extract-tasks \
   -H "Authorization: Bearer your-cron-secret" \
   -H "Content-Type: application/json" \
   | jq
@@ -236,7 +236,7 @@ curl -X POST http://localhost:3000/api/cron/extract-tasks \
 2. **Subsequent Runs** (processes since last run):
 ```bash
 # Run again - should show "No new transcripts"
-curl -X POST http://localhost:3000/api/cron/extract-tasks \
+curl -X POST http://localhost:3020/api/cron/extract-tasks \
   -H "Authorization: Bearer your-cron-secret" \
   -H "Content-Type: application/json" \
   | jq

@@ -68,7 +68,7 @@ failures keep text in memory, display a failure, and warn before leaving the pag
 
 ## Automated checks
 
-With a development server on `http://127.0.0.1:3000` and Google Chrome installed:
+With a development server on `http://127.0.0.1:3020` and Google Chrome installed:
 
 ```sh
 node tests/offline-descriptions.mjs
