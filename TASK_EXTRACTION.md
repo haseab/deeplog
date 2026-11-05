@@ -136,6 +136,10 @@ malformed success, or interrupted `sending` task becomes `needs_review`.
 These are never blindly sent again. Successful tasks are not recreated on retry.
 Task descriptions include the recording ID, timestamp and `[DeepLog:<task-id>]`
 marker so uncertain deliveries can be found in Todoist, including completed tasks.
+The source reference is a Markdown **View source recording** link to
+`https://deeplog.app/pendant?recordingId=<source-id>`. History fetches that exact
+recording by ID, regardless of the current date or pagination. The user may need
+to connect their Limitless account before viewing it; the destination is retained.
 
 ## Historical backfills
 

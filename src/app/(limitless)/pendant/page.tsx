@@ -12,6 +12,7 @@ import { Suspense } from "react";
 function LimitlessPageContent() {
   const searchParams = useSearchParams();
   const query = searchParams.get("q") || "today";
+  const recordingId = searchParams.get("recordingId") || undefined;
   const [hasCredentials, setHasCredentials] = React.useState<boolean | null>(
     null
   );
@@ -115,7 +116,7 @@ function LimitlessPageContent() {
           </div>
         </div>
 
-        <LimitlessTranscriptionTable initialQuery={query} />
+        <LimitlessTranscriptionTable initialQuery={query} initialRecordingId={recordingId} />
       </div>
     </main>
   );

@@ -28,6 +28,7 @@ type Transcription = LimitlessLifelog;
 
 interface LimitlessTranscriptionTableProps {
   initialQuery?: string;
+  initialRecordingId?: string;
 }
 
 const scrollToAndHighlightTimestamp = (element: HTMLElement) => {
@@ -54,6 +55,7 @@ const scrollToAndHighlightTimestamp = (element: HTMLElement) => {
 
 export function LimitlessTranscriptionTable({
   initialQuery = "today",
+  initialRecordingId,
 }: LimitlessTranscriptionTableProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -122,6 +124,16 @@ export function LimitlessTranscriptionTable({
       }
 
       try {
+        if (initialRecordingId && resetData && !fetchBeforeRange) {
+          const page = await fetchLimitlessPage({ apiKey, params: new URLSearchParams({ lifelogId: initialRecordingId }) });
+          setTranscriptions(page.lifelogs);
+          setCursor(null);
+          setHasMore(false);
+          originalSearchRangeRef.current = null;
+          shouldScrollToRequestedStartRef.current = false;
+          setHasOriginalSearchRange(false);
+          return;
+        }
         let startTime: Date | undefined, endTime: Date | undefined;
         let shouldScrollToRequestedStart = false;
 
@@ -274,7 +286,7 @@ export function LimitlessTranscriptionTable({
         if (showLoadingState) setLoading(false);
       }
     },
-    [activeQuery] // Don't include originalSearchRange - it's only read when fetchBeforeRange is true
+    [activeQuery, initialRecordingId] // The requested source recording bypasses date-range pagination.
   );
 
   const loadMoreTranscriptions = React.useCallback(async () => {

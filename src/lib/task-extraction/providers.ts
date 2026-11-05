@@ -74,7 +74,7 @@ export function createProviders(keys: { limitless: string; openai: string; todoi
         headers: { Authorization: `Bearer ${keys.todoist}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           content: task.content, project_id: task.projectId,
-          description: `Recording ${task.recordingId} at ${task.startTime}\n[DeepLog:${task.id}]`,
+          description: `[View source recording](https://deeplog.app/pendant?recordingId=${encodeURIComponent(task.recordingId)})\nRecorded at ${task.startTime}\n[DeepLog:${task.id}]`,
           labels: ["auto-extracted", "from-transcript"],
         }),
       });
