@@ -69,6 +69,35 @@ Normal `{}` runs deliver pending candidates, so keep the scheduler disabled
 during review. Discovery/draft modes apply to one invocation; they do not
 permanently disable delivery by other callers.
 
+## Testing arbitrary historical ranges without task creation
+
+In `/pendant`, click **Test extraction**. The dialog starts with the history
+view's range. Choose any local start/end time, or use the 3/7/30-day presets.
+Supply your OpenAI key (prefilled from Settings if saved); the connected Limitless
+key is reused. Click **Run test**. The UI fetches all pages and extracts in batches,
+showing discovered/extracted counts, candidates by recording, and failures.
+It labels incomplete results explicitly. Stop after a batch and resume as needed.
+Large ranges can take many requests and consume OpenAI credits.
+
+This uses a separate `POST /api/limitless/extraction-preview` route. New tests take
+`{ "startDate": "...", "endDate": "..." }`; subsequent batches take
+`{ "runId": "..." }`. Interactive calls require `x-limitless-api-key` and
+`x-openai-api-key`. Operators may instead use `Authorization: Bearer <CRON_SECRET>`
+to test with the server's configured source/AI keys.
+
+Unlike `draftOnly`, previews **never enter the production delivery ledger**.
+They reuse production discovery/chunking/extraction against an isolated directory
+under the server's temporary folder, with Todoist capabilities disabled. Candidates
+cannot be picked up by normal cron runs. No Todoist credentials are used.
+Preview IDs are scoped to the source account. Tests expire after 24 hours (expired
+temporary folders are removed when a new test starts) and may disappear on a server
+replacement. They are test results, not durable processing history.
+
+Boundary context is included just as in production: a recording can start on the
+preceding day. Inspect the displayed timestamps when judging range coverage.
+An exhausted discovery scan is distinct from successful extraction; recordings
+without available speech are counted separately, and failures remain visible.
+
 ## Normal catch-up
 
 Send `{}` to POST. A completed scan's end time helps choose the next discovery
@@ -81,6 +110,9 @@ recordings near boundaries, and follows every pagination cursor. Each page's
 recordings are saved before its cursor advances. A failed page is retried, not
 marked covered. Duplicate pages are harmless because source IDs and content
 hashes identify recordings. Invalid pages and repeated cursors fail the scan.
+Content requests use 20-record pages. Live comparison found that 50/100-record
+pages can return metadata with empty content arrays despite speech being available
+for the same recordings on smaller pages.
 
 Each request attempts at most eight pages and ten recordings, with a 210-second
 work budget plus time for an in-flight provider call. Unfinished work remains on
@@ -212,5 +244,7 @@ Todoist tasks. `createTestTasks:true` is no longer supported.
 
 ```sh
 npx tsx --test src/lib/task-extraction/*.test.ts src/app/api/cron/extract-tasks/route.test.ts
+npx tsx --test src/app/api/limitless/extraction-preview/route.test.ts
+node tests/extraction-preview.mjs # local server at localhost:3020; mocked APIs
 npx tsc --noEmit --incremental false
 ```

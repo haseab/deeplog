@@ -7,11 +7,12 @@ async function fetchJson(url: string, init: RequestInit, timeout = 30_000) {
   return response.json();
 }
 
-export function createProviders(keys: { limitless: string; openai: string; todoist: string }): Providers {
-  let projectId: string | undefined;
+export function createReadProviders(keys: { limitless: string; openai: string }): Pick<Providers, "page" | "extract"> {
   return {
     async page(start, end, cursor) {
-      const params = new URLSearchParams({ start, end, limit: "100", direction: "asc", includeContents: "true" });
+      // Live verification: larger pages (50/100) can return lifelog metadata
+      // with empty contents even when speech exists. Keep content pages at 20.
+      const params = new URLSearchParams({ start, end, limit: "20", direction: "asc", includeContents: "true", includeHeadings: "true", includeMarkdown: "true" });
       if (cursor) params.set("cursor", cursor);
       const data = await fetchJson(`https://api.limitless.ai/v1/lifelogs?${params}`, { headers: { "X-API-Key": keys.limitless } });
       if (!Array.isArray(data.data?.lifelogs)) throw new Error("Invalid Limitless page; refusing to mark range scanned");
@@ -39,6 +40,13 @@ export function createProviders(keys: { limitless: string; openai: string; todoi
       }
       return parsed.tasks as string[];
     },
+  };
+}
+
+export function createProviders(keys: { limitless: string; openai: string; todoist: string }): Providers {
+  let projectId: string | undefined;
+  return {
+    ...createReadProviders(keys),
     async project() {
       if (projectId) return projectId;
       let cursor: string | null = null;

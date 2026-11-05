@@ -13,6 +13,10 @@ days, resumes older incomplete work, and records individual Todoist deliveries.
 See [TASK_EXTRACTION.md](TASK_EXTRACTION.md) for volume configuration, migration,
 backfills, status, and recovery. The extraction route cannot run on Vercel.
 
+In History (`/pendant`), **Test extraction** previews candidates over an arbitrary
+date range without creating Todoist tasks or adding candidates to the production
+delivery ledger. It reports progress across all pages and supports stop/resume.
+
 ### Search time entries
 
 `GET /api/time-entries/search?q=planning&from_date=2026-10-01&to_date=2026-10-31`

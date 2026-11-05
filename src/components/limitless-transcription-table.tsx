@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ExtractionPreviewDialog } from "@/components/extraction-preview-dialog";
 
 type Transcription = LimitlessLifelog;
 
@@ -711,7 +712,8 @@ export function LimitlessTranscriptionTable({
         </DialogContent>
       </Dialog>
 
-      <div className="flex justify-end mb-3">
+      <div className="flex justify-end gap-2 mb-3">
+        <ExtractionPreviewDialog range={originalSearchRangeRef.current} />
         <Button variant="outline" size="sm" onClick={() => setJumpDialogOpen(true)}>
           Go to time
           <kbd className="ml-2 text-xs text-muted-foreground">⌘G / Ctrl+G</kbd>

@@ -16,6 +16,17 @@ async function mock(responses: Response[], action: (calls: Array<{ url: string; 
   try { await action(calls); } finally { globalThis.fetch = original; }
 }
 
+test('content fetching uses small pages; larger live pages silently omit speech', async () => {
+  await mock([Response.json({ data: { lifelogs: [] } })], async calls => {
+    await createProviders(keys).page('start', 'end', null);
+    const params = new URL(calls[0].url).searchParams;
+    assert.equal(params.get('limit'), '20');
+    assert.equal(params.get('includeContents'), 'true');
+    assert.equal(params.get('includeHeadings'), 'true');
+    assert.equal(params.get('includeMarkdown'), 'true');
+  });
+});
+
 test('malformed Limitless pages and cursors fail instead of becoming empty success', async () => {
   for (const payload of [{}, { data: { lifelogs: [] }, meta: { lifelogs: { nextCursor: 123 } } }]) {
     await mock([Response.json(payload)], async () => {
