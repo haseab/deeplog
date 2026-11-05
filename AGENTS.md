@@ -1,5 +1,17 @@
 # Agent instructions
 
+## Shipping ("ship it")
+
+When Haseab says **"ship it"**, complete the release to production:
+
+1. Review the task's changes and run the relevant tests, typechecks, and lint checks.
+2. Commit and push the task's changes on a descriptive branch without a `codex/` prefix. Preserve unrelated work and leave it out of the release.
+3. Open a pull request and merge the branch into `main` in `haseab/deeplog`.
+4. Deploy the resulting `main` commit through the project's configured production deployment. If merging triggers deployment automatically, wait for it to finish.
+5. Verify the deployment succeeded and the production site serves the change. Report the pull request, merged commit, and production URL, or any failure preventing completion.
+
+Pushing a feature branch alone does not complete shipping.
+
 ## Local development ports
 
 - The development server for **deeplog** uses **http://localhost:3020**.

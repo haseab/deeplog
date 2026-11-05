@@ -10,11 +10,11 @@ import {
 } from "@/lib/time-entry-state";
 import {
   addCalendarDays,
-  calendarRangeToUtc,
   formatDateInTimeZone,
   intervalsOverlap,
   isValidTimeZone,
 } from "@/lib/timezone";
+import { parseTimeEntryRange } from "@/lib/time-entry-range";
 
 type Project = {
   id: number;
@@ -70,15 +70,12 @@ export async function GET(request: NextRequest) {
     const displayTimeZone = isValidTimeZone(requestedTimeZone)
       ? requestedTimeZone
       : profileTimeZone;
-    const validCalendarDate = /^\d{4}-\d{2}-\d{2}$/;
-
-    if (!fromDate || !toDate || !validCalendarDate.test(fromDate) || !validCalendarDate.test(toDate)) {
-      return createErrorResponse("from_date and to_date are required in YYYY-MM-DD format", 400);
-    }
-
-    const requestedRange = calendarRangeToUtc(fromDate, toDate, displayTimeZone);
-    if (!requestedRange || requestedRange.endExclusive <= requestedRange.start) {
-      return createErrorResponse("Invalid date range or timezone", 400);
+    const requestedRange = parseTimeEntryRange(fromDate, toDate, displayTimeZone);
+    if (!requestedRange) {
+      return createErrorResponse(
+        "from_date and to_date must be valid YYYY-MM-DD dates or ISO datetimes, with the end after the start. Use an explicit offset for ambiguous local times.",
+        400
+      );
     }
 
     // Fetch projects using regular API
@@ -257,14 +254,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    enrichedEntries = enrichedEntries
-      .filter((entry) => intervalsOverlap(
-        entry.start,
-        entry.stop,
-        requestedRange.start,
-        requestedRange.endExclusive
-      ));
-
     console.log('[API] Got entries from Analytics API:', {
       count: enrichedEntries.length,
       firstEntry: enrichedEntries[0]?.start,
@@ -335,7 +324,15 @@ export async function GET(request: NextRequest) {
         }
 
         return stopTimeEntryAt(entry, stopTime);
-      });
+      })
+      // Normalize lagging running rows before filtering: their actual stop
+      // can fall before a precise datetime window, even on the same day.
+      .filter((entry) => intervalsOverlap(
+        entry.start,
+        entry.stop,
+        requestedRange.start,
+        requestedRange.endExclusive
+      ));
 
     console.log("[API] Current time entry payload:", {
       hasCurrentTask: Boolean(currentTask?.id),

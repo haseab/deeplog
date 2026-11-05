@@ -2,6 +2,7 @@
 
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
+import { parseTimeEntryRange } from "@/lib/time-entry-range";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { useTimezonePreference } from "@/hooks/use-timezone-preference";
@@ -781,6 +782,12 @@ type DateSearchParams = {
   get: (name: string) => string | null;
 };
 
+type TimeEntryDateRange = DateRange & {
+  // Keep exact URL boundaries separate from DayPicker's calendar-only values.
+  fromValue?: string;
+  toValue?: string;
+};
+
 function getDefaultDateRange(timeZone: string): DateRange {
   // DayPicker uses local Date objects for calendar cells. Materialize the
   // selected timezone's current calendar date as a local calendar-only value.
@@ -797,32 +804,47 @@ function getDefaultDateRange(timeZone: string): DateRange {
 }
 
 function dateRangesMatch(
-  first: DateRange | undefined,
-  second: DateRange | undefined
+  first: TimeEntryDateRange | undefined,
+  second: TimeEntryDateRange | undefined
 ): boolean {
   return (
     first?.from?.getTime() === second?.from?.getTime() &&
-    first?.to?.getTime() === second?.to?.getTime()
+    first?.to?.getTime() === second?.to?.getTime() &&
+    first?.fromValue === second?.fromValue &&
+    first?.toValue === second?.toValue
   );
 }
 
 function getDateRangeFromSearchParams(
-  params: DateSearchParams
-): DateRange | null {
+  params: DateSearchParams,
+  timeZone: string
+): TimeEntryDateRange | null {
   const fromParam = params.get("from");
   const toParam = params.get("to");
 
-  if (!fromParam || !toParam) return null;
+  const range = parseTimeEntryRange(fromParam, toParam, timeZone);
+  if (!range || !fromParam || !toParam) return null;
 
   try {
     // Parse dates in local time (not UTC) to avoid timezone shifts.
-    const from = parse(fromParam, "yyyy-MM-dd", new Date());
-    const to = parse(toParam, "yyyy-MM-dd", new Date());
+    const from = parse(
+      fromParam.includes("T") ? formatDateInTimeZone(range.start, timeZone) : fromParam,
+      "yyyy-MM-dd",
+      new Date()
+    );
+    const to = parse(
+      toParam.includes("T") ? formatDateInTimeZone(range.endExclusive, timeZone) : toParam,
+      "yyyy-MM-dd",
+      new Date()
+    );
 
     if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
       return {
         from: startOfDay(from),
         to: endOfDay(to),
+        ...(fromParam.includes("T") || toParam.includes("T")
+          ? { fromValue: fromParam, toValue: toParam }
+          : {}),
       };
     }
   } catch {
@@ -2255,11 +2277,11 @@ export function TimeTrackerTable({
     }, 0);
   }, []);
 
-  const getInitialDateRange = (): DateRange => {
+  const getInitialDateRange = (): TimeEntryDateRange => {
     // Try to read from URL query params first
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const urlDateRange = getDateRangeFromSearchParams(params);
+      const urlDateRange = getDateRangeFromSearchParams(params, timeZone);
       if (urlDateRange) return urlDateRange;
     }
 
@@ -2267,13 +2289,13 @@ export function TimeTrackerTable({
     return getDefaultDateRange(timeZone);
   };
 
-  const [date, setDate] = React.useState<DateRange | undefined>(
-    getInitialDateRange()
+  const [date, setDate] = React.useState<TimeEntryDateRange | undefined>(
+    getInitialDateRange
   );
   const [isRollingDateRange, setIsRollingDateRange] = React.useState(() => {
     if (typeof window === "undefined") return true;
     const params = new URLSearchParams(window.location.search);
-    return getDateRangeFromSearchParams(params) === null;
+    return getDateRangeFromSearchParams(params, timeZone) === null;
   });
 
   const handleDateChange = React.useCallback(
@@ -2284,7 +2306,17 @@ export function TimeTrackerTable({
     []
   );
 
+  const exactTimeRange = React.useMemo(
+    () => date?.fromValue && date.toValue
+      ? parseTimeEntryRange(date.fromValue, date.toValue, timeZone)
+      : null,
+    [date?.fromValue, date?.toValue, timeZone]
+  );
+
   const fallbackTimelineTitle = React.useMemo(() => {
+    if (exactTimeRange) {
+      return `timeline - ${formatDateTimeInTimeZone(exactTimeRange.start, timeZone, { seconds: true })} to ${formatDateTimeInTimeZone(exactTimeRange.endExclusive, timeZone, { seconds: true })}`;
+    }
     const now = new Date();
     const fallbackFrom = startOfDay(subDays(now, 7));
     const fallbackTo = endOfDay(now);
@@ -2295,12 +2327,12 @@ export function TimeTrackerTable({
       toDate,
       "yyyy-MM-dd"
     )}`;
-  }, [date?.from, date?.to]);
+  }, [date?.from, date?.to, exactTimeRange, timeZone]);
   const pinnedSelectionTitle = "deeplog - New Pinned Timer Selection";
 
   // Watch for URL changes and update date range accordingly
   React.useEffect(() => {
-    const urlDateRange = getDateRangeFromSearchParams(searchParams);
+    const urlDateRange = getDateRangeFromSearchParams(searchParams, timeZone);
 
     if (!urlDateRange) {
       // A URL without a complete valid range is the rolling view. Keeping
@@ -6373,8 +6405,8 @@ export function TimeTrackerTable({
 
       // Only show main loading state for initial loads, not infinite scroll
       if (showLoadingState && resetData) setLoading(true);
-      const fromDate = format(date.from, "yyyy-MM-dd");
-      const toDate = format(date.to, "yyyy-MM-dd");
+      const fromDate = date.fromValue ?? format(date.from, "yyyy-MM-dd");
+      const toDate = date.toValue ?? format(date.to, "yyyy-MM-dd");
 
       // A manual resync refreshes every page the user has already loaded in
       // one request. Normal resets (such as a date change) still start at one
@@ -6390,7 +6422,7 @@ export function TimeTrackerTable({
       try {
         setSyncStatus("syncing");
         const response = await fetch(
-          `/api/time-entries?from_date=${fromDate}&to_date=${toDate}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}`,
+          `/api/time-entries?from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}`,
           {
             cache: "no-store",
             headers: {
@@ -6925,20 +6957,22 @@ export function TimeTrackerTable({
       fetchData(true, true); // Show loading, reset data
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]); // Note: fetchData is intentionally not in deps to avoid infinite loop
+  }, [date, timeZone]); // Note: fetchData is intentionally not in deps to avoid infinite loop
 
   // Update URL query params when date range changes
   React.useEffect(() => {
     if (!isRollingDateRange && date?.from && date?.to) {
       const params = new URLSearchParams(window.location.search);
-      const fromStr = format(date.from, "yyyy-MM-dd");
-      const toStr = format(date.to, "yyyy-MM-dd");
+      const fromStr = date.fromValue ?? format(date.from, "yyyy-MM-dd");
+      const toStr = date.toValue ?? format(date.to, "yyyy-MM-dd");
 
       params.set("from", fromStr);
       params.set("to", toStr);
 
-      const newUrl = `${window.location.pathname}?${params.toString()}`;
-      window.history.replaceState({}, "", newUrl);
+      const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+      if (newUrl !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+        window.history.replaceState({}, "", newUrl);
+      }
     }
   }, [date, isRollingDateRange]);
 
@@ -8989,6 +9023,18 @@ export function TimeTrackerTable({
             </>
           )}
         </div>
+
+        {exactTimeRange && (
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="datetime-range"
+            title={`${date?.fromValue} → ${date?.toValue}`}
+          >
+            Time window: {formatDateTimeInTimeZone(exactTimeRange.start, timeZone, { seconds: true })}
+            {" → "}{formatDateTimeInTimeZone(exactTimeRange.endExclusive, timeZone, { seconds: true })} ({timeZone}).
+            {" "}Showing overlapping entries; end time is exclusive.
+          </p>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
