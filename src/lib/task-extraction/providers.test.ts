@@ -41,8 +41,12 @@ test('AI must return a complete result and explicit tasks array', async () => {
       await assert.rejects(createProviders(keys).extract('recording'));
     });
   }
-  await mock([Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"tasks":[]}' } }] })], async () => {
+  await mock([Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"tasks":[]}' } }] })], async calls => {
     assert.deepEqual(await createProviders(keys).extract('recording'), []);
+    const payload = JSON.parse(String(calls[0].init?.body));
+    assert.equal(payload.model, 'gpt-6.1-sol');
+    assert.equal(payload.reasoning_effort, 'xhigh');
+    assert.deepEqual(payload.response_format, { type: 'json_object' });
   });
 });
 

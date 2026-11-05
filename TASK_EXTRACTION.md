@@ -120,7 +120,10 @@ disk. Repeated POSTs resume pending rolling scans and unfinished backfills, and
 process known pending/failed recordings regardless of their age. Large backlogs
 need repeated invocations; HTTP success does not mean the entire backlog is done.
 
-All spoken transcript content is analyzed, without a keyword gate. Long content
+All spoken transcript content is analyzed, without a keyword gate. Both production
+and preview extraction use `gpt-6.1-sol` with `xhigh` reasoning.
+Previously saved extraction results are retained; use targeted reprocessing to
+evaluate an already-processed recording with the new model. Long content
 is split into 12,000-character chunks with 1,000 characters of overlap. Finished
 chunks are not extracted again on retry. Empty/missing speech waits for source
 updates; an explicit, valid AI `tasks: []` result completes a nonempty chunk.
