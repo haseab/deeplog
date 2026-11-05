@@ -3,6 +3,7 @@
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
+import { formatTimeEntryRangeLabel } from "@/lib/time-entry-range-label";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
 import { useTimezonePreference } from "@/hooks/use-timezone-preference";
@@ -902,6 +903,8 @@ function useAlternatingDateRangeSelection(
 const MemoizedDatePickerRow = React.memo(
   function MemoizedDatePickerRow({
     date,
+    exactRangeLabel,
+    exactRangeTitle,
     setDate,
     syncStatus,
     lastSyncTime,
@@ -931,12 +934,16 @@ const MemoizedDatePickerRow = React.memo(
                 id="date"
                 variant={"outline"}
                 className={cn(
-                  "w-[300px] justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
+                  "min-w-[300px] w-auto max-w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] hover:shadow-sm",
                   !date && "text-muted-foreground"
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-                {date?.from ? (
+                {exactRangeLabel ? (
+                  <span className="min-w-0 whitespace-normal leading-tight" data-testid="datetime-range" title={exactRangeTitle}>
+                    {exactRangeLabel}
+                  </span>
+                ) : date?.from ? (
                   date.to ? (
                     <>
                       {format(date.from, "LLL dd, y")} -{" "}
@@ -1051,6 +1058,8 @@ const MemoizedDatePickerRow = React.memo(
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
+      prevProps.exactRangeLabel === nextProps.exactRangeLabel &&
+      prevProps.exactRangeTitle === nextProps.exactRangeTitle &&
       prevProps.syncStatus === nextProps.syncStatus &&
       prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
       prevProps.encryption.isE2EEEnabled ===
@@ -1065,6 +1074,8 @@ const MemoizedDatePickerRow = React.memo(
 const MemoizedMobileDatePickerRow = React.memo(
   function MemoizedMobileDatePickerRow({
     date,
+    exactRangeLabel,
+    exactRangeTitle,
     setDate,
   }: MemoizedMobileDatePickerRowProps) {
     const { draftRange, handleDayClick } =
@@ -1078,12 +1089,16 @@ const MemoizedMobileDatePickerRow = React.memo(
               id="date-mobile"
               variant={"outline"}
               className={cn(
-                "w-full justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
+                "w-full h-auto min-h-9 py-2 justify-start text-left font-normal border-border/60 hover:border-border transition-all duration-200",
                 !date && "text-muted-foreground"
               )}
             >
               <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-              {date?.from ? (
+              {exactRangeLabel ? (
+                <span className="min-w-0 whitespace-normal leading-tight" data-testid="datetime-range" title={exactRangeTitle}>
+                  {exactRangeLabel}
+                </span>
+              ) : date?.from ? (
                 date.to ? (
                   <>
                     {format(date.from, "MMM dd")} -{" "}
@@ -1130,7 +1145,9 @@ const MemoizedMobileDatePickerRow = React.memo(
   ) => {
     return (
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
-      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime()
+      prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
+      prevProps.exactRangeLabel === nextProps.exactRangeLabel &&
+      prevProps.exactRangeTitle === nextProps.exactRangeTitle
     );
   }
 );
@@ -2312,6 +2329,12 @@ export function TimeTrackerTable({
       : null,
     [date?.fromValue, date?.toValue, timeZone]
   );
+
+  const exactRangeLabel = React.useMemo(
+    () => exactTimeRange ? formatTimeEntryRangeLabel(exactTimeRange, timeZone) : undefined,
+    [exactTimeRange, timeZone]
+  );
+  const exactRangeTitle = exactTimeRange ? `${date?.fromValue} → ${date?.toValue}` : undefined;
 
   const fallbackTimelineTitle = React.useMemo(() => {
     if (exactTimeRange) {
@@ -8983,6 +9006,8 @@ export function TimeTrackerTable({
             <>
               {/* Desktop layout - single row */}
               <MemoizedDatePickerRow
+                exactRangeLabel={exactRangeLabel}
+                exactRangeTitle={exactRangeTitle}
                 date={date}
                 setDate={handleDateChange}
                 syncStatus={syncStatus}
@@ -9002,6 +9027,8 @@ export function TimeTrackerTable({
               {/* Mobile layout - two rows */}
               <div className="md:hidden space-y-3">
                 <MemoizedMobileDatePickerRow
+                  exactRangeLabel={exactRangeLabel}
+                  exactRangeTitle={exactRangeTitle}
                   date={date}
                   setDate={handleDateChange}
                 />
@@ -9023,18 +9050,6 @@ export function TimeTrackerTable({
             </>
           )}
         </div>
-
-        {exactTimeRange && (
-          <p
-            className="text-sm text-muted-foreground"
-            data-testid="datetime-range"
-            title={`${date?.fromValue} → ${date?.toValue}`}
-          >
-            Time window: {formatDateTimeInTimeZone(exactTimeRange.start, timeZone, { seconds: true })}
-            {" → "}{formatDateTimeInTimeZone(exactTimeRange.endExclusive, timeZone, { seconds: true })} ({timeZone}).
-            {" "}Showing overlapping entries; end time is exclusive.
-          </p>
-        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

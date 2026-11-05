@@ -6,6 +6,7 @@ await page.setViewport({ width: 1280, height: 900 });
 await page.emulateTimezone("UTC");
 await page.evaluateOnNewDocument(() => {
   localStorage.setItem("toggl_session_token", "datetime-range-test");
+  localStorage.setItem("theme", "dark");
   localStorage.setItem("deeplog_timezone_mode", "custom");
   localStorage.setItem("deeplog_custom_timezone", "America/Los_Angeles");
 });
@@ -57,6 +58,10 @@ await page.goto(url);
 await page.waitForSelector("[data-testid=datetime-range]", { timeout: 15000 });
 await page.waitForSelector("tr[data-entry-id='1']", { timeout: 15000 });
 checkBounds(from, to);
+const dateLabel = await page.evaluate(() => document.querySelector("#date").textContent);
+check(dateLabel.includes("Nov 2, 2026") && dateLabel.includes("9:00") && dateLabel.includes("10:00"), "Date control lost the exact time range");
+check(!await page.evaluate(() => document.body.textContent.includes("Showing overlapping entries")), "Verbose range banner is still visible");
+check(await page.evaluate(() => document.querySelector("#date [data-testid=datetime-range]") !== null), "Exact range must live inside the date control");
 check(new URL(page.url()).hash === "#entries", "URL update dropped the hash");
 await page.snapshot();
 
@@ -143,9 +148,23 @@ check(/^\d{4}-\d{2}-\d{2}$/.test(calendarParams.get("to")), "Calendar kept a dat
 checkBounds(calendarParams.get("from"), calendarParams.get("to"));
 check(calendarParams.get("keep") === "yes", "URL update dropped unrelated parameters");
 check(writes === 0, "Viewing the range wrote time-entry data");
-console.log("PASS: datetime URL/API precision, selected timezone, reload, pagination, resync, same-day navigation, back/forward, calendar reset, no writes");
+console.log("PASS: compact date control without a banner, datetime URL/API precision, selected timezone, reload, pagination, resync, same-day navigation, back/forward, calendar reset, no writes");
 await page.goto(url);
 await page.waitForSelector("[data-testid=datetime-range]");
 await page.waitForSelector("tr[data-entry-id='1']");
+// Hide the development-only React Scan canvas for the layout captures.
+await page.evaluate(() => {
+  const style = document.createElement("style");
+  style.textContent = "body > canvas { visibility: hidden !important; }";
+  document.head.appendChild(style);
+});
 await page.shot({ type: "jpeg", maxEdge: 1280, quality: 75 });
-console.log("Screenshot captured.");
+await page.setViewport({ width: 390, height: 844 });
+check(await page.evaluate(() => {
+  const control = document.querySelector("#date-mobile");
+  const bounds = control.getBoundingClientRect();
+  return control.textContent.includes("9:00") && control.textContent.includes("10:00")
+    && bounds.left >= 0 && bounds.right <= window.innerWidth;
+}), "Mobile date control must show the time range within the viewport");
+await page.shot({ type: "jpeg", maxEdge: 900, quality: 80 });
+console.log("Desktop and mobile screenshots captured.");

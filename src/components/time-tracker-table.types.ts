@@ -144,6 +144,8 @@ export interface MemoizedActionsCellProps {
 
 export interface MemoizedDatePickerRowProps {
   date: DateRange | undefined;
+  exactRangeLabel?: string;
+  exactRangeTitle?: string;
   setDate: (date: DateRange | undefined) => void;
   syncStatus?:
     | "synced"
@@ -166,6 +168,8 @@ export interface MemoizedDatePickerRowProps {
 
 export interface MemoizedMobileDatePickerRowProps {
   date: DateRange | undefined;
+  exactRangeLabel?: string;
+  exactRangeTitle?: string;
   setDate: (date: DateRange | undefined) => void;
 }
 
