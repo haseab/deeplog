@@ -5,6 +5,14 @@ open source software
 
 uses toggl in the backend
 
+## Recording task extraction
+
+Task extraction runs on Railway with a persistent volume, using a per-recording
+filesystem ledger instead of the legacy processed timestamp. It rescans seven
+days, resumes older incomplete work, and records individual Todoist deliveries.
+See [TASK_EXTRACTION.md](TASK_EXTRACTION.md) for volume configuration, migration,
+backfills, status, and recovery. The extraction route cannot run on Vercel.
+
 ### Search time entries
 
 `GET /api/time-entries/search?q=planning&from_date=2026-10-01&to_date=2026-10-31`

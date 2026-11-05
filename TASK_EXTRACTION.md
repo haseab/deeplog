@@ -1,297 +1,216 @@
-# Task Extraction Cron Endpoint
+# Recording task extraction
 
-## Overview
+`POST /api/cron/extract-tasks` inventories Limitless recordings and creates tasks
+in the Todoist project named `task-extraction`. `GET` on the same endpoint reports
+coverage and unresolved work. Both require `Authorization: Bearer <CRON_SECRET>`.
 
-This endpoint automatically extracts tasks from Limitless transcripts and creates them in Todoist. It's designed to be triggered periodically by external cron services.
+## Railway deployment
 
-## Endpoint
+1. Use the existing persistent volume attached to the **Railway service executing
+   this route**. Production project `deeplog` has `deeplog-volume` mounted at
+   `/app/data` on service `deeplog` (verified with `rw personal volume`). Use one
+   service instance and one shared ledger directory.
+2. Extraction automatically uses `<RAILWAY_VOLUME_MOUNT_PATH>/task-extraction`.
+   Railway supplies this variable for attached volumes; no additional path variable
+   is required. The existing production volume therefore stores the ledger in
+   `/app/data/task-extraction`. An optional absolute `TASK_EXTRACTION_DATA_DIR` overrides
+   the default but must remain inside the attached volume. Production refuses
+   to fall back to the app's ordinary filesystem when no volume/path is configured.
+3. Set `CRON_SECRET`, `LIMITLESS_API_KEY`, `OPENAI_API_KEY`, and `TODOIST_API_KEY` in
+   the service's environment. Create exactly one Todoist project named
+   `task-extraction`. Keep credentials out of source control.
+4. The scheduler defaults to `https://deeplog.app/api/cron/extract-tasks`, which
+   is served by Railway. Set `DEEPLOG_CRON_SECRET` to the same secret. If extraction
+   moves to another Railway service, override `DEEPLOG_EXTRACTION_URL` with its
+   full HTTPS endpoint URL. The hourly worker still triggers extraction every
+   three hours (UTC).
+5. Enable volume backups and verify GET reports state after a redeployment.
+   A volume is persistent storage, not a backup. Never remove the ledger as a
+   way of retrying work.
 
+The frontend can remain on Vercel. Real extraction refuses to run there: Vercel
+functions cannot host this persistent local ledger. Synthetic AI dry runs do not
+need ledger storage. The app's ordinary deployment directory is not used for
+production state. See [Railway volumes](https://docs.railway.com/volumes).
+
+Locally, the default is `data/task-extraction/`, ignored by Git. Tests use isolated
+temporary directories and mocked providers; they create no real Todoist tasks.
+The local development server remains `http://localhost:3020` (`npm run dev`).
+
+## Migration and first run
+
+`data/processed-tasks.json` is now legacy reference only. It is neither read nor
+updated. Its timestamp is not evidence that individual recordings succeeded.
+The new ledger initially scans the last seven days (plus one preceding day for
+boundary context). It does not automatically process the entire historical archive.
+
+Existing Todoist tasks from the old extractor have no reliable source mapping.
+They cannot be safely deduplicated automatically. Before enabling the regular
+scheduler, run discovery and draft extraction, inspect the results against
+existing Todoist tasks, and link already-created tasks as described below.
+Do not enable automatic delivery until this initial overlap has been reconciled.
+
+Request bodies:
+
+```json
+{"discoveryOnly":true}
 ```
-POST /api/cron/extract-tasks
+
+Fetches and saves recordings without calling the AI or creating tasks.
+
+```json
+{"draftOnly":true}
 ```
 
-## Authentication
+Fetches recordings and saves extracted candidates without sending them to
+Todoist. GET lists pending candidates and IDs. Link known legacy Todoist tasks
+using `resolveDelivery` with `todoistId` below; pending drafts can be linked too.
+Normal `{}` runs deliver pending candidates, so keep the scheduler disabled
+during review. Discovery/draft modes apply to one invocation; they do not
+permanently disable delivery by other callers.
 
-The endpoint requires a bearer token for security:
+## Normal catch-up
 
-```bash
-Authorization: Bearer YOUR_CRON_SECRET
-```
+Send `{}` to POST. A completed scan's end time helps choose the next discovery
+range; it is **not** a processing-completion flag. Each new rolling scan covers
+at least seven days. After a longer outage, it begins at the earlier of seven
+days ago and one day before the last completed rolling scan's end.
 
-Set `CRON_SECRET` in your environment variables (`.env.local`):
+Discovery splits the range into daily windows, includes a preceding day for
+recordings near boundaries, and follows every pagination cursor. Each page's
+recordings are saved before its cursor advances. A failed page is retried, not
+marked covered. Duplicate pages are harmless because source IDs and content
+hashes identify recordings. Invalid pages and repeated cursors fail the scan.
 
-```env
-CRON_SECRET=your-random-secret-string-here
-```
+Each request attempts at most eight pages and ten recordings, with a 210-second
+work budget plus time for an in-flight provider call. Unfinished work remains on
+disk. Repeated POSTs resume pending rolling scans and unfinished backfills, and
+process known pending/failed recordings regardless of their age. Large backlogs
+need repeated invocations; HTTP success does not mean the entire backlog is done.
 
-## Required Environment Variables
+All spoken transcript content is analyzed, without a keyword gate. Long content
+is split into 12,000-character chunks with 1,000 characters of overlap. Finished
+chunks are not extracted again on retry. Empty/missing speech waits for source
+updates; an explicit, valid AI `tasks: []` result completes a nonempty chunk.
+Incomplete or malformed AI responses remain retryable failures.
 
-```env
-# Cron authentication
-CRON_SECRET=your-secret-here
+Tasks are saved before delivery. Each task's `sending` state is saved before
+its Todoist request, and the confirmed Todoist ID is saved immediately after.
+Explicit rejections (including rate limiting) stay retryable. A timeout, 5xx,
+malformed success, or interrupted `sending` task becomes `needs_review`.
+These are never blindly sent again. Successful tasks are not recreated on retry.
+Task descriptions include the recording ID, timestamp and `[DeepLog:<task-id>]`
+marker so uncertain deliveries can be found in Todoist, including completed tasks.
 
-# API Keys
-LIMITLESS_API_KEY=your-limitless-api-key
-OPENAI_API_KEY=sk-...
-TODOIST_API_KEY=your-todoist-api-key
-```
-
-## How It Works
-
-1. **Loads State**: Reads `data/processed-tasks.json` to get the last processed timestamp and transcript IDs
-2. **Fetches All Transcripts**: Paginates through Limitless API to fetch ALL transcripts since last run (not just 50!)
-3. **Filters Duplicates**: Skips transcripts that have already been processed
-4. **Scans for Keywords**: Looks for trigger phrases like:
-   - "create a task"
-   - "remind me"
-   - "todo" / "to do"
-   - "i need to"
-   - "don't forget"
-   - "remember to"
-   - etc.
-5. **Extracts Context**: Gets line before + matching line + line after for better understanding
-6. **AI Processing**: Sends context to GPT-5.6 Luna to generate concise, actionable tasks
-7. **Creates in Todoist**: Automatically creates tasks with labels "auto-extracted" and "from-transcript"
-8. **Saves State**: Updates `data/processed-tasks.json` with new timestamp and processed IDs
-
-## State Management
-
-The endpoint maintains state in `data/processed-tasks.json`:
+## Historical backfills
 
 ```json
 {
-  "lastProcessedTimestamp": "2025-10-07T12:34:56.789Z",
-  "processedTranscriptIds": ["id1", "id2", "..."]
+  "startDate":"2026-10-01T00:00:00.000Z",
+  "endDate":"2026-11-01T00:00:00.000Z",
+  "draftOnly":true
 }
 ```
 
-This ensures:
-- No duplicate processing
-- No missed transcripts (continuous coverage)
-- Efficient processing (only new content)
+A fixed range is resumable. Repeat the same body until its scan is completed and
+its recordings have been processed. `endDate` is optional; the first request
+captures a fixed end and subsequent requests with the same start resume it.
+Backfills include preceding-day context, so discovery can include recordings
+starting before the requested start. Backfills are additive and do not reset
+existing delivery history. Pending work from other ranges can also be processed.
+After migration review, use `{}` to resume automatic delivery.
 
-The file keeps last 1000 transcript IDs to prevent it from growing too large.
+Seven-day rescanning is a bounded recovery policy: recordings arriving late or
+changing outside that window need an explicit backfill/reconciliation scan.
+Only history still exposed by Limitless can be recovered. A successful AI call
+cannot guarantee that every intended task was recognized.
 
-## Usage Examples
+## Ledger and status
 
-### Manual Trigger (for testing)
+- `record-<hashed-source-id>.json`: recording ID, current version, all retained
+  transcript versions, chunk results/attempts, task candidates/delivery IDs,
+  status, and timestamped events. Source IDs are hashed for filenames.
+- `scan-<uuid>.json`: fixed discovery range, window position, cursor, page count,
+  and completion time. Completed scans remain available for auditing.
+- `run.lock/owner.json`: exclusive run lock with PID and start time.
 
-```bash
-curl -X POST http://localhost:3020/api/cron/extract-tasks \
-  -H "Authorization: Bearer your-cron-secret" \
-  -H "Content-Type: application/json"
-```
+Recordings are `pending`, `completed`, `failed`, `needs_review`, or
+`awaiting_transcript`. A recording completes only when every current chunk has
+an explicit result and all current candidates are confirmed delivered (or none
+were extracted). Unresolved uncertain deliveries also prevent completion.
 
-### Synthetic Transcript Dry Run
+Unchanged completed recordings are skipped. Changed spoken content creates a
+new retained version. Exact normalized task text reuses existing delivery IDs;
+unmatched tasks after an earlier delivered version are held for review to avoid
+blindly creating duplicates with changed wording. No semantic deduplication
+across different recordings is claimed. Previous tasks are never deleted.
 
-Pass `testTranscript` to exercise the same keyword matching and OpenAI
-extraction pipeline without fetching Limitless transcripts, creating Todoist
-tasks, or advancing the processed timestamp:
+To correct a suspected extraction mistake, POST
+`{"reprocessRecordingId":"source-id"}`. This queues a fresh extraction attempt
+from the stored transcript and retains the previous results. A subsequent normal
+or draft run processes it. Previously confirmed deliveries are retained; new
+wording after an earlier delivery is held for review. For source corrections,
+rescan the relevant date range to fetch the updated transcript first.
 
-```bash
-curl -X POST http://localhost:3020/api/cron/extract-tasks \
-  -H "Authorization: Bearer your-cron-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"testTranscript":"Remind me to send Alex the revised contract tomorrow morning."}'
-```
+GET returns counts, scans and unresolved task candidates. Use
+`?recordingId=<URL-encoded-source-id>` to inspect a recording's full history,
+including transcript text. These endpoints are authenticated and uncached.
+POST returns 503 with `success:false` for discovery errors, failed recordings,
+or review-required deliveries; normal unfinished batches return 200 with
+pending counts. Lock contention returns 409. Corrupt/unreadable state fails
+closed instead of replacing it with a fresh checkpoint.
 
-The response includes `dryRun: true` and an `extractedTasks` array. Synthetic
-transcripts are limited to 20,000 characters.
+## Resolving deliveries
 
-To create real Todoist tasks from the synthetic transcript, explicitly pass
-`createTestTasks: true`:
-
-```bash
-curl -X POST http://localhost:3020/api/cron/extract-tasks \
-  -H "Authorization: Bearer your-cron-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"testTranscript":"Remind me to verify the DeepLog task extractor.","createTestTasks":true}'
-```
-
-This still does not fetch Limitless transcripts or advance the processed
-timestamp, but it creates tasks using the production Todoist settings.
-
-### With External Cron Services
-
-#### 1. **EasyCron** (https://www.easycron.com/)
-- Create new cron job
-- URL: `https://yourdomain.com/api/cron/extract-tasks`
-- Method: POST
-- Headers: `Authorization: Bearer your-cron-secret`
-- Schedule: Every hour (`0 * * * *`)
-
-#### 2. **GitHub Actions** (Free for public repos)
-
-Create `.github/workflows/extract-tasks.yml`:
-
-```yaml
-name: Extract Tasks
-on:
-  schedule:
-    - cron: '0 * * * *'  # Every hour
-  workflow_dispatch:  # Allow manual trigger
-
-jobs:
-  extract:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger task extraction
-        run: |
-          curl -X POST ${{ secrets.APP_URL }}/api/cron/extract-tasks \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-```
-
-Add secrets in GitHub repo settings:
-- `APP_URL`: Your deployment URL
-- `CRON_SECRET`: Your cron secret
-
-#### 3. **Vercel Cron** (Recommended for Vercel deploys)
-
-Add to `vercel.json`:
+Inspect the recording and check Todoist for the exact DeepLog marker, including
+completed tasks. Once found, record its ID (also supports linking a pending draft
+to a known legacy task):
 
 ```json
-{
-  "crons": [{
-    "path": "/api/cron/extract-tasks",
-    "schedule": "0 * * * *"
-  }]
-}
+{"resolveDelivery":{"recordingId":"source-id","taskId":"candidate-uuid","todoistId":"confirmed-todoist-id"}}
 ```
 
-Note: Vercel Cron requires Pro plan ($20/month)
-
-#### 4. **Uptime Robot** (Free tier available)
-
-- Create HTTP(s) monitor
-- URL: `https://yourdomain.com/api/cron/extract-tasks`
-- Monitor Type: HTTP(s)
-- Custom HTTP Headers: `Authorization: Bearer your-cron-secret`
-- POST Body: `{}`
-- Interval: Every 60 minutes
-
-## Response Format
-
-### Success Response
+If you have verified that no task was created (or approved a genuinely new task
+from a changed transcript), explicitly authorize a retry:
 
 ```json
-{
-  "success": true,
-  "totalTranscripts": 45,
-  "newTranscripts": 12,
-  "potentialTasks": 5,
-  "createdTasks": 4,
-  "tasks": [
-    {
-      "task": "Review quarterly report before Friday",
-      "todoistId": "7654321",
-      "transcriptId": "abc123"
-    }
-  ],
-  "processedRange": {
-    "start": "2025-10-07T10:00:00.000Z",
-    "end": "2025-10-07T11:00:00.000Z"
-  }
-}
+{"resolveDelivery":{"recordingId":"source-id","taskId":"candidate-uuid","confirmNotCreated":true}}
 ```
 
-### No New Transcripts
+Resolution is an audited operator assertion; it does not independently verify
+Todoist. Retry confirmation applies only to review-required tasks. A subsequent
+normal run resumes processing. Do not retry just because a task is absent from
+the active task list: it may already be completed or deleted.
+
+## Crash and storage recovery
+
+Writes use same-directory temporary files, fsync, rename, and directory fsync.
+A single atomic directory lock prevents concurrent processing; locks do not
+expire while a slow process could still be delivering tasks.
+
+After a hard crash, the lock deliberately remains. Stop/disable extraction and
+confirm **no old extractor is running**, inspect `run.lock/owner.json`, then
+remove only the `run.lock` directory inside the configured ledger directory.
+Restart extraction. Interrupted deliveries will require review. Never remove a
+lock solely because its timestamp is old, and never delete recording files.
+On disk-full/permissions errors, repair storage first, then resume.
+
+Back up the whole ledger together. Restoring an old backup can lose delivery
+acknowledgements; reconcile Todoist before delivering again. Transcript text is
+stored on the volume (files mode 0600); restrict volume/backup access accordingly.
+
+## Synthetic test
 
 ```json
-{
-  "message": "No new transcripts to process",
-  "totalFetched": 0,
-  "newTranscripts": 0
-}
+{"testTranscript":"Remind me to send Alex the contract tomorrow."}
 ```
 
-### Error Response
+Calls extraction without fetching recordings, writing the ledger, or creating
+Todoist tasks. `createTestTasks:true` is no longer supported.
 
-```json
-{
-  "error": "Failed to extract tasks",
-  "details": "Error message here"
-}
+## Verification
+
+```sh
+npx tsx --test src/lib/task-extraction/*.test.ts src/app/api/cron/extract-tasks/route.test.ts
+npx tsc --noEmit --incremental false
 ```
-
-## Monitoring & Logs
-
-The endpoint logs to console:
-- Timestamp ranges being processed
-- Number of transcripts fetched
-- Number of tasks found and created
-- Any errors during processing
-
-Check your deployment logs to monitor execution.
-
-## Testing
-
-1. **First Run** (processes last 24 hours):
-```bash
-curl -X POST http://localhost:3020/api/cron/extract-tasks \
-  -H "Authorization: Bearer your-cron-secret" \
-  -H "Content-Type: application/json" \
-  | jq
-```
-
-2. **Subsequent Runs** (processes since last run):
-```bash
-# Run again - should show "No new transcripts"
-curl -X POST http://localhost:3020/api/cron/extract-tasks \
-  -H "Authorization: Bearer your-cron-secret" \
-  -H "Content-Type: application/json" \
-  | jq
-```
-
-3. **Reset State** (to reprocess everything):
-```bash
-rm data/processed-tasks.json
-```
-
-## Customization
-
-### Add More Trigger Keywords
-
-Edit `/src/app/api/cron/extract-tasks/route.ts`:
-
-```typescript
-const TASK_KEYWORDS = [
-  "create a task",
-  "remind me",
-  "your custom phrase here",
-  // ... add more
-];
-```
-
-### Change AI Model
-
-```typescript
-model: "gpt-4o",  // Use full GPT-4o instead of mini
-```
-
-### Adjust Task Labels
-
-```typescript
-labels: ["auto-extracted", "your-custom-label"],
-```
-
-## Troubleshooting
-
-### "Unauthorized" error
-- Check that `CRON_SECRET` is set in environment variables
-- Verify the Authorization header matches
-
-### "Missing required API keys" error
-- Set `LIMITLESS_API_KEY`, `OPENAI_API_KEY`, and `TODOIST_API_KEY` in `.env.local`
-
-### No tasks being created
-- Check logs to see if keywords are being found
-- Verify Todoist API key has write permissions
-- Check that transcripts actually contain trigger phrases
-
-### Duplicate tasks
-- Check `data/processed-tasks.json` exists and is being updated
-- Verify file write permissions
-
-### Too many tasks
-- Adjust trigger keywords to be more specific
-- Increase the context AI needs to consider something a task

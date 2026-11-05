@@ -1,634 +1,86 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
 import { NextRequest } from "next/server";
-import { join } from "path";
+import { Ledger, LedgerBusyError, ledgerDirectory, type Recording } from "@/lib/task-extraction/ledger";
+import { discover, processRecording, reprocessRecording, resolveDelivery, status } from "@/lib/task-extraction/pipeline";
+import { createProviders } from "@/lib/task-extraction/providers";
 
-// Trigger keywords to look for in transcripts
-const TASK_KEYWORDS = [
-  "create a task",
-  "remind me",
-  "todo",
-  "to do",
-  "task i need",
-  "i need to",
-  "don't forget",
-  "remember to",
-  "make sure to",
-  "add to my list",
-  "put on my list",
-  "schedule",
-  "deadline",
-  "due",
-];
+export const runtime = "nodejs";
+export const maxDuration = 300;
+const json = (body: unknown, code = 200) => Response.json(body, { status: code, headers: { "Cache-Control": "no-store" } });
+const authorized = (request: NextRequest) => Boolean(process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`);
+const failure = (error: unknown) => json({ success: false, error: error instanceof Error ? error.message : String(error) }, error instanceof LedgerBusyError ? 409 : 500);
 
-const TODOIST_TASK_EXTRACTION_PROJECT = "task-extraction";
-
-interface TodoistProject {
-  id: string;
-  name: string;
-}
-
-async function getTaskExtractionProjectId(apiKey: string): Promise<string> {
-  const params = new URLSearchParams({
-    query: TODOIST_TASK_EXTRACTION_PROJECT,
-    limit: "200",
-  });
-  const response = await fetch(
-    `https://api.todoist.com/api/v1/projects/search?${params.toString()}`,
-    {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    console.error(
-      "Todoist project lookup failed:",
-      response.status,
-      await response.text()
-    );
-    throw new Error("Failed to look up the Todoist task-extraction project");
-  }
-
-  const data = (await response.json()) as { results?: TodoistProject[] };
-  const project = data.results?.find(
-    ({ name }) =>
-      name.trim().toLowerCase() === TODOIST_TASK_EXTRACTION_PROJECT
-  );
-
-  if (!project?.id) {
-    throw new Error(
-      'Todoist project "task-extraction" was not found; no tasks were created'
-    );
-  }
-
-  return project.id;
-}
-
-interface ProcessedState {
-  lastProcessedTimestamp: string;
-}
-
-function getFallbackStartTimestamp(referenceTime = Date.now()): string {
-  return new Date(referenceTime - 24 * 60 * 60 * 1000).toISOString();
-}
-
-const PROCESSED_STATE_FILE = join(
-  process.cwd(),
-  "data",
-  "processed-tasks.json"
-);
-
-async function loadProcessedState(): Promise<ProcessedState> {
+export async function GET(request: NextRequest) {
+  if (!authorized(request)) return json({ error: "Unauthorized" }, 401);
   try {
-    const data = await readFile(PROCESSED_STATE_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    // File doesn't exist or error reading - return default state
-    return {
-      lastProcessedTimestamp: getFallbackStartTimestamp(),
-    };
-  }
-}
-
-async function saveProcessedState(state: ProcessedState): Promise<void> {
-  try {
-    // Ensure data directory exists
-    await mkdir(join(process.cwd(), "data"), { recursive: true });
-    await writeFile(PROCESSED_STATE_FILE, JSON.stringify(state, null, 2));
-  } catch (error) {
-    console.error("Error saving processed state:", error);
-  }
-}
-
-interface Transcript {
-  id: string;
-  startTime: string;
-  contents?: Array<{
-    type: string;
-    content?: string;
-    startTime?: string;
-    endTime?: string;
-  }>;
-}
-
-async function fetchAllTranscripts(
-  apiKey: string,
-  startDate: string,
-  endDate: string
-): Promise<Transcript[]> {
-  const allTranscripts: Transcript[] = [];
-  let cursor: string | null = null;
-  let hasMore = true;
-
-  console.log(`Fetching transcripts from ${startDate} to ${endDate}`);
-
-  while (hasMore) {
-    const params = new URLSearchParams({
-      start: startDate,
-      end: endDate,
-      limit: "100", // Max per request
-      direction: "desc",
-      includeMarkdown: "true",
-      includeHeadings: "true",
-      includeContents: "true",
-    });
-
-    if (cursor) {
-      params.append("cursor", cursor);
-    }
-
-    const url = `https://api.limitless.ai/v1/lifelogs?${params.toString()}`;
-
-    const response = await fetch(url, {
-      headers: {
-        "X-API-Key": apiKey,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Limitless API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log(
-      "Limitless API response:",
-      JSON.stringify(data).substring(0, 500)
-    );
-
-    // Log first transcript structure if available
-    if (data.data?.lifelogs?.[0]) {
-      console.log(
-        "First transcript contents sample:",
-        JSON.stringify(data.data.lifelogs[0].contents?.slice(0, 3), null, 2)
-      );
-    }
-
-    const transcripts = Array.isArray(data.data?.lifelogs)
-      ? data.data.lifelogs
-      : [];
-
-    allTranscripts.push(...transcripts);
-
-    // Check for pagination
-    cursor = data.meta?.lifelogs?.nextCursor || data.data?.cursor || null;
-    hasMore = !!cursor && transcripts.length > 0;
-
-    console.log(
-      `Fetched ${transcripts.length} transcripts, total: ${allTranscripts.length}`
-    );
-  }
-
-  return allTranscripts;
-}
-
-async function processUserTasks(
-  limitlessApiKey: string,
-  openaiApiKey: string,
-  todoistApiKey: string,
-  startDate?: string,
-  endDate?: string,
-  testTranscript?: string,
-  createTestTasks = false
-) {
-  console.log(`=== TASK EXTRACTION STARTED at ${new Date().toISOString()} ===`);
-
-  const isSyntheticTest = testTranscript !== undefined;
-  const isDryRun = isSyntheticTest && !createTestTasks;
-  const shouldPersistState = !startDate && !endDate && !isSyntheticTest;
-
-  const end = endDate || new Date().toISOString();
-  const endMs = Date.parse(end);
-
-  let state: ProcessedState | null = null;
-  if (!startDate && !isSyntheticTest) {
-    state = await loadProcessedState();
-    console.log("Loaded state:", state);
-  }
-
-  // Use provided dates or fall back to state tracking
-  let start =
-    startDate ||
-    (isSyntheticTest ? end : undefined) ||
-    state?.lastProcessedTimestamp ||
-    getFallbackStartTimestamp(Number.isNaN(endMs) ? Date.now() : endMs);
-
-  const startMs = Date.parse(start);
-  if (Number.isNaN(startMs) || Number.isNaN(endMs) || startMs > endMs) {
-    const fallbackStart = getFallbackStartTimestamp(
-      Number.isNaN(endMs) ? Date.now() : endMs
-    );
-    console.warn(
-      `Invalid date range detected (${start} to ${end}). Resetting start to ${fallbackStart}`
-    );
-    start = fallbackStart;
-  }
-
-  console.log(`Date range: ${start} to ${end}`);
-
-  // A synthetic transcript exercises the same extraction pipeline without
-  // fetching Limitless data, creating Todoist tasks, or advancing state.
-  const allTranscripts: Transcript[] = isSyntheticTest
-    ? [
-        {
-          id: "synthetic-test-transcript",
-          startTime: start,
-          contents: [
-            {
-              type: "blockquote",
-              content: testTranscript,
-              startTime: start,
-              endTime: end,
-            },
-          ],
-        },
-      ]
-    : await fetchAllTranscripts(limitlessApiKey, start, end);
-
-  console.log(`Found ${allTranscripts.length} total transcripts`);
-
-  if (allTranscripts.length === 0) {
-    return {
-      syntheticTest: isSyntheticTest,
-      dryRun: isDryRun,
-      totalTranscripts: 0,
-      potentialTasks: 0,
-      createdTasks: 0,
-      tasks: [],
-      extractedTasks: [],
-      processedRange: {
-        start,
-        end,
-      },
-    };
-  }
-
-  // Extract relevant contexts around keyword matches
-  interface SegmentWithTimestamp {
-    content: string;
-    timestamp: string;
-    startTime?: string;
-    endTime?: string;
-  }
-
-  const relevantContexts: string[] = [];
-  const usedSegmentIndices = new Set<string>(); // Track which segments we've already included
-
-  for (const transcript of allTranscripts) {
-    const allContents = transcript.contents || [];
-
-    // Get all blockquote segments with timestamps
-    const segments: SegmentWithTimestamp[] = allContents
-      .filter((c) => c.type === "blockquote" && c.content?.trim())
-      .map((c) => ({
-        content: c.content!,
-        timestamp: new Date(
-          c.startTime || transcript.startTime
-        ).toLocaleString(),
-        startTime: c.startTime,
-        endTime: c.endTime,
-      }));
-
-    // Find segments with task keywords and extract context
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const contentLower = segment.content.toLowerCase();
-      const hasKeyword = TASK_KEYWORDS.some((keyword) =>
-        contentLower.includes(keyword)
-      );
-
-      if (hasKeyword) {
-        // Build context: previous + current + next
-        const contextLines: string[] = [];
-        const contextKey = `${transcript.id}-${i}`;
-
-        // Skip if we've already included this segment in a context
-        if (usedSegmentIndices.has(contextKey)) continue;
-
-        // Add previous segment if exists
-        if (i > 0) {
-          usedSegmentIndices.add(`${transcript.id}-${i - 1}`);
-
-          // Calculate silence before current segment
-          if (segments[i - 1].endTime && segments[i].startTime) {
-            const silenceMs =
-              new Date(segments[i].startTime!).getTime() -
-              new Date(segments[i - 1].endTime!).getTime();
-            const silenceSeconds = Math.round(silenceMs / 1000);
-            if (silenceSeconds >= 5) {
-              contextLines.push(`[${silenceSeconds}s silence before]`);
-            }
-          }
-
-          contextLines.push(
-            `[${segments[i - 1].timestamp}] ${segments[i - 1].content}`
-          );
-        }
-
-        // Add current segment
-        usedSegmentIndices.add(contextKey);
-        contextLines.push(`[${segment.timestamp}] ${segment.content}`);
-
-        // Add next segment if exists
-        if (i < segments.length - 1) {
-          usedSegmentIndices.add(`${transcript.id}-${i + 1}`);
-
-          // Calculate silence after current segment
-          if (segment.endTime && segments[i + 1].startTime) {
-            const silenceMs =
-              new Date(segments[i + 1].startTime!).getTime() -
-              new Date(segment.endTime!).getTime();
-            const silenceSeconds = Math.round(silenceMs / 1000);
-            if (silenceSeconds >= 5) {
-              contextLines.push(`[${silenceSeconds}s silence after]`);
-            }
-          }
-
-          contextLines.push(
-            `[${segments[i + 1].timestamp}] ${segments[i + 1].content}`
-          );
-        }
-
-        relevantContexts.push(contextLines.join("\n"));
+    const ledger = new Ledger(ledgerDirectory());
+    return await ledger.withLock(async () => {
+      const id = request.nextUrl.searchParams.get("recordingId");
+      if (id) {
+        const record = await ledger.record(id);
+        return record ? json(record) : json({ error: "Recording not found" }, 404);
       }
-    }
-  }
-
-  console.log(`=== Found ${relevantContexts.length} keyword matches ===`);
-
-  // If no task keywords found, return early
-  if (relevantContexts.length === 0) {
-    console.log("No task keywords found, finishing without task creation");
-
-    if (shouldPersistState) {
-      await saveProcessedState({ lastProcessedTimestamp: end });
-    }
-    return {
-      syntheticTest: isSyntheticTest,
-      dryRun: isDryRun,
-      totalTranscripts: allTranscripts.length,
-      potentialTasks: 0,
-      createdTasks: 0,
-      tasks: [],
-      extractedTasks: [],
-      processedRange: {
-        start,
-        end,
-      },
-    };
-  }
-
-  // Deduplicate contexts (some might overlap if keywords are close together)
-  const uniqueContexts = Array.from(new Set(relevantContexts));
-  console.log(`Deduplicated to ${uniqueContexts.length} unique contexts`);
-
-  // Combine all contexts
-  const combinedContexts = uniqueContexts.join("\n\n---\n\n");
-
-  console.log();
-  console.log("=== Calling OpenAI API ===");
-  console.log(`Full context:\n${combinedContexts}`);
-  console.log();
-
-  const gptResponse = await fetch(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5.6-luna",
-        reasoning_effort: "xhigh",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a task extraction assistant. You will receive a conversation transcript with timestamps and silence gaps. Look for key phrases where someone mentions something they need to do or something they want to remember. However each task must be distinct and actionable. For instance 'Schedule a meeting' is too broad. However 'Schedule a meeting with John' is precise. Each task should be only one sentence. Return a JSON object with a 'tasks' array containing the task strings. It is ok to return no tasks if there are no actionable tasks in the conversation. Silence gaps (5+ seconds) indicate topic changes and help identify separate tasks.",
-          },
-          {
-            role: "user",
-            content: `Here are conversation snippets with key phrases. Create a list of actionable tasks:\n\n${combinedContexts}`,
-          },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    }
-  );
-
-  if (!gptResponse.ok) {
-    console.error("GPT API error:", await gptResponse.text());
-    throw new Error("Failed to call OpenAI API");
-  }
-
-  const gptData = await gptResponse.json();
-  const gptContent = gptData.choices[0]?.message?.content?.trim();
-
-  console.log("OpenAI response:", gptContent);
-
-  let aiTasks: string[] = [];
-  try {
-    const parsed = JSON.parse(gptContent || "{}");
-    aiTasks = (parsed.tasks || []).filter(
-      (t: string | null) => t !== null && t.trim() !== ""
-    );
-    console.log(`Parsed ${aiTasks.length} valid tasks from AI`);
-  } catch (error) {
-    console.error("Failed to parse AI response:", error);
-    throw new Error("Invalid AI response format");
-  }
-
-  // Deduplicate tasks
-  const uniqueTasks = new Set<string>();
-  const deduplicatedTasks: string[] = [];
-
-  for (const task of aiTasks) {
-    const normalizedContent = task.toLowerCase().trim();
-    if (!uniqueTasks.has(normalizedContent)) {
-      uniqueTasks.add(normalizedContent);
-      deduplicatedTasks.push(task);
-    }
-  }
-
-  console.log(`Deduplicated to ${deduplicatedTasks.length} unique tasks`);
-
-  // Create tasks in Todoist
-  console.log(
-    isDryRun
-      ? "=== Dry run: skipping Todoist task creation ==="
-      : "=== Creating Todoist tasks ==="
-  );
-  const createdTasks = [];
-  const taskExtractionProjectId =
-    !isDryRun && deduplicatedTasks.length > 0
-      ? await getTaskExtractionProjectId(todoistApiKey)
-      : null;
-
-  for (let i = 0; !isDryRun && i < deduplicatedTasks.length; i++) {
-    if (!taskExtractionProjectId) {
-      throw new Error(
-        "Todoist task-extraction project was not resolved; no tasks were created"
-      );
-    }
-    const taskContent = deduplicatedTasks[i];
-    console.log(`Creating task ${i + 1}: "${taskContent}"`);
-
-    try {
-      const todoistResponse = await fetch(
-        "https://api.todoist.com/api/v1/tasks",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${todoistApiKey}`,
-          },
-          body: JSON.stringify({
-            content: taskContent,
-            project_id: taskExtractionProjectId,
-            description: `Extracted from transcript on ${new Date(
-              end
-            ).toLocaleDateString()}`,
-            labels: ["auto-extracted", "from-transcript"],
-          }),
-        }
-      );
-
-      if (!todoistResponse.ok) {
-        console.error("Todoist API error:", await todoistResponse.text());
-        continue;
-      }
-
-      const todoistTask = await todoistResponse.json();
-      createdTasks.push({
-        task: taskContent,
-        todoistId: todoistTask.id,
-      });
-
-      console.log(
-        `✓ Created task in Todoist project ${TODOIST_TASK_EXTRACTION_PROJECT} (ID: ${todoistTask.id})`
-      );
-    } catch (error) {
-      console.error("Error creating Todoist task:", error);
-    }
-  }
-
-  // Update processed state with current end timestamp
-  if (shouldPersistState) {
-    await saveProcessedState({ lastProcessedTimestamp: end });
-  }
-
-  console.log(`=== TASK EXTRACTION COMPLETE ===`);
-  console.log(`Created ${createdTasks.length} tasks in Todoist`);
-
-  return {
-    syntheticTest: isSyntheticTest,
-    dryRun: isDryRun,
-    totalTranscripts: allTranscripts.length,
-    potentialTasks: aiTasks.length,
-    createdTasks: createdTasks.length,
-    tasks: createdTasks,
-    extractedTasks: deduplicatedTasks,
-    processedRange: {
-      start,
-      end,
-    },
-  };
+      return json(await status(ledger));
+    });
+  } catch (error) { return failure(error); }
 }
 
 export async function POST(request: NextRequest) {
+  if (!authorized(request)) return json({ error: "Unauthorized" }, 401);
   try {
-    // Verify authorization (simple secret token for security)
-    const authHeader = request.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET || "your-secret-here";
-
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Expected a JSON object" }, 400);
+    for (const flag of ["discoveryOnly", "draftOnly", "createTestTasks"]) {
+      if (body[flag] !== undefined && typeof body[flag] !== "boolean") return json({ error: `${flag} must be a boolean` }, 400);
     }
-
-    // Get credentials from environment
-    const limitlessApiKey = process.env.LIMITLESS_API_KEY;
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    const todoistApiKey = process.env.TODOIST_API_KEY;
-
-    if (!limitlessApiKey || !openaiApiKey || !todoistApiKey) {
-      return new Response(
-        JSON.stringify({
-          error: "Missing required API keys in environment variables",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+    if (body.createTestTasks) return json({ error: "Synthetic task creation is no longer supported" }, 400);
+    if (body.endDate && !body.startDate) return json({ error: "endDate requires startDate" }, 400);
+    for (const key of ["startDate", "endDate"]) {
+      if (body[key] !== undefined && (typeof body[key] !== "string" || !Number.isFinite(Date.parse(body[key])))) return json({ error: `${key} must be a valid ISO timestamp` }, 400);
     }
-
-    // Get optional date range from request body
-    const body = await request.json().catch(() => ({}));
-    const startDate = body.startDate;
-    const endDate = body.endDate;
-    const hasTestTranscript = Object.prototype.hasOwnProperty.call(
-      body,
-      "testTranscript"
-    );
-    const testTranscript =
-      typeof body.testTranscript === "string"
-        ? body.testTranscript.trim()
-        : undefined;
-
-    if (hasTestTranscript && !testTranscript) {
-      return new Response(
-        JSON.stringify({ error: "testTranscript must be a non-empty string" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+    if (body.startDate && Date.parse(body.startDate) >= Date.parse(body.endDate || new Date().toISOString())) return json({ error: "startDate must precede endDate" }, 400);
+    const keys = { limitless: process.env.LIMITLESS_API_KEY || "", openai: process.env.OPENAI_API_KEY || "", todoist: process.env.TODOIST_API_KEY || "" };
+    const providers = createProviders(keys);
+    if (body.testTranscript !== undefined) {
+      if (typeof body.testTranscript !== "string" || !body.testTranscript.trim() || body.testTranscript.length > 20_000) return json({ error: "testTranscript must contain 1–20,000 characters" }, 400);
+      if (!keys.openai) return json({ error: "OPENAI_API_KEY is required" }, 400);
+      return json({ success: true, dryRun: true, extractedTasks: await providers.extract(body.testTranscript) });
     }
-
-    if (testTranscript && testTranscript.length > 20_000) {
-      return new Response(
-        JSON.stringify({ error: "testTranscript must be 20,000 characters or fewer" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const createTestTasks = body.createTestTasks === true;
-
-    if (createTestTasks && !testTranscript) {
-      return new Response(
-        JSON.stringify({
-          error: "createTestTasks requires a valid testTranscript",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const result = await processUserTasks(
-      limitlessApiKey,
-      openaiApiKey,
-      todoistApiKey,
-      startDate,
-      endDate,
-      testTranscript,
-      createTestTasks
-    );
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        ...result,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
-  } catch (error) {
-    console.error("Task extraction error:", error);
-    return new Response(
-      JSON.stringify({
-        error: "Failed to extract tasks",
-        details: error instanceof Error ? error.message : String(error),
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
+    const ledger = new Ledger(ledgerDirectory());
+    return await ledger.withLock(async () => {
+      if (body.reprocessRecordingId !== undefined) {
+        if (typeof body.reprocessRecordingId !== "string" || !body.reprocessRecordingId) return json({ error: "reprocessRecordingId must be a recording ID" }, 400);
+        await reprocessRecording(ledger, body.reprocessRecordingId);
+        return json({ success: true, ...(await status(ledger)) });
+      }
+      if (body.resolveDelivery !== undefined) {
+        const input = body.resolveDelivery;
+        if (!input || typeof input !== "object" || typeof input.recordingId !== "string" || typeof input.taskId !== "string" ||
+          (input.todoistId !== undefined && (typeof input.todoistId !== "string" || !input.todoistId.trim())) ||
+          Boolean(input.todoistId) === (input.confirmNotCreated === true)) return json({ error: "Provide recordingId, taskId, and either todoistId or confirmNotCreated: true" }, 400);
+        await resolveDelivery(ledger, input);
+        return json({ success: true, ...(await status(ledger)) });
+      }
+      if (!keys.limitless || (!body.discoveryOnly && !keys.openai) || (!body.discoveryOnly && !body.draftOnly && !keys.todoist)) return json({ error: "Missing required API keys" }, 400);
+      const deadline = Date.now() + 210_000;
+      let discoveryError: string | undefined;
+      try { await discover(ledger, providers, { startDate: body.startDate, endDate: body.endDate, deadline }); }
+      catch (error) { discoveryError = String(error); }
+      // Known pending/failed recordings remain eligible regardless of age or scan range.
+      if (!body.discoveryOnly) {
+        const records = (await ledger.list<Recording>("record-")).filter(record => {
+          const version = record.versions.find(item => item.hash === record.currentVersion);
+          return record.status !== "completed" && (record.status === "failed" || version?.chunks.some(chunk => chunk.tasks === undefined) ||
+            record.tasks.some(task => task.status === "sending" || (task.status === "pending" && task.version === record.currentVersion)));
+        })
+          .sort((a, b) => (a.events.at(-1)?.at ?? "").localeCompare(b.events.at(-1)?.at ?? ""));
+        for (const record of records.slice(0, 10)) {
+          if (Date.now() >= deadline) break;
+          await processRecording(ledger, record, providers, { deadline, draftOnly: body.draftOnly === true });
+        }
+      }
+      const report = await status(ledger);
+      const success = !discoveryError && report.counts.failed === 0 && report.counts.needs_review === 0;
+      return json({ success, discoveryError, ...report }, success ? 200 : 503);
+    });
+  } catch (error) { return failure(error); }
 }

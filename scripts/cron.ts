@@ -1,6 +1,7 @@
 type CronEnvironment = {
   RETRACE_BEARER_TOKEN?: string;
   DEEPLOG_CRON_SECRET?: string;
+  DEEPLOG_EXTRACTION_URL?: string;
 };
 
 async function requireSuccessfulResponse(
@@ -14,11 +15,10 @@ async function requireSuccessfulResponse(
   return resultText;
 }
 
-export default {
+const cron = {
   async scheduled(
     _event: ScheduledEvent,
-    env: CronEnvironment,
-    _ctx: ExecutionContext
+    env: CronEnvironment
   ) {
     const currentHour = new Date().getUTCHours();
 
@@ -72,8 +72,12 @@ export default {
         if (!env.DEEPLOG_CRON_SECRET) {
           throw new Error("DEEPLOG_CRON_SECRET is not set");
         }
+        const extractionUrl = env.DEEPLOG_EXTRACTION_URL || "https://deeplog.app/api/cron/extract-tasks";
+        if (new URL(extractionUrl).protocol !== "https:") {
+          throw new Error("Set DEEPLOG_EXTRACTION_URL to the HTTPS extraction endpoint on the Railway service with a persistent volume");
+        }
         const response = await fetch(
-          "https://deeplog.app/api/cron/extract-tasks",
+          extractionUrl,
           {
             method: "POST",
             headers: {
@@ -147,3 +151,5 @@ export default {
     };
   },
 };
+
+export default cron;

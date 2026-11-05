@@ -45,3 +45,6 @@ next-env.d.ts
 # scripts
 /scripts/*
 !/scripts/cron.ts
+
+# Local extraction ledger (production uses a Railway volume)
+/data/task-extraction/
