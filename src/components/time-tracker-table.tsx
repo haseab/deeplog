@@ -1,5 +1,6 @@
 "use client";
 
+import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
@@ -2857,6 +2858,7 @@ export function TimeTrackerTable({
     null
   );
   const clientMutationGenerationRef = React.useRef(0);
+  const activeCombineEntryIdsRef = React.useRef(new Map<number, number>());
   const startRequestChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const lastStartTempIdRef = React.useRef(0);
 
@@ -2872,6 +2874,26 @@ export function TimeTrackerTable({
       setIsLoadingMore(false);
     }
   }, []);
+
+  const protectCombine = React.useCallback((entryIds: number[]) => {
+    beginClientMutation();
+    const ids = activeCombineEntryIdsRef.current;
+    for (const id of entryIds) ids.set(id, (ids.get(id) ?? 0) + 1);
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      // A refresh started during the write can still contain pre-combine data.
+      // Invalidate it before releasing protection for the affected rows.
+      beginClientMutation();
+      for (const id of entryIds) {
+        const remaining = (ids.get(id) ?? 1) - 1;
+        if (remaining) ids.set(id, remaining);
+        else ids.delete(id);
+      }
+    };
+  }, [beginClientMutation]);
 
   // Keep ref in sync with state
   React.useEffect(() => {
@@ -2900,7 +2922,7 @@ export function TimeTrackerTable({
       if (existingRetry) {
       }
       entryRetryFunctions.current.set(entryId, async () => {
-        await apiCall();
+        await entryMutations.run([entryId], apiCall);
         onCommit?.();
       });
 
@@ -2909,13 +2931,14 @@ export function TimeTrackerTable({
       const submitNow = () => {
         if (toastDismissed || state.apiCallStarted) return true;
         clearTimeout(timeoutId);
-        void submitOperation();
+        void operation.run().catch(() => {});
         return true;
       };
       const toastId: string | number | undefined = toast(message, {
         action: {
           label: "Undo (⌘Z)",
           onClick: () => {
+            if (!operation.cancel()) return;
             toastDismissed = true;
             // Clear retry function since user is undoing
             entryRetryFunctions.current.delete(entryId);
@@ -3000,14 +3023,19 @@ export function TimeTrackerTable({
             toast.dismiss(toastId);
           }
           toast.error(errorMessage);
-          // Don't call undoAction() - keep the optimistic update visible with error indicator
-          // Retry function is already stored in entryRetryFunctions
+          // Retain the optimistic edit and its retry, but stop dependent writes.
+          throw error;
         }
       };
 
+      const operation = entryMutations.reserve([entryId], submitOperation);
+      void operation.completion.catch(() => {
+        if (toastId !== undefined) toast.dismiss(toastId);
+        setEntrySyncStatus(previous => new Map(previous).set(entryId, "error"));
+      });
       const timeoutId = setTimeout(submitNow, toastDuration);
       const cancel = () => {
-        if (toastDismissed || state.apiCallStarted) return false;
+        if (toastDismissed || state.apiCallStarted || !operation.cancel()) return false;
         toastDismissed = true;
         clearTimeout(timeoutId);
         if (toastId !== undefined) {
@@ -3181,6 +3209,8 @@ export function TimeTrackerTable({
           retryCount: 0,
           timestamp: Date.now(),
           execute: async (realId: number) => {
+            // The temporary-ID queue already executes these in order. Do not
+            // re-enter the shared queue: a combine may be waiting for this flush.
             const response = await apiCall(realId, sessionToken || "");
 
             if (!response.ok) {
@@ -3194,6 +3224,8 @@ export function TimeTrackerTable({
         };
 
         syncQueue.queueOperation(operation);
+        // Editing a split child commits the split before flushing this edit.
+        entryMutations.commit([entryId]);
         setEntrySyncStatus((prev) => new Map(prev).set(entryId, "pending"));
 
         toast("Update queued", {
@@ -3250,7 +3282,7 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
-      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription);
+      if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription, entry.start);
     },
     [handleUpdateWithQueue, encryption]
   );
@@ -5104,6 +5136,8 @@ export function TimeTrackerTable({
 
       let originalEntries: TimeEntry[] = [];
 
+      const releaseCombine = protectCombine(entries.map(entry => entry.id));
+
       // Optimistically update UI
       setTimeEntries((currentEntries) => {
         originalEntries = [...currentEntries];
@@ -5138,7 +5172,7 @@ export function TimeTrackerTable({
       const submitNow = () => {
         if (undone || state.apiCallStarted) return;
         clearTimeout(timeoutId);
-        void submitOperation();
+        void operation.run().catch(() => {});
       };
       const toastId = toast(`Combined ${entries.length} entries`, {
         description: hasRunningEntry
@@ -5149,9 +5183,11 @@ export function TimeTrackerTable({
         action: {
           label: "Undo (⌘Z)",
           onClick: () => {
+            if (undone || state.apiCallStarted || !operation.cancel()) return;
             undone = true;
             clearTimeout(timeoutId);
             setTimeEntries(originalEntries);
+            releaseCombine();
             toast.dismiss(toastId);
             toast("Combine undone", { duration: 2000 });
           },
@@ -5162,6 +5198,7 @@ export function TimeTrackerTable({
       const submitOperation = async () => {
         if (undone) return;
         state.apiCallStarted = true;
+        toast.dismiss(toastId);
         const sessionToken = localStorage.getItem("toggl_session_token");
         const errors: string[] = [];
 
@@ -5234,29 +5271,14 @@ export function TimeTrackerTable({
               throw new Error("Failed to update entry");
             }
 
-            const updatedData = await updateResponse.json();
-
-            // Update the kept entry with server response
-            setTimeEntries((currentEntries) =>
-              currentEntries.map((e) =>
-                e.id === entryToKeep.id
-                  ? {
-                      ...e,
-                      start: updatedData.start,
-                      stop: updatedData.stop,
-                      duration: updatedData.duration,
-                      syncStatus: undefined,
-                    }
-                  : e
-              )
-            );
+            // A later action may already have split or edited this row.
+            // The server acknowledgement must not replace that newer state.
+            await updateResponse.json();
 
             toast.dismiss(toastId);
 
             if (errors.length > 0) {
-              toast.error(
-                `Failed to delete ${errors.length} of ${entriesToDelete.length} entries`
-              );
+              throw new Error(`Failed to delete ${errors.length} entries; dependent changes were stopped`);
             } else {
               toast.success(`Combined ${entries.length} entries successfully`);
             }
@@ -5264,19 +5286,28 @@ export function TimeTrackerTable({
             console.error("Failed to update earliest entry:", error);
             toast.dismiss(toastId);
             toast.error("Failed to combine entries. Reverting changes.");
-            setTimeEntries(originalEntries);
+            throw error;
           }
         } catch (error) {
           console.error("Failed to combine entries:", error);
           toast.dismiss(toastId);
           toast.error("Failed to combine entries. Reverting changes.");
           setTimeEntries(originalEntries);
+          throw error;
+        } finally {
+          releaseCombine();
         }
       };
 
+      const operation = entryMutations.reserve(entries.map(entry => entry.id), submitOperation);
+      void operation.completion.catch(() => {
+        releaseCombine();
+        toast.dismiss(toastId);
+        toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
+      });
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [toastDuration, timeZone]
+    [toastDuration, timeZone, protectCombine]
   );
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
@@ -5399,138 +5430,179 @@ export function TimeTrackerTable({
       // Set initial sync status for the temp entry
       setEntrySyncStatus((prev) => new Map(prev).set(tempId, "pending"));
 
-      // Make API call
+      const restoreSplit = () => {
+        const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
+        setTimeEntries(entries => entries.filter(entry => entry.id !== tempId).map(entry =>
+          entry.id === sourceId ? { ...entryToSplit, id: sourceId } : entry
+        ));
+        setEntrySyncStatus(previous => {
+          const next = new Map(previous);
+          next.delete(tempId);
+          return next;
+        });
+        if (shouldTransferSelectedCell && selectedCellEntryIdRef.current === tempId) {
+          selectedCellEntryIdRef.current = sourceId;
+        }
+      };
+
       const sessionToken = localStorage.getItem("toggl_session_token");
 
-      toast(`Splitting entry with ${offsetMinutes} minute offset...`, {
-        duration: toastDuration,
-      });
-
-      fetch("/api/time-entries/split", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-toggl-session-token": sessionToken || "",
-        },
-        body: JSON.stringify({
-          entryId: entryToSplit.id,
-          offsetMinutes,
-          isReverse,
-        }),
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("API Error:", response.status, errorText);
-            throw new Error("Failed to split entry");
-          }
-          return response.json();
+      const releaseSplit = protectCombine([entryToSplit.id, tempId]);
+      let splitStarted = false;
+      const operation = entryMutations.reserve([entryToSplit.id, tempId], async () => {
+        splitStarted = true;
+        const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
+        if (sourceId < 0) throw new Error("Wait for this entry to finish creating before splitting");
+        return fetch("/api/time-entries/split", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-toggl-session-token": sessionToken || "",
+          },
+          body: JSON.stringify({
+            entryId: sourceId,
+            offsetMinutes,
+            isReverse,
+          }),
         })
-        .then((data) => {
-          const { createdEntry, updatedEntry } = data;
-          if (createdEntry && createdEntry.id) {
-            const realId = createdEntry.id;
-
-            if (selectedCellEntryIdRef.current === tempId) {
-              selectedCellEntryIdRef.current = realId;
+          .then(async (response) => {
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error:", response.status, errorText);
+              throw new Error("Failed to split entry");
             }
+            return response.json();
+          })
+          .then(async (data) => {
+            const { createdEntry, updatedEntry } = data;
+            if (createdEntry && createdEntry.id) {
+              const realId = createdEntry.id;
 
-            // Register ID mapping for the sync queue
-            const syncQueue = syncQueueRef.current;
-            syncQueue.registerIdMapping(tempId, realId);
-
-            // The user can open an editor on the optimistic split row before
-            // the request finishes. Keep that registration attached to the
-            // row when its temporary ID is replaced by the server ID.
-            Object.values(activeEditorEntryIdsRef.current).forEach(
-              (activeEntryIds) => {
-                if (activeEntryIds.delete(tempId)) {
-                  activeEntryIds.add(realId);
-                }
+              if (selectedCellEntryIdRef.current === tempId) {
+                selectedCellEntryIdRef.current = realId;
               }
-            );
-            publishActiveEditorState();
 
-            // Swap temp ID with real ID in encrypted entries tracking
-            encryption.swapEncryptedEntryId(tempId, realId);
+              // Register ID mapping for the sync queue
+              const syncQueue = syncQueueRef.current;
+              syncQueue.registerIdMapping(tempId, realId);
+              entryMutations.identify(tempId, realId);
 
-            // Reconcile server identity without overwriting newer optimistic
-            // commands that may have changed either split segment meanwhile.
-            setTimeEntries((prev) =>
-              prev.map((entry) => {
-                if (entry.id === tempId) {
-                  return {
-                    ...createdEntry,
-                    ...entry,
-                    id: realId,
-                    tempId,
-                    syncStatus: "syncing" as SyncStatus,
-                  } as TimeEntry;
+              // The user can open an editor on the optimistic split row before
+              // the request finishes. Keep that registration attached to the
+              // row when its temporary ID is replaced by the server ID.
+              Object.values(activeEditorEntryIdsRef.current).forEach(
+                (activeEntryIds) => {
+                  if (activeEntryIds.delete(tempId)) {
+                    activeEntryIds.add(realId);
+                  }
                 }
-                // Also update the original entry if it was modified (non-negative split)
-                if (!isNegativeSplit && entry.id === entryToSplit.id && updatedEntry) {
-                  return {
-                    ...updatedEntry,
-                    ...entry,
-                    id: updatedEntry.id,
-                  } as TimeEntry;
-                }
-                return entry;
-              })
-            );
+              );
+              publishActiveEditorState();
 
-            // Move sync status from temp ID to real ID
-            setEntrySyncStatus((prev) => {
-              const newMap = new Map(prev);
-              const tempStatus = newMap.get(tempId);
-              newMap.delete(tempId);
-              if (tempStatus) {
-                newMap.set(realId, "syncing");
-              }
-              return newMap;
-            });
+              // Swap temp ID with real ID in encrypted entries tracking
+              encryption.swapEncryptedEntryId(tempId, realId);
 
-            // Move retry function from temp ID to real ID (if exists)
-            const tempRetryFn = entryRetryFunctions.current.get(tempId);
-            if (tempRetryFn) {
-              entryRetryFunctions.current.delete(tempId);
-              entryRetryFunctions.current.set(realId, tempRetryFn);
-            }
+              // Reconcile server identity without overwriting newer optimistic
+              // commands that may have changed either split segment meanwhile.
+              setTimeEntries((prev) =>
+                prev.map((entry) => {
+                  if (entry.id === tempId) {
+                    return {
+                      ...createdEntry,
+                      ...entry,
+                      id: realId,
+                      tempId,
+                      syncStatus: "syncing" as SyncStatus,
+                    } as TimeEntry;
+                  }
+                  // Also update the original entry if it was modified (non-negative split)
+                  if (!isNegativeSplit && entry.id === entryToSplit.id && updatedEntry) {
+                    return {
+                      ...updatedEntry,
+                      ...entry,
+                      id: updatedEntry.id,
+                    } as TimeEntry;
+                  }
+                  return entry;
+                })
+              );
 
-            // Flush any queued operations for this entry
-            syncQueue.flushOperations(tempId, realId).then((results) => {
-              const allSucceeded = results.every((r) => r.success);
-
-              // Update final sync status based on results
+              // Move sync status from temp ID to real ID
               setEntrySyncStatus((prev) => {
                 const newMap = new Map(prev);
-                newMap.set(realId, allSucceeded ? "synced" : "error");
+                const tempStatus = newMap.get(tempId);
+                newMap.delete(tempId);
+                if (tempStatus) {
+                  newMap.set(realId, "syncing");
+                }
                 return newMap;
               });
 
-              // Clear synced status after 2 seconds
-              setTimeout(() => {
+              // Move retry function from temp ID to real ID (if exists)
+              const tempRetryFn = entryRetryFunctions.current.get(tempId);
+              if (tempRetryFn) {
+                entryRetryFunctions.current.delete(tempId);
+                entryRetryFunctions.current.set(realId, tempRetryFn);
+              }
+
+              // Flush any queued operations for this entry
+              await syncQueue.flushOperations(tempId, realId).then((results) => {
+                const allSucceeded = results.every((r) => r.success);
+
+                // Update final sync status based on results
                 setEntrySyncStatus((prev) => {
                   const newMap = new Map(prev);
-                  newMap.delete(realId);
+                  newMap.set(realId, allSucceeded ? "synced" : "error");
                   return newMap;
                 });
-              }, 2000);
-            });
-          }
 
-          toast.success(data.message || "Entry split successfully");
-        })
-        .catch((error) => {
+                // Clear synced status after 2 seconds
+                setTimeout(() => {
+                  setEntrySyncStatus((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.delete(realId);
+                    return newMap;
+                  });
+                }, 2000);
+              });
+            }
+
+            toast.success(data.message || "Entry split successfully");
+          })
+      }, () => {
+        clearTimeout(timeoutId);
+        toast.dismiss(toastId);
+      });
+      const submitNow = () => { void operation.run().catch(() => {}); };
+      const toastId = toast("Entry split", {
+        duration: Infinity,
+        submitAction: submitNow,
+        action: {
+          label: "Undo (⌘Z)",
+          onClick: () => {
+            if (!operation.cancel()) return;
+            clearTimeout(timeoutId);
+            restoreSplit();
+            releaseSplit();
+            toast.dismiss(toastId);
+            toast("Split undone", { duration: 2000 });
+          },
+        },
+      });
+      const timeoutId = setTimeout(submitNow, toastDuration);
+      void operation.completion.catch((error) => {
+          clearTimeout(timeoutId);
+          toast.dismiss(toastId);
           console.error("Failed to split time entry:", error);
           toast.error("Failed to split entry. Reverting changes.");
           if (selectedCellEntryIdRef.current === tempId) {
             selectedCellEntryIdRef.current = entryToSplit.id;
           }
-          setTimeEntries(originalEntries);
-        });
+          if (splitStarted) setTimeEntries(originalEntries);
+          else setTimeEntries(entries => entries.filter(entry => entry.id !== tempId));
+        }).finally(releaseSplit);
     },
-    [entryToSplit, toastDuration, encryption, publishActiveEditorState]
+    [entryToSplit, toastDuration, encryption, publishActiveEditorState, protectCombine]
   );
 
   const handleCombine = React.useCallback(
@@ -5615,6 +5687,8 @@ export function TimeTrackerTable({
       return;
     }
 
+    const releaseCombine = protectCombine([currentEntry.id, olderEntry.id]);
+
     const selectedCellIdBeforeCombine = selectedCellEntryIdRef.current;
     const entryToKeepSelectionId = resolveEntryId(entryToKeep.id);
     const selectedEntryIsBeingDeleted =
@@ -5678,156 +5752,128 @@ export function TimeTrackerTable({
         : current);
     }
 
-    const sessionToken = localStorage.getItem("toggl_session_token");
-
-    // If either entry has a temp ID, queue the operation
-    if (currentIsTempId || olderIsTempId) {
-      // Only one is a temp ID - queue it
-      const operation: QueuedOperation = {
-        type: "COMBINE",
-        tempId: currentIsTempId ? currentApiId : olderApiId,
-        payload: {
-          currentEntryId: currentApiId,
-          olderEntryId: olderApiId,
-          isCurrentEntryRunning,
-        },
-        retryCount: 0,
-        timestamp: Date.now(),
-        execute: async (realId: number) => {
-          // Determine which ID to use - replace the temp ID with the real ID
-          const finalCurrentId = currentIsTempId ? realId : currentApiId;
-          const finalOlderId = olderIsTempId ? realId : olderApiId;
-
-          const response = await fetch("/api/time-entries/combine", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-toggl-session-token": sessionToken || "",
-            },
-            body: JSON.stringify({
-              currentEntryId: finalCurrentId,
-              olderEntryId: finalOlderId,
-              reverse: isReverseCombineSingle,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("API Error:", response.status, errorText);
-            throw new Error(`Combine failed (${response.status})`);
-          }
-
-          const data = await response.json();
-
-          const keptId = isReverseCombineSingle ? finalCurrentId : finalOlderId;
-          // Update the surviving row with server response
-          setTimeEntries((currentEntries) =>
-            currentEntries.map((e) =>
-              e.id === keptId
-                ? {
-                    ...e,
-                    stop: data.updatedEntry.stop,
-                    duration: data.updatedEntry.duration,
-                  }
-                : e
-            )
-          );
-
-          // Update sync status on the surviving entry
-          setEntrySyncStatus((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(keptId, "synced");
-            return newMap;
-          });
-
-          // Clear sync status after 2 seconds
-          setTimeout(() => {
-            setEntrySyncStatus((prev) => {
-              const newMap = new Map(prev);
-              newMap.delete(keptId);
-              return newMap;
-            });
-          }, 2000);
-
-          toast.success(data.message || "Entries combined successfully");
-          // Reset reverse mode flag after successful combine
-          setIsReverseCombineSingle(false);
-        },
-      };
-
-      syncQueue.queueOperation(operation);
-      // Display pending status on the destination even when the source has a temporary ID.
-      setEntrySyncStatus((prev) => new Map(prev).set(entryToKeep.id, "pending"));
-
-      toast("Combine queued", {
-        description: "Changes will sync once entry is created",
-        duration: 2000,
+    const restoreCombine = () => {
+      const keepId = resolveEntryId(entryToKeep.id);
+      const deletedId = resolveEntryId(entryToDelete.id);
+      setTimeEntries(entries => {
+        const restored = entries.map(entry => entry.id === keepId ? {
+          ...entry,
+          start: entryToKeep.start,
+          stop: entryToKeep.stop,
+          duration: entryToKeep.duration,
+          syncStatus: entryToKeep.syncStatus,
+        } : entry);
+        if (!restored.some(entry => entry.id === deletedId)) {
+          restored.push({ ...entryToDelete, id: deletedId });
+        }
+        return restored.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
       });
+      if (
+        selectedEntryIsBeingDeleted &&
+        selectedCellEntryIdRef.current === resolveEntryId(entryToKeepSelectionId)
+      ) {
+        selectedCellEntryIdRef.current = resolveEntryId(selectedCellIdBeforeCombine!);
+        const sourceRowIndex = originalEntries.findIndex(entry => entry.id === entryToDelete.id);
+        setSelectedCell(current => current && sourceRowIndex >= 0
+          ? { ...current, rowIndex: sourceRowIndex }
+          : current);
+      }
+      releaseCombine();
+      setIsReverseCombineSingle(false);
+    };
 
-      return;
-    }
+    const executeCombine = async (finalCurrentId: number, finalOlderId: number) => {
+      const response = await fetch("/api/time-entries/combine", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-toggl-session-token": localStorage.getItem("toggl_session_token") || "",
+        },
+        body: JSON.stringify({
+          currentEntryId: finalCurrentId,
+          olderEntryId: finalOlderId,
+          reverse: isReverseCombineSingle,
+        }),
+      });
+      if (!response.ok) throw new Error(`Combine failed (${response.status})`);
+      const data = await response.json();
+      releaseCombine();
+      toast.success(data.message || "Entries combined successfully");
+      setIsReverseCombineSingle(false);
+    };
 
-    // Both IDs are real - execute immediately
-    toast(`Combining entries...`, {
-      duration: toastDuration,
+    let undone = false;
+    let submitted = false;
+    const performCombine = async () => {
+      submitted = true;
+      clearTimeout(timeoutId);
+      // Once the write starts, the destructive server operation cannot be
+      // cancelled. Remove Undo along with the pending toast at that boundary.
+      toast.dismiss(toastId);
+
+      // Creation may have finished during the undo window. Resolve IDs again
+      // so we don't enqueue work after that entry's queue was already flushed.
+      const finalCurrentId = resolveEntryId(currentEntry.id);
+      const finalOlderId = resolveEntryId(olderEntry.id);
+      const pendingId = syncQueue.isTempId(finalCurrentId) ? finalCurrentId
+        : syncQueue.isTempId(finalOlderId) ? finalOlderId : null;
+      if (pendingId !== null) {
+        const operation: QueuedOperation = {
+          type: "COMBINE",
+          tempId: pendingId,
+          payload: { currentEntryId: finalCurrentId, olderEntryId: finalOlderId },
+          retryCount: 0,
+          timestamp: Date.now(),
+          execute: realId => executeCombine(
+            finalCurrentId === pendingId ? realId : finalCurrentId,
+            finalOlderId === pendingId ? realId : finalOlderId
+          ),
+        };
+        await new Promise<void>((resolve, reject) => {
+          const execute = operation.execute;
+          operation.execute = async id => {
+            try { await execute(id); resolve(); } catch (error) { reject(error); throw error; }
+          };
+          syncQueue.queueOperation(operation);
+        });
+        toast("Combine queued", {
+          description: "Changes will sync once entry is created",
+          duration: 2000,
+        });
+        return;
+      }
+      await executeCombine(finalCurrentId, finalOlderId);
+    };
+    const operation = entryMutations.reserve([currentEntry.id, olderEntry.id], performCombine);
+    const submitNow = () => {
+      if (undone || submitted) return;
+      void operation.run().catch(() => {});
+    };
+    const toastId = toast("Combined entries", {
+      duration: Infinity,
+      submitAction: submitNow,
+      action: {
+        label: "Undo (⌘Z)",
+        onClick: () => {
+          if (undone || submitted || !operation.cancel()) return;
+          undone = true;
+          clearTimeout(timeoutId);
+          restoreCombine();
+          toast.dismiss(toastId);
+          toast("Combine undone", { duration: 2000 });
+        },
+      },
+    });
+    const timeoutId = setTimeout(submitNow, toastDuration);
+    void operation.completion.catch(error => {
+      clearTimeout(timeoutId);
+      toast.dismiss(toastId);
+      console.error("Failed to combine time entries:", error);
+      restoreCombine();
+      toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
     });
 
-    fetch("/api/time-entries/combine", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-toggl-session-token": sessionToken || "",
-      },
-      body: JSON.stringify({
-        currentEntryId: currentApiId,
-        olderEntryId: olderApiId,
-        reverse: isReverseCombineSingle,
-      }),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("API Error:", response.status, errorText);
-          throw new Error("Failed to combine entries");
-        }
-        return response.json();
-      })
-      .then((data) => {
-        // Update only stop and duration from server response, keep everything else
-        setTimeEntries((currentEntries) =>
-          currentEntries.map((e) =>
-            e.id === entryToKeep.id
-              ? {
-                  ...e,
-                  stop: data.updatedEntry.stop,
-                  duration: data.updatedEntry.duration,
-                }
-              : e
-          )
-        );
-
-        toast.success(data.message || "Entries combined successfully");
-        // Reset reverse mode flag after successful combine
-        setIsReverseCombineSingle(false);
-      })
-      .catch((error) => {
-        console.error("Failed to combine time entries:", error);
-        toast.error("Failed to combine entries. Reverting changes.");
-        if (
-          selectedEntryIsBeingDeleted &&
-          selectedCellEntryIdRef.current === entryToKeepSelectionId
-        ) {
-          selectedCellEntryIdRef.current = selectedCellIdBeforeCombine;
-          const sourceRowIndex = originalEntries.findIndex(entry => entry.id === entryToDelete.id);
-          setSelectedCell(current => current && sourceRowIndex >= 0
-            ? { ...current, rowIndex: sourceRowIndex }
-            : current);
-        }
-        setTimeEntries(originalEntries);
-        // Reset reverse mode flag on error too
-        setIsReverseCombineSingle(false);
-      });
-  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle]);
+  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle, protectCombine]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -6021,6 +6067,7 @@ export function TimeTrackerTable({
             const syncQueue = syncQueueRef.current;
 
             syncQueue.registerIdMapping(tempId, realId);
+            entryMutations.identify(tempId, realId);
 
             // Editor registrations are keyed by entry ID. Reconcile them at
             // the same time as the optimistic entry so a temp ID can never
@@ -6378,6 +6425,17 @@ export function TimeTrackerTable({
 
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {
+          const combineEntryIds = new Set(
+            Array.from(activeCombineEntryIdsRef.current.keys(), id =>
+              syncQueueRef.current.getRealId(id) ?? id
+            )
+          );
+          // Protected IDs absent locally are optimistic deletions. Suppress
+          // their stale server rows for both refreshes and pagination.
+          const localEntryIds = new Set(timeEntriesRef.current.map(entry => entry.id));
+          data.timeEntries = data.timeEntries.filter((entry: TimeEntry) =>
+            !combineEntryIds.has(entry.id) || localEntryIds.has(entry.id)
+          );
           if (resetData) {
             // Update recent timers cache with new entries
             updateRecentTimersCache(data.timeEntries);
@@ -6388,7 +6446,7 @@ export function TimeTrackerTable({
             // version the user expects to see.
             setTimeEntries((prevEntries) => {
               const protectedEntryIds = new Set(
-                entrySyncStatusRef.current.keys()
+                [...entrySyncStatusRef.current.keys(), ...combineEntryIds]
               );
 
               if (protectedEntryIds.size === 0) {
@@ -6935,7 +6993,7 @@ export function TimeTrackerTable({
       const hasActiveSync = Array.from(entrySyncStatusRef.current.values()).some(
         (status) => status === "syncing" || status === "pending" || status === "synced"
       );
-      if (hasActiveSync) {
+      if (hasActiveSync || activeCombineEntryIdsRef.current.size > 0) {
         return;
       }
 
@@ -8576,13 +8634,17 @@ export function TimeTrackerTable({
     }
   }, [selectedCell, timeEntries.length]);
 
-  const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<number | null>(null);
+  const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<{
+    id: number; start?: string; deleted?: boolean; previousEntries?: TimeEntry[];
+  } | null>(null);
   React.useEffect(() => {
     const navigate = (event: Event) => {
-      const { id, start } = (event as CustomEvent<{ id: number; start?: string }>).detail;
-      if (!start && !timeEntriesRef.current.some(entry => entry.id === id)) return;
-      setDescriptionReviewTarget(id);
-      if (!timeEntriesRef.current.some(entry => entry.id === id) && start) {
+      const { id, start, deleted } = (event as CustomEvent<{ id: number; start?: string; deleted?: boolean }>).detail;
+      const visible = timeEntriesRef.current.some(entry => entry.id === id);
+      if (!visible && (!start || !Number.isFinite(Date.parse(start)))) return;
+      event.preventDefault(); // Acknowledge that the timeline can show context.
+      setDescriptionReviewTarget({ id, start, deleted, previousEntries: visible ? undefined : timeEntriesRef.current });
+      if (!visible && start) {
         const day = formatDateInTimeZone(start, timeZone);
         const targetDate = new Date(`${day}T12:00:00`);
         handleDateChange({ from: targetDate, to: targetDate });
@@ -8594,14 +8656,25 @@ export function TimeTrackerTable({
 
   React.useEffect(() => {
     if (descriptionReviewTarget === null || loading || isLoadingMore) return;
-    const rowIndex = timeEntries.findIndex(entry => entry.id === descriptionReviewTarget);
+    if (descriptionReviewTarget.previousEntries === timeEntries) return;
+    let rowIndex = timeEntries.findIndex(entry => entry.id === descriptionReviewTarget.id);
     if (rowIndex < 0) {
-      if (hasMore) void loadMore();
-      return;
+      if (hasMore) { void loadMore(); return; }
+      if (descriptionReviewTarget.deleted && descriptionReviewTarget.start && timeEntries.length) {
+        const targetTime = Date.parse(descriptionReviewTarget.start);
+        rowIndex = timeEntries.reduce((closest, entry, index) =>
+          Math.abs(Date.parse(entry.start) - targetTime) < Math.abs(Date.parse(timeEntries[closest].start) - targetTime) ? index : closest, 0);
+        toast("This entry was deleted. Showing the nearest entry from its original day.", { id: "description-deleted-context" });
+      } else {
+        toast(descriptionReviewTarget.deleted ? "This entry was deleted. Showing its original day; no other entries are available." : "This entry is not present in the timeline for its original day.", { id: "description-missing-context" });
+        setDescriptionReviewTarget(null);
+        return;
+      }
     }
     setSelectedCell({ rowIndex, cellIndex: isFullscreen ? 2 : 1 });
+    const targetId = timeEntries[rowIndex].id;
     requestAnimationFrame(() => {
-      const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${descriptionReviewTarget}"]`)).find(element => element.offsetParent !== null);
+      const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${targetId}"]`)).find(element => element.offsetParent !== null);
       row?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     setDescriptionReviewTarget(null);

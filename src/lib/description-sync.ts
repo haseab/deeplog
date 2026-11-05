@@ -16,6 +16,8 @@ export interface DescriptionDraft {
   status: "local" | "conflict" | "error" | "synced";
   remote?: string;
   deleted?: boolean;
+  // Original entry time allows timeline navigation after deletion in Toggl.
+  start?: string;
   error?: string;
   // Kept before sending, so an ambiguous timeout can be reconciled on the next attempt.
   sent?: string;

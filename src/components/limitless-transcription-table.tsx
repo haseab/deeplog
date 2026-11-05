@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "@/lib/toast";
+import { parsePendantJumpTimes } from "@/lib/pendant-jump-time";
 import {
   fetchLimitlessPage,
   fetchLimitlessTimeRangeWithPreceding,
@@ -65,6 +66,8 @@ export function LimitlessTranscriptionTable({
   const [hasMore, setHasMore] = React.useState(true);
   const [jumpDialogOpen, setJumpDialogOpen] = React.useState(false);
   const [jumpQuery, setJumpQuery] = React.useState("");
+  const jumpInputRef = React.useRef<HTMLInputElement>(null);
+  const transcriptContainerRef = React.useRef<HTMLDivElement>(null);
   const [jumpError, setJumpError] = React.useState<string | null>(null);
   // Store the original search time range for "load before" functionality
   // Use ref to avoid dependency issues in fetchTranscriptions
@@ -83,7 +86,11 @@ export function LimitlessTranscriptionTable({
   React.useEffect(() => {
     const handleJumpShortcut = (event: KeyboardEvent) => {
       if (
-        event.key.toLowerCase() === "k" &&
+        !event.defaultPrevented &&
+        !event.isComposing &&
+        !document.documentElement.hasAttribute("data-settings-open") &&
+        !document.documentElement.hasAttribute("data-shortcut-recording") &&
+        ["g", "k"].includes(event.key.toLowerCase()) &&
         (event.metaKey || event.ctrlKey) &&
         !event.shiftKey &&
         !event.altKey
@@ -92,6 +99,7 @@ export function LimitlessTranscriptionTable({
         event.stopPropagation();
         setJumpError(null);
         setJumpDialogOpen(true);
+        jumpInputRef.current?.select();
       }
     };
 
@@ -430,15 +438,15 @@ export function LimitlessTranscriptionTable({
     }
 
     const contentElements = Array.from(
-      document.querySelectorAll<HTMLElement>("[data-content-time]")
+      transcriptContainerRef.current?.querySelectorAll<HTMLElement>("[data-content-time]") ?? []
     );
     const timestampElements =
       contentElements.length > 0
         ? contentElements
         : Array.from(
-            document.querySelectorAll<HTMLElement>(
+            transcriptContainerRef.current?.querySelectorAll<HTMLElement>(
               "[data-transcription-time]"
-            )
+            ) ?? []
           );
     const loadedTargets = timestampElements
       .map((element) => {
@@ -460,67 +468,13 @@ export function LimitlessTranscriptionTable({
       return;
     }
 
-    const parsedFromNow = chrono.parse(query, new Date(), {
-      forwardDate: false,
-    })[0];
-    if (!parsedFromNow) {
-      setJumpError(`Could not understand “${query}”.`);
-      return;
-    }
-
-    const hasExplicitDate = ["year", "month", "day"].some((component) =>
-      parsedFromNow.start.isCertain(
-        component as "year" | "month" | "day"
-      )
+    const candidateTimes = parsePendantJumpTimes(
+      query,
+      loadedTargets.map(({ time }) => time)
     );
-    const isRelativeDateQuery =
-      /\b(ago|yesterday|today|tomorrow|last|next|from now)\b/i.test(query);
-    const expandAmbiguousMeridiem = (
-      result: (typeof parsedFromNow)
-    ): Date[] => {
-      const parsedTime = result.start.date();
-      const parsedHour = result.start.get("hour");
-      if (
-        result.start.isCertain("meridiem") ||
-        parsedHour === null ||
-        parsedHour < 1 ||
-        parsedHour > 11
-      ) {
-        return [parsedTime];
-      }
-
-      const alternateTime = new Date(parsedTime);
-      alternateTime.setHours(alternateTime.getHours() + 12);
-      return [parsedTime, alternateTime];
-    };
-    let candidateTimes: Date[];
-
-    if (hasExplicitDate || isRelativeDateQuery) {
-      candidateTimes = expandAmbiguousMeridiem(parsedFromNow);
-    } else {
-      // A time such as "7:22pm" has no calendar date. Parse it once against
-      // each loaded day, then choose the interpretation closest to real
-      // transcript data. This also behaves sensibly for multi-day results.
-      const loadedDays = new Map<string, Date>();
-      loadedTargets.forEach(({ time }) => {
-        const dayKey = format(time, "yyyy-MM-dd");
-        if (!loadedDays.has(dayKey)) {
-          const reference = new Date(time);
-          reference.setHours(12, 0, 0, 0);
-          loadedDays.set(dayKey, reference);
-        }
-      });
-      candidateTimes = Array.from(loadedDays.values())
-        .flatMap((reference) => {
-          const result = chrono.parse(query, reference, {
-            forwardDate: false,
-          })[0];
-          return result ? expandAmbiguousMeridiem(result) : [];
-        });
-    }
 
     if (candidateTimes.length === 0) {
-      setJumpError(`Could not match “${query}” to the loaded dates.`);
+      setJumpError(`Could not understand “${query}”. Try 4:53 p.m. or 16:53.`);
       return;
     }
 
@@ -706,9 +660,16 @@ export function LimitlessTranscriptionTable({
           if (open) setJumpError(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            jumpInputRef.current?.focus();
+            jumpInputRef.current?.select();
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>Jump to a timestamp</DialogTitle>
+            <DialogTitle>Go to time</DialogTitle>
             <DialogDescription>
               Enter a natural-language time. The closest currently loaded
               transcript segment will be centered and highlighted.
@@ -722,13 +683,13 @@ export function LimitlessTranscriptionTable({
             }}
           >
             <Input
-              autoFocus
+              ref={jumpInputRef}
               value={jumpQuery}
               onChange={(event) => {
                 setJumpQuery(event.target.value);
                 if (jumpError) setJumpError(null);
               }}
-              placeholder="7:22pm, yesterday at noon, 15 minutes ago"
+              placeholder="4:53 p.m., 16:53, yesterday at noon"
               aria-label="Time to jump to"
               aria-invalid={Boolean(jumpError)}
             />
@@ -750,7 +711,13 @@ export function LimitlessTranscriptionTable({
         </DialogContent>
       </Dialog>
 
-      <div className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
+      <div className="flex justify-end mb-3">
+        <Button variant="outline" size="sm" onClick={() => setJumpDialogOpen(true)}>
+          Go to time
+          <kbd className="ml-2 text-xs text-muted-foreground">⌘G / Ctrl+G</kbd>
+        </Button>
+      </div>
+      <div ref={transcriptContainerRef} className="h-[calc(100vh-8rem)] space-y-6 border rounded-xl p-6 overflow-auto overscroll-none">
       {/* Simple NLP Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
