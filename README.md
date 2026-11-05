@@ -17,6 +17,27 @@ In History (`/pendant`), **Test extraction** previews candidates over an arbitra
 date range without creating Todoist tasks or adding candidates to the production
 delivery ledger. It reports progress across all pages and supports stop/resume.
 
+## Time-entry links
+
+The table accepts `from` and `to` as dates or ISO datetimes:
+
+- Whole days: `/?from=2026-11-01&to=2026-11-05`
+- Local times: `/?from=2026-11-01T14:30&to=2026-11-02T10:00`
+- Exact UTC instants: `/?from=2026-11-01T22:30:00Z&to=2026-11-02T18:00:00Z`
+
+Dates include the entire end day. Datetimes use an inclusive start and exclusive
+end; entries that overlap the window appear with their full original durations.
+Seconds and milliseconds are supported, and dates and datetimes can be mixed.
+Values without an offset use the table's selected timezone. `Z` or an explicit
+offset fixes an exact instant; encode a positive offset's `+` as `%2B` in a URL
+(for example, `2026-11-02T10:00%2B05:30`). Nonexistent or repeated local times
+at daylight-saving transitions require a valid explicit offset instead.
+
+Datetime boundaries survive reloads, pagination, and resyncs. Choosing a new
+range in the calendar switches back to whole days. The main
+`GET /api/time-entries` endpoint accepts the same formats in `from_date` and
+`to_date`, with `timezone` selecting the timezone for offset-free values.
+
 ### Search time entries
 
 `GET /api/time-entries/search?q=planning&from_date=2026-10-01&to_date=2026-10-31`
