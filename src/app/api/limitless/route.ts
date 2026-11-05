@@ -17,10 +17,6 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
-    const lifelogId = searchParams.get("lifelogId");
-    if (lifelogId !== null && !/^[a-zA-Z0-9_-]{1,200}$/.test(lifelogId)) {
-      return Response.json({ error: "Invalid recording ID" }, { status: 400 });
-    }
     const start = searchParams.get("start");
     const end = searchParams.get("end");
     const date = searchParams.get("date");
@@ -53,9 +49,7 @@ export async function GET(request: NextRequest) {
       params.append("cursor", cursor);
     }
     
-    if (lifelogId) {
-      apiUrl = `https://api.limitless.ai/v1/lifelogs/${encodeURIComponent(lifelogId)}?includeContents=true&includeMarkdown=true&includeHeadings=true`;
-    } else if (params.toString()) {
+    if (params.toString()) {
       apiUrl += `?${params.toString()}`;
     }
 
@@ -66,7 +60,6 @@ export async function GET(request: NextRequest) {
         "X-API-Key": limitlessApiKey,
         "Content-Type": "application/json",
       },
-      cache: "no-store",
     });
 
     if (!response.ok) {
@@ -92,13 +85,6 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    if (lifelogId) {
-      const lifelog = data.data?.lifelog;
-      if (!lifelog || lifelog.id !== lifelogId || !Array.isArray(lifelog.contents)) {
-        return Response.json({ error: "Invalid recording response" }, { status: 502 });
-      }
-      return Response.json({ data: { lifelogs: [lifelog] }, meta: { lifelogs: { nextCursor: null } } }, { headers: { "Cache-Control": "no-store" } });
-    }
     
     return new Response(JSON.stringify(data), {
       status: 200,

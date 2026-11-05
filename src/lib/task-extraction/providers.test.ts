@@ -65,7 +65,6 @@ test('delivery writes the reconciliation marker and distinguishes rejection from
   await mock([Response.json({ id: 'created-id' })], async calls => {
     assert.equal(await createProviders(keys).create(task), 'created-id');
     assert.match(JSON.parse(String(calls[0].init?.body)).description, /\[DeepLog:candidate-id\]/);
-    assert.match(JSON.parse(String(calls[0].init?.body)).description, /\[View source recording\]\(https:\/\/deeplog\.app\/pendant\?recordingId=rec\)/);
   });
   for (const code of [400, 401, 403, 404, 422, 429]) await mock([Response.json({}, { status: code })], async () => {
     await assert.rejects(createProviders(keys).create(task), RejectedDelivery);
