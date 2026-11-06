@@ -7887,6 +7887,28 @@ export function TimeTrackerTable({
         return;
       }
 
+      // Option+Shift+P: Open Retrace dashboard with the selected entry's time range.
+      // Use e.code because Option+Shift+P can produce a special character on macOS.
+      if (
+        e.code === "KeyP" &&
+        e.altKey &&
+        e.shiftKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !isInInput &&
+        selectedCell
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        const entry = getSelectedCellEntry();
+        if (entry) {
+          const start = encodeURIComponent(entry.start);
+          const end = encodeURIComponent(entry.stop || new Date().toISOString());
+          window.location.href = `retrace://dashboard?start=${start}&end=${end}`;
+        }
+        return;
+      }
+
       // Check if Limitless API key exists (required for both Cmd+P shortcuts)
       const hasLimitlessKey = !!localStorage.getItem("limitless_api_key");
 

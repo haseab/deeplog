@@ -21,6 +21,7 @@ export const shortcuts = [
   ["summary", "Generate recall summary", "Alt+p", "Time entries"],
   ["pendant", "Open Pendant for entry", "Mod+p", "Time entries"],
   ["retrace", "Open Retrace for entry", "Mod+Shift+p", "Time entries"],
+  ["retrace-dashboard", "Open Retrace dashboard for entry", "Alt+Shift+p", "Time entries"],
   ["refocus", "Focus a visible row", "Mod+.", "Navigation"],
   ["jump", "Jump to time / insert link", "Mod+k", "Editors"],
   ["unlink", "Remove link", "Mod+Shift+k", "Editors"],
