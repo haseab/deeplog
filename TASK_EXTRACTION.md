@@ -157,6 +157,21 @@ These are never blindly sent again. Successful tasks are not recreated on retry.
 Task descriptions include the recording ID, timestamp and `[DeepLog:<task-id>]`
 marker so uncertain deliveries can be found in Todoist, including completed tasks.
 
+## Intentionally skipping an existing backlog
+
+Send an authenticated operator POST containing only `skipRecordingIds` (1–100
+explicit source IDs) and a nonempty `reason`. This operation does not discover
+sources, call AI, or create Todoist tasks. It only accepts pending/failed records
+without uncertain deliveries. Repeating the same selection is safe.
+
+The operation holds the extraction lock and writes a full `backlog-skip-<uuid>.json`
+backup on the persistent volume before changing any selected record. Originals,
+chunk results and task delivery IDs remain intact. Selected records receive a
+`skipped` status, timestamp, reason and audit event. Status reports count them
+separately and exclude them from active issues. Normal processing and rescans,
+including changed source content, never requeue a skipped ID. To deliberately
+reopen one, use the existing `reprocessRecordingId` operation.
+
 ## Historical backfills
 
 ```json
