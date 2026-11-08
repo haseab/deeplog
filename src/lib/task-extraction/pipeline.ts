@@ -48,6 +48,9 @@ export async function ingest(ledger: Ledger, transcript: Transcript) {
   const record: Recording = await ledger.record(transcript.id) ?? {
     schema: 1, id: transcript.id, currentVersion: "", status: "pending", versions: [], tasks: [], events: [],
   };
+  // An intentional skip applies to the source ID, including later source edits.
+  // Only explicit manual reprocessing can reopen it.
+  if (record.status === "skipped") return;
   if (record.versions.find(version => version.hash === record.currentVersion)?.sourceHash === versionHash) return;
   // Never replace a previous extraction or delivery history.
   const existing = record.versions.find(version => version.hash === versionHash);
@@ -121,7 +124,7 @@ export async function processRecording(ledger: Ledger, record: Recording, provid
 } = {}) {
   // Finished legacy imports are preserved; the new gate applies to unfinished
   // work and explicit reprocessing, never an automatic replay of history.
-  if (record.status === "completed") return;
+  if (record.status === "completed" || record.status === "skipped") return;
   const deadline = options.deadline ?? Infinity;
   const version = record.versions.find(item => item.hash === record.currentVersion);
   if (!version) throw new Error(`Missing transcript version for ${record.id}`);
@@ -232,6 +235,7 @@ export async function processRecording(ledger: Ledger, record: Recording, provid
 }
 
 function refreshStatus(record: Recording) {
+  if (record.status === "skipped") return;
   const version = record.versions.find(item => item.hash === record.currentVersion)!;
   record.status = record.tasks.some(task => task.status === "needs_review" || task.status === "sending") ? "needs_review"
     : record.tasks.some(task => task.version === version.hash && task.status === "pending" && task.error) ? "failed"
@@ -248,6 +252,8 @@ export async function reprocessRecording(ledger: Ledger, id: string) {
     discoveredAt: new Date().toISOString(), chunks: splitTranscript(previous.transcript) });
   for (const task of record.tasks) if (task.status === "pending") task.status = "superseded";
   record.currentVersion = versionHash;
+  record.status = "pending";
+  delete record.skip;
   refreshStatus(record);
   event(record, "manual_reprocessing_queued", versionHash);
   await ledger.saveRecord(record);
@@ -258,10 +264,10 @@ export async function status(ledger: Ledger) {
   const scans = await ledger.list<Scan>("scan-");
   return {
     totalRecordings: records.length,
-    counts: Object.fromEntries(["pending", "completed", "failed", "needs_review", "awaiting_transcript"].map(state => [state, records.filter(record => record.status === state).length])),
+    counts: Object.fromEntries(["pending", "completed", "failed", "needs_review", "awaiting_transcript", "skipped"].map(state => [state, records.filter(record => record.status === state).length])),
     deliveredTasks: records.reduce((sum, record) => sum + record.tasks.filter(task => task.status === "delivered").length, 0),
     scans,
-    issues: records.filter(record => record.status !== "completed").map(record => ({
+    issues: records.filter(record => record.status !== "completed" && record.status !== "skipped").map(record => ({
       recordingId: record.id, status: record.status, lastEvent: record.events.at(-1),
       tasks: record.tasks.filter(task => task.status !== "delivered" && task.status !== "superseded" && task.status !== "filtered"),
     })),

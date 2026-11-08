@@ -1,3 +1,4 @@
+import { BacklogConflictError, skipBacklog } from "@/lib/task-extraction/backlog";
 import { hasUnfinishedAnalysis } from "@/lib/task-extraction/quality";
 import { NextRequest } from "next/server";
 import { Ledger, LedgerBusyError, ledgerDirectory, type Recording } from "@/lib/task-extraction/ledger";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const json = (body: unknown, code = 200) => Response.json(body, { status: code, headers: { "Cache-Control": "no-store" } });
 const authorized = (request: NextRequest) => Boolean(process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`);
-const failure = (error: unknown) => json({ success: false, error: error instanceof Error ? error.message : String(error) }, error instanceof LedgerBusyError ? 409 : 500);
+const failure = (error: unknown) => json({ success: false, error: error instanceof Error ? error.message : String(error) }, (error instanceof LedgerBusyError || error instanceof BacklogConflictError) ? 409 : 500);
 
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return json({ error: "Unauthorized" }, 401);
@@ -30,6 +31,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Expected a JSON object" }, 400);
+    if (body.skipRecordingIds !== undefined) {
+      if (!Array.isArray(body.skipRecordingIds) || !body.skipRecordingIds.length || body.skipRecordingIds.length > 100 ||
+        body.skipRecordingIds.some((id: unknown) => typeof id !== "string" || !id.trim()) || new Set(body.skipRecordingIds).size !== body.skipRecordingIds.length ||
+        typeof body.reason !== "string" || !body.reason.trim() || body.reason.length > 1000 ||
+        Object.keys(body).some(key => !["skipRecordingIds", "reason"].includes(key))) {
+        return json({ error: "Provide 1–100 distinct skipRecordingIds and a reason, without other operations" }, 400);
+      }
+    }
     for (const flag of ["discoveryOnly", "draftOnly", "createTestTasks"]) {
       if (body[flag] !== undefined && typeof body[flag] !== "boolean") return json({ error: `${flag} must be a boolean` }, 400);
     }
@@ -48,6 +57,10 @@ export async function POST(request: NextRequest) {
     }
     const ledger = new Ledger(ledgerDirectory());
     return await ledger.withLock(async () => {
+      if (body.skipRecordingIds !== undefined) {
+        const result = await skipBacklog(ledger, body.skipRecordingIds, body.reason.trim());
+        return json({ success: true, ...result, ...(await status(ledger)) });
+      }
       if (body.reprocessRecordingId !== undefined) {
         if (typeof body.reprocessRecordingId !== "string" || !body.reprocessRecordingId) return json({ error: "reprocessRecordingId must be a recording ID" }, 400);
         await reprocessRecording(ledger, body.reprocessRecordingId);
@@ -70,7 +83,7 @@ export async function POST(request: NextRequest) {
       if (!body.discoveryOnly) {
         const records = (await ledger.list<Recording>("record-")).filter(record => {
           const version = record.versions.find(item => item.hash === record.currentVersion);
-          return record.status !== "completed" && (record.status === "failed" || (version && hasUnfinishedAnalysis(version)) ||
+          return record.status !== "completed" && record.status !== "skipped" && (record.status === "failed" || (version && hasUnfinishedAnalysis(version)) ||
             record.tasks.some(task => task.status === "sending" || (task.status === "pending" && task.version === record.currentVersion)));
         })
           .sort((a, b) => (a.events.at(-1)?.at ?? "").localeCompare(b.events.at(-1)?.at ?? ""));

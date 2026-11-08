@@ -101,7 +101,9 @@ function validReview(version: Version) {
 
 export function validateRecord(record: Recording, expectedId = record.id) {
   if (record.schema !== 1 || record.id !== expectedId || typeof record.currentVersion !== "string" ||
-    !["pending", "completed", "failed", "needs_review", "awaiting_transcript"].includes(record.status) ||
+    !["pending", "completed", "failed", "needs_review", "awaiting_transcript", "skipped"].includes(record.status) ||
+    (record.status === "skipped" && (!record.skip || typeof record.skip.at !== "string" || !Number.isFinite(Date.parse(record.skip.at)) ||
+      typeof record.skip.reason !== "string" || !record.skip.reason.trim() || typeof record.skip.backup !== "string" || !record.skip.backup)) ||
     !Array.isArray(record.versions) || !Array.isArray(record.tasks) || !Array.isArray(record.events) ||
     !record.versions.some(version => version.hash === record.currentVersion) ||
     record.versions.some(version => typeof version.hash !== "string" || typeof version.sourceHash !== "string" ||
@@ -148,7 +150,8 @@ export interface Recording {
   schema: 1;
   id: string;
   currentVersion: string;
-  status: "pending" | "completed" | "failed" | "needs_review" | "awaiting_transcript";
+  status: "pending" | "completed" | "failed" | "needs_review" | "awaiting_transcript" | "skipped";
+  skip?: { at: string; reason: string; backup: string };
   versions: Version[];
   tasks: Candidate[];
   events: Array<{ at: string; action: string; detail?: string }>;
