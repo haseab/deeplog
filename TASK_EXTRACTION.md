@@ -120,14 +120,34 @@ disk. Repeated POSTs resume pending rolling scans and unfinished backfills, and
 process known pending/failed recordings regardless of their age. Large backlogs
 need repeated invocations; HTTP success does not mean the entire backlog is done.
 
-All spoken transcript content is analyzed, without a keyword gate. Both production
-and preview extraction use `gpt-6.1-sol` with `xhigh` reasoning.
-Previously saved extraction results are retained; use targeted reprocessing to
-evaluate an already-processed recording with the new model. Long content
-is split into 12,000-character chunks with 1,000 characters of overlap. Finished
-chunks are not extracted again on retry. Empty/missing speech waits for source
-updates; an explicit, valid AI `tasks: []` result completes a nonempty chunk.
-Incomplete or malformed AI responses remain retryable failures.
+All spoken transcript content is analyzed, without a keyword gate. Production
+and previews use the same two-pass pipeline:
+
+1. `gpt-6-luna` with `medium` reasoning enumerates potential todos broadly in
+   12,000-character chunks with 1,000 characters of overlap.
+2. `gpt-6.1-sol` with `xhigh` reasoning reviews every distinct candidate against
+   the full original transcript, including later completion or cancellation.
+   It keeps only concrete, relevant, outstanding obligations attributable to the
+   recording owner. Vague directions (such as "go to the room"), conversational
+   filler, other people's plans, speculation, immediate actions and tasks already
+   completed in the conversation are excluded. Repeated obligations keep the most
+   specific supported candidate. Short useful tasks do not require a deadline.
+
+The reviewer selects existing candidate IDs and cannot introduce or rewrite tasks.
+Every candidate needs a saved keep/reject decision and reason; every kept candidate
+needs a verbatim source quote. Missing decisions, invented quotes, incomplete
+responses and timeouts fail closed: nothing from that transcript is delivered
+until review succeeds. A transcript with no candidates needs no reviewer API call.
+Raw enumeration, model IDs, review attempts, decisions and errors remain in the
+per-version ledger. Finished chunks and successful reviews are reused on retry.
+Previews show only reviewed tasks and cannot complete while review is unfinished.
+
+Existing completed imports are preserved. Previously enumerated but unsent drafts
+must pass the new review before delivery; excluded drafts remain as `filtered`
+audit records. Delivered tasks and uncertain deliveries are never deleted or
+silently retried. Use targeted reprocessing to evaluate an already-completed
+transcript with the new pipeline. Empty/missing speech waits for source updates;
+an explicit, valid AI `tasks: []` result completes a nonempty chunk.
 
 Tasks are saved before delivery. Each task's `sending` state is saved before
 its Todoist request, and the confirmed Todoist ID is saved immediately after.
@@ -171,8 +191,10 @@ cannot guarantee that every intended task was recognized.
 
 Recordings are `pending`, `completed`, `failed`, `needs_review`, or
 `awaiting_transcript`. A recording completes only when every current chunk has
-an explicit result and all current candidates are confirmed delivered (or none
-were extracted). Unresolved uncertain deliveries also prevent completion.
+an explicit result, the quality review is complete, and all approved current
+candidates are confirmed delivered (or none survive review). Legacy completed
+records without a review remain readable and are not automatically replayed.
+Unresolved uncertain deliveries also prevent completion.
 
 Unchanged completed recordings are skipped. Changed spoken content creates a
 new retained version. Exact normalized task text reuses existing delivery IDs;

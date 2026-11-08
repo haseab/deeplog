@@ -1,3 +1,4 @@
+import { hasUnfinishedAnalysis } from "@/lib/task-extraction/quality";
 import { NextRequest } from "next/server";
 import { Ledger, LedgerBusyError, ledgerDirectory, type Recording } from "@/lib/task-extraction/ledger";
 import { discover, processRecording, reprocessRecording, resolveDelivery, status } from "@/lib/task-extraction/pipeline";
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
       if (!body.discoveryOnly) {
         const records = (await ledger.list<Recording>("record-")).filter(record => {
           const version = record.versions.find(item => item.hash === record.currentVersion);
-          return record.status !== "completed" && (record.status === "failed" || version?.chunks.some(chunk => chunk.tasks === undefined) ||
+          return record.status !== "completed" && (record.status === "failed" || (version && hasUnfinishedAnalysis(version)) ||
             record.tasks.some(task => task.status === "sending" || (task.status === "pending" && task.version === record.currentVersion)));
         })
           .sort((a, b) => (a.events.at(-1)?.at ?? "").localeCompare(b.events.at(-1)?.at ?? ""));

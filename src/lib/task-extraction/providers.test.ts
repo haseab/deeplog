@@ -44,8 +44,8 @@ test('AI must return a complete result and explicit tasks array', async () => {
   await mock([Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"tasks":[]}' } }] })], async calls => {
     assert.deepEqual(await createProviders(keys).extract('recording'), []);
     const payload = JSON.parse(String(calls[0].init?.body));
-    assert.equal(payload.model, 'gpt-6.1-sol');
-    assert.equal(payload.reasoning_effort, 'xhigh');
+    assert.equal(payload.model, 'gpt-6-luna');
+    assert.equal(payload.reasoning_effort, 'medium');
     assert.deepEqual(payload.response_format, { type: 'json_object' });
   });
 });
@@ -57,6 +57,36 @@ test('project lookup paginates and refuses ambiguous names', async () => {
   });
   await mock([Response.json({ results: [{ name: 'task-extraction', id: 'a' }, { name: 'task-extraction', id: 'b' }] })], async () => {
     await assert.rejects(createProviders(keys).project(), /exactly one/);
+  });
+});
+
+test('Sol reviews full source and numbered Luna candidates with required evidence', async () => {
+  const input = { text: 'Go to the room. I will send Alex the contract Friday.', candidates: ['Go to the room.', 'Send Alex the contract Friday.'] };
+  const decisions = [
+    { candidate: 0, keep: false, reason: 'Transient instruction', evidence: '' },
+    { candidate: 1, keep: true, reason: 'Concrete commitment', evidence: 'I will send Alex the contract Friday.' },
+  ];
+  await mock([Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ decisions }) } }] })], async calls => {
+    assert.deepEqual(await createProviders(keys).review(input), decisions);
+    const payload = JSON.parse(String(calls[0].init?.body));
+    assert.equal(payload.model, 'gpt-6.1-sol'); assert.equal(payload.reasoning_effort, 'xhigh');
+    const sent = JSON.parse(payload.messages[1].content);
+    assert.equal(sent.transcript, input.text);
+    assert.deepEqual(sent.candidates, input.candidates.map((content, candidate) => ({ content, candidate })));
+  });
+  for (const invalid of [
+    {}, { decisions: [] }, { decisions: [decisions[0], decisions[0]] },
+    { decisions: [decisions[0], { ...decisions[1], candidate: 2 }] },
+    { decisions: [decisions[0], { ...decisions[1], evidence: 'I will buy a spaceship.' }] },
+    { decisions: [decisions[0], { ...decisions[1], reason: '' }] },
+    { decisions: [decisions[0], { ...decisions[1], keep: 'true' }] },
+  ]) {
+    await mock([Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(invalid) } }] })], async () => {
+      await assert.rejects(createProviders(keys).review(input));
+    });
+  }
+  await mock([Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify({ decisions }) } }] })], async () => {
+    await assert.rejects(createProviders(keys).review(input), /Incomplete AI response/);
   });
 });
 

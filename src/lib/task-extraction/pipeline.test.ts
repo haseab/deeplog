@@ -12,6 +12,7 @@ const transcript = (id = 'rec/one', content = 'Send Alex the contract tomorrow.'
 const providers = (overrides: Partial<Providers> = {}): Providers => ({
   page: async () => ({ transcripts: [], nextCursor: null }),
   extract: async () => ['Send Alex the contract tomorrow.'],
+  review: async ({ text, candidates }) => candidates.map((_content, candidate) => ({ candidate, keep: true, reason: "Explicit commitment", evidence: text })),
   project: async () => 'project', create: async task => `todoist-${task.id}`, ...overrides,
 });
 async function fixture(run: (ledger: Ledger) => Promise<void>) {
@@ -193,4 +194,94 @@ test('manual reprocessing preserves past attempts and is not undone by a rescan'
   assert.deepEqual(saved.versions[0].chunks[0].tasks, []);
   assert.equal(saved.tasks.length, 1);
   assert.equal(saved.status, 'completed');
+}));
+
+test('full-transcript quality review gates delivery and retains rejected candidate decisions', () => fixture(async ledger => {
+  const source = 'Go to the room. I will send Alex the signed contract Friday.';
+  await ingest(ledger, transcript('quality', source));
+  const created: string[] = [];
+  await processRecording(ledger, await record(ledger, 'quality'), providers({
+    extract: async () => ['Go to the room.', 'Send Alex the signed contract Friday.', ' go TO the room. '],
+    review: async input => {
+      assert.match(input.text, /Go to the room.*signed contract Friday/);
+      assert.equal(input.candidates.length, 2);
+      return [
+        { candidate: 0, keep: false, reason: 'Transient direction without a useful follow-up outcome', evidence: '' },
+        { candidate: 1, keep: true, reason: 'Concrete outstanding commitment', evidence: 'I will send Alex the signed contract Friday.' },
+      ];
+    },
+    create: async task => {
+      const saved = await record(ledger, 'quality');
+      assert.equal(saved.versions[0].qualityReview?.decisions.length, 2);
+      created.push(task.content); return task.id;
+    },
+  }));
+  const saved = await record(ledger, 'quality');
+  assert.deepEqual(created, ['Send Alex the signed contract Friday.']);
+  assert.equal(saved.versions[0].chunks[0].tasks?.length, 3);
+  assert.equal(saved.versions[0].chunks[0].model, 'gpt-6-luna');
+  assert.equal(saved.versions[0].qualityReview?.model, 'gpt-6.1-sol');
+  assert.equal(saved.status, 'completed');
+}));
+
+test('failed or malformed quality review sends nothing and retries review without re-enumeration', () => fixture(async ledger => {
+  await ingest(ledger, transcript());
+  let enumerations = 0;
+  const p = providers({ extract: async () => { enumerations++; return ['Send Alex the contract tomorrow.']; },
+    review: async () => { throw Error('review unavailable'); }, create: async () => { assert.fail('raw tasks must not be delivered'); } });
+  await processRecording(ledger, await record(ledger), p);
+  let saved = await record(ledger);
+  assert.equal(saved.status, 'failed'); assert.equal(saved.tasks.length, 0);
+  assert.match(saved.versions[0].reviewError!, /unavailable/);
+  await processRecording(ledger, saved, { ...p, review: async () => [] });
+  saved = await record(ledger);
+  assert.equal(saved.status, 'failed'); assert.equal(saved.tasks.length, 0);
+  await processRecording(ledger, saved, providers({ extract: p.extract }));
+  saved = await record(ledger);
+  assert.equal(enumerations, 1); assert.equal(saved.status, 'completed');
+  assert.equal(saved.versions[0].reviewAttempts, 3); assert.equal(saved.versions[0].reviewError, undefined);
+}));
+
+test('old unsent drafts require review and all-rejected transcripts complete without Todoist', () => fixture(async ledger => {
+  await ingest(ledger, transcript('legacy', 'Go to the room.'));
+  const saved = await record(ledger, 'legacy');
+  saved.versions[0].chunks[0].tasks = ['Go to the room.'];
+  saved.tasks.push({ id: 'old-draft', content: 'Go to the room.', version: saved.currentVersion, status: 'pending' });
+  await ledger.saveRecord(saved);
+  await processRecording(ledger, await record(ledger, 'legacy'), providers({
+    extract: async () => { assert.fail('saved candidates must be reused'); },
+    review: async () => [{ candidate: 0, keep: false, reason: 'Immediate direction', evidence: '' }],
+    project: async () => { assert.fail('no project needed'); }, create: async () => { assert.fail('no useful tasks'); },
+  }));
+  const result = await record(ledger, 'legacy');
+  assert.equal(result.status, 'completed'); assert.equal(result.tasks[0].status, 'filtered');
+  assert.equal((await status(ledger)).issues.length, 0);
+}));
+
+test('completed legacy imports are preserved and corrupt review coverage is refused', () => fixture(async ledger => {
+  await ingest(ledger, transcript());
+  await processRecording(ledger, await record(ledger), providers());
+  const saved = await record(ledger);
+  delete saved.versions[0].qualityReview;
+  await ledger.saveRecord(saved);
+  await processRecording(ledger, await record(ledger), providers({ review: async () => { assert.fail('no automatic historical replay'); } }));
+  assert.equal((await record(ledger)).versions[0].qualityReview, undefined);
+  await reprocessRecording(ledger, saved.id);
+  await processRecording(ledger, await record(ledger), providers());
+  const corrupt = await record(ledger);
+  corrupt.versions.at(-1)!.qualityReview!.decisions = [];
+  await ledger.saveRecord(corrupt);
+  await assert.rejects(ledger.record(saved.id), /Invalid transcript ledger/);
+}));
+
+test('deadline between enumeration and review defers delivery until a later reviewed attempt', () => fixture(async ledger => {
+  await ingest(ledger, transcript());
+  const saved = await record(ledger);
+  saved.versions[0].chunks[0].tasks = ['Send Alex the contract tomorrow.'];
+  await ledger.saveRecord(saved);
+  await processRecording(ledger, saved, providers({ review: async () => { assert.fail('budget exhausted'); } }), { deadline: Date.now() - 1 });
+  const deferred = await record(ledger);
+  assert.equal(deferred.status, 'pending'); assert.equal(deferred.tasks.length, 0);
+  await processRecording(ledger, deferred, providers({ extract: async () => { assert.fail('must reuse enumeration'); } }));
+  assert.equal((await record(ledger)).status, 'completed');
 }));

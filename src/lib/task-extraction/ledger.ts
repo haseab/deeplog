@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { enumeratedCandidates, REVIEW_MODEL, transcriptText, validateQualityDecisions, type QualityReview } from "./quality";
 
 export const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -86,6 +87,18 @@ export class Ledger {
   }
 }
 
+function validReview(version: Version) {
+  if (version.reviewAttempts !== undefined && (!Number.isInteger(version.reviewAttempts) || version.reviewAttempts < 0)) return false;
+  if (version.reviewError !== undefined && typeof version.reviewError !== "string") return false;
+  if (version.qualityReview === undefined) return true; // Existing ledger versions remain readable.
+  try {
+    if (!version.qualityReview || version.qualityReview.model !== REVIEW_MODEL ||
+      !Number.isFinite(Date.parse(version.qualityReview.completedAt)) || version.chunks.some(chunk => chunk.tasks === undefined)) return false;
+    validateQualityDecisions(version.qualityReview.decisions, { text: transcriptText(version.transcript), candidates: enumeratedCandidates(version) });
+    return true;
+  } catch { return false; }
+}
+
 export function validateRecord(record: Recording, expectedId = record.id) {
   if (record.schema !== 1 || record.id !== expectedId || typeof record.currentVersion !== "string" ||
     !["pending", "completed", "failed", "needs_review", "awaiting_transcript"].includes(record.status) ||
@@ -94,12 +107,12 @@ export function validateRecord(record: Recording, expectedId = record.id) {
     record.versions.some(version => typeof version.hash !== "string" || typeof version.sourceHash !== "string" ||
       !Array.isArray(version.chunks) || !version.transcript || version.transcript.id !== record.id ||
       version.chunks.some(chunk => typeof chunk.text !== "string" || !Number.isInteger(chunk.attempts) || chunk.attempts < 0 ||
-        (chunk.tasks !== undefined && (!Array.isArray(chunk.tasks) || chunk.tasks.some(task => typeof task !== "string" || !task.trim()))))) ||
+        (chunk.tasks !== undefined && (!Array.isArray(chunk.tasks) || chunk.tasks.some(task => typeof task !== "string" || !task.trim())))) || !validReview(version)) ||
     record.tasks.some(task => typeof task.id !== "string" || typeof task.content !== "string" ||
-      !["pending", "sending", "delivered", "needs_review", "superseded"].includes(task.status) ||
+      !["pending", "sending", "delivered", "needs_review", "superseded", "filtered"].includes(task.status) ||
       !record.versions.some(version => version.hash === task.version) ||
       (task.status === "delivered" && !task.todoistId)) ||
-    (record.status === "completed" && (record.tasks.some(task => task.status === "sending" || task.status === "needs_review" || (task.version === record.currentVersion && task.status !== "delivered")) ||
+    (record.status === "completed" && (record.tasks.some(task => task.status === "sending" || task.status === "needs_review" || (task.version === record.currentVersion && task.status !== "delivered" && task.status !== "filtered")) ||
       record.versions.find(version => version.hash === record.currentVersion)!.chunks.some(chunk => chunk.tasks === undefined)))) {
     throw new Error(`Invalid recording ledger: ${expectedId}; refusing to reset or process it`);
   }
@@ -116,7 +129,7 @@ export interface Candidate {
   id: string;
   content: string;
   version: string;
-  status: "pending" | "sending" | "delivered" | "needs_review" | "superseded";
+  status: "pending" | "sending" | "delivered" | "needs_review" | "superseded" | "filtered";
   todoistId?: string;
   projectId?: string;
   error?: string;
@@ -126,7 +139,10 @@ export interface Version {
   sourceHash: string;
   transcript: Transcript;
   discoveredAt: string;
-  chunks: Array<{ text: string; tasks?: string[]; attempts: number; error?: string }>;
+  chunks: Array<{ text: string; tasks?: string[]; attempts: number; model?: string; error?: string }>;
+  qualityReview?: QualityReview;
+  reviewAttempts?: number;
+  reviewError?: string;
 }
 export interface Recording {
   schema: 1;
