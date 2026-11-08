@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { atomicJson, hash, Ledger, readJson, type Recording } from "./ledger";
 import { discover, processRecording, type Providers } from "./pipeline";
 
+import { approvedTasks, hasUnfinishedAnalysis } from "./quality";
+
 const ROOT = join(tmpdir(), "deeplog-extraction-previews");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TTL = 24 * 60 * 60 * 1000;
@@ -21,7 +23,7 @@ export class PreviewError extends Error {
 
 // No production ledger or Todoist capability is passed into this test runner.
 export async function previewBatch(input: { runId?: string; startDate?: string; endDate?: string },
-  sourceKey: string, reader: Pick<Providers, "page" | "extract">,
+  sourceKey: string, reader: Pick<Providers, "page" | "extract" | "review">,
   options: { root?: string; maxPages?: number; maxRecordings?: number; budgetMs?: number; discoveryOnly?: boolean } = {}) {
   const root = options.root ?? ROOT;
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -46,7 +48,7 @@ export async function previewBatch(input: { runId?: string; startDate?: string; 
     }
   }
   const safeProviders: Providers = {
-    page: (...args) => reader.page(...args), extract: text => reader.extract(text),
+    page: (...args) => reader.page(...args), extract: text => reader.extract(text), review: input => reader.review(input),
     project: async () => { throw new Error("Todoist is disabled in extraction previews"); },
     create: async () => { throw new Error("Todoist is disabled in extraction previews"); },
   };
@@ -69,7 +71,7 @@ export async function previewBatch(input: { runId?: string; startDate?: string; 
     }
     const records = await ledger.list<Recording>("record-");
     if (!options.discoveryOnly) {
-      const unfinished = records.filter(record => record.versions.find(version => version.hash === record.currentVersion)!.chunks.some(chunk => chunk.tasks === undefined))
+      const unfinished = records.filter(record => hasUnfinishedAnalysis(record.versions.find(version => version.hash === record.currentVersion)!))
         .sort((a, b) => (a.events.at(-1)?.at ?? "").localeCompare(b.events.at(-1)?.at ?? ""));
       for (const record of unfinished.slice(0, options.maxRecordings ?? 3)) {
         if (Date.now() >= deadline) break;
@@ -81,9 +83,9 @@ export async function previewBatch(input: { runId?: string; startDate?: string; 
       const chunksDone = version.chunks.filter(chunk => chunk.tasks !== undefined).length;
       return { id: record.id, startTime: version.transcript.startTime, endTime: version.transcript.endTime,
         chunks: version.chunks.length, chunksDone,
-        state: record.status === "failed" ? "failed" : !version.chunks.length ? "awaiting_transcript" : chunksDone === version.chunks.length ? "extracted" : "pending",
-        errors: version.chunks.flatMap(chunk => chunk.error ? [chunk.error] : []),
-        tasks: record.tasks.filter(task => task.version === record.currentVersion).map(task => task.content) };
+        state: record.status === "failed" ? "failed" : !version.chunks.length ? "awaiting_transcript" : chunksDone === version.chunks.length && version.qualityReview ? "extracted" : "pending",
+        errors: [...version.chunks.flatMap(chunk => chunk.error ? [chunk.error] : []), ...(version.reviewError ? [version.reviewError] : [])],
+        tasks: approvedTasks(version) };
     }).sort((a, b) => a.startTime.localeCompare(b.startTime));
     return {
       runId, dryRun: true as const, todoistEnabled: false as const,

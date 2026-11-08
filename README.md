@@ -8,7 +8,9 @@ uses toggl in the backend
 ## Recording task extraction
 
 Task extraction runs on Railway with a persistent volume, using a per-recording
-filesystem ledger instead of the legacy processed timestamp. It rescans seven
+filesystem ledger instead of the legacy processed timestamp. GPT-6 Luna enumerates
+potential todos; GPT-6.1 Sol reviews them against the full transcript and keeps
+only relevant, concrete, still-actionable obligations before Todoist delivery. It rescans seven
 days, resumes older incomplete work, and records individual Todoist deliveries.
 See [TASK_EXTRACTION.md](TASK_EXTRACTION.md) for volume configuration, migration,
 backfills, status, and recovery. The extraction route cannot run on Vercel.

@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { atomicJson, event, hash, Ledger, type Recording, type Transcript } from "./ledger";
 
+import { approvedTasks, enumeratedCandidates, ENUMERATION_MODEL, normalizeTask, REVIEW_MODEL, transcriptText, validateQualityDecisions, type QualityDecision, type ReviewInput } from "./quality";
+
 const DAY = 86_400_000;
 const EXTRACTION_VERSION = "full-transcript-v1";
 export interface Providers {
   page(start: string, end: string, cursor: string | null): Promise<{ transcripts: Transcript[]; nextCursor: string | null }>;
   extract(text: string): Promise<string[]>;
+  review(input: ReviewInput): Promise<QualityDecision[]>;
   project(): Promise<string>;
   create(task: { id: string; content: string; projectId: string; recordingId: string; startTime: string }): Promise<string>;
 }
@@ -27,10 +30,7 @@ interface Scan {
 }
 
 function splitTranscript(transcript: Transcript) {
-  const text = (transcript.contents ?? [])
-    .filter(segment => segment.type === "blockquote" && segment.content?.trim())
-    .map(segment => `[${segment.startTime || transcript.startTime}] ${segment.content!.trim()}`)
-    .join("\n");
+  const text = transcriptText(transcript);
   const chunks = [];
   for (let offset = 0; offset < text.length; offset += 11_000) {
     chunks.push({ text: text.slice(offset, offset + 12_000), attempts: 0 });
@@ -119,6 +119,9 @@ export async function discover(ledger: Ledger, providers: Providers, options: {
 export async function processRecording(ledger: Ledger, record: Recording, providers: Providers, options: {
   deadline?: number; draftOnly?: boolean;
 } = {}) {
+  // Finished legacy imports are preserved; the new gate applies to unfinished
+  // work and explicit reprocessing, never an automatic replay of history.
+  if (record.status === "completed") return;
   const deadline = options.deadline ?? Infinity;
   const version = record.versions.find(item => item.hash === record.currentVersion);
   if (!version) throw new Error(`Missing transcript version for ${record.id}`);
@@ -143,6 +146,7 @@ export async function processRecording(ledger: Ledger, record: Recording, provid
           throw new Error("Invalid extracted tasks");
         }
         chunk.tasks = tasks;
+        chunk.model = ENUMERATION_MODEL;
         delete chunk.error;
         event(record, "extraction_completed", String(tasks.length));
         await ledger.saveRecord(record);
@@ -152,13 +156,41 @@ export async function processRecording(ledger: Ledger, record: Recording, provid
       }
     }
     if (version.chunks.length && version.chunks.every(chunk => chunk.tasks !== undefined)) {
+      if (!version.qualityReview) {
+        if (Date.now() >= deadline) { refreshStatus(record); await ledger.saveRecord(record); return; }
+        version.reviewAttempts = (version.reviewAttempts ?? 0) + 1;
+        event(record, "quality_review_started", String(version.reviewAttempts));
+        await ledger.saveRecord(record);
+        try {
+          const input = { text: transcriptText(version.transcript), candidates: enumeratedCandidates(version) };
+          const decisions = input.candidates.length ? await providers.review(input) : [];
+          validateQualityDecisions(decisions, input);
+          version.qualityReview = { model: REVIEW_MODEL, completedAt: new Date().toISOString(), decisions };
+          delete version.reviewError;
+          event(record, "quality_review_completed", `${decisions.filter(decision => decision.keep).length}/${decisions.length} kept`);
+          await ledger.saveRecord(record);
+        } catch (error) { version.reviewError = String(error); throw error; }
+      }
+      const approved = approvedTasks(version);
+      const accepted = new Set(approved.map(normalizeTask));
+      // Old unsent drafts also pass through the gate. Retain rejected drafts
+      // for audit, while preserving delivered and uncertain delivery history.
+      for (const task of record.tasks) {
+        if (task.version === version.hash && task.status === "pending" && !accepted.has(normalizeTask(task.content))) {
+          task.status = "filtered";
+          task.error = "Excluded by the task relevance and actionability review";
+        }
+      }
       const previouslyDeliveredVersion = record.tasks.some(task => task.status === "delivered" && task.version !== version.hash);
-      for (const content of version.chunks.flatMap(chunk => chunk.tasks!)) {
-        const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
-        const existing = record.tasks.find(task => task.content.trim().toLowerCase().replace(/\s+/g, " ") === normalized);
+      for (const content of approved) {
+        const normalized = normalizeTask(content);
+        const existing = record.tasks.find(task => normalizeTask(task.content) === normalized);
         if (existing) {
           existing.version = version.hash;
-          if (existing.status === "superseded") existing.status = "pending";
+          if (existing.status === "superseded" || existing.status === "filtered") {
+            existing.status = "pending";
+            delete existing.error;
+          }
           continue;
         }
         record.tasks.push({ id: randomUUID(), content: content.trim(), version: version.hash,
@@ -169,7 +201,7 @@ export async function processRecording(ledger: Ledger, record: Recording, provid
       await ledger.saveRecord(record);
       if (!options.draftOnly) {
         for (const task of record.tasks) {
-          if (task.status !== "pending" || task.version !== version.hash || Date.now() >= deadline) continue;
+          if (task.status !== "pending" || task.version !== version.hash || !accepted.has(normalizeTask(task.content)) || Date.now() >= deadline) continue;
           task.projectId ??= await providers.project();
           task.status = "sending";
           event(record, "delivery_started", `${task.id}:${version.hash}`);
@@ -204,7 +236,7 @@ function refreshStatus(record: Recording) {
   record.status = record.tasks.some(task => task.status === "needs_review" || task.status === "sending") ? "needs_review"
     : record.tasks.some(task => task.version === version.hash && task.status === "pending" && task.error) ? "failed"
     : !version.chunks.length ? "awaiting_transcript"
-    : version.chunks.every(chunk => chunk.tasks !== undefined) && !record.tasks.some(task => task.version === version.hash && task.status !== "delivered") ? "completed" : "pending";
+    : version.qualityReview && version.chunks.every(chunk => chunk.tasks !== undefined) && !record.tasks.some(task => task.version === version.hash && task.status !== "delivered" && task.status !== "filtered") ? "completed" : "pending";
 }
 
 export async function reprocessRecording(ledger: Ledger, id: string) {
@@ -231,7 +263,7 @@ export async function status(ledger: Ledger) {
     scans,
     issues: records.filter(record => record.status !== "completed").map(record => ({
       recordingId: record.id, status: record.status, lastEvent: record.events.at(-1),
-      tasks: record.tasks.filter(task => task.status !== "delivered" && task.status !== "superseded"),
+      tasks: record.tasks.filter(task => task.status !== "delivered" && task.status !== "superseded" && task.status !== "filtered"),
     })),
   };
 }
