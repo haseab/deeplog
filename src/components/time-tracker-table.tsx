@@ -1,5 +1,6 @@
 "use client";
 
+import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
@@ -6681,8 +6682,7 @@ export function TimeTrackerTable({
     if (!hasMore || loading || isLoadingMore) return;
 
     setIsLoadingMore(true);
-    await fetchData(false, false);
-    setIsLoadingMore(false);
+    try { await fetchData(false, false); } finally { setIsLoadingMore(false); }
   }, [hasMore, loading, isLoadingMore, fetchData]);
 
   // Optimized activateCell using React.useCallback to prevent recreation
@@ -8712,6 +8712,44 @@ export function TimeTrackerTable({
       setSelectedCell(null);
     }
   }, [selectedCell, timeEntries.length]);
+
+  const contextEntryIds = React.useMemo(
+    () => parseContextEntryIds(searchParams.get("highlight")),
+    [searchParams]
+  );
+  const contextLinkKey = contextEntryIds.length
+    ? [searchParams.get("from"), searchParams.get("to"), ...contextEntryIds].join("|")
+    : null;
+  const contextLinkApplied = React.useRef<string | null>(null);
+  const contextLinkSource = React.useRef<{ key: string; entries: TimeEntry[]; changingRange: boolean } | null>(null);
+  React.useEffect(() => {
+    if (!contextLinkKey) { contextLinkApplied.current = null; contextLinkSource.current = null; return; }
+    if (contextLinkApplied.current === contextLinkKey) return;
+    const requestedRange = getDateRangeFromSearchParams(searchParams, timeZone);
+    if (!requestedRange) return;
+    if (contextLinkSource.current?.key !== contextLinkKey) {
+      contextLinkSource.current = { key: contextLinkKey, entries: timeEntries, changingRange: !dateRangesMatch(date, requestedRange) };
+    }
+    if (!dateRangesMatch(date, requestedRange) || loading || isLoadingMore) return;
+    if (timeEntries.length === 0) return;
+    const indices = contextEntryIds.map(id => decryptedEntries.findIndex(entry => entry.id === id));
+    if (contextEntryIds.some(id => timeEntries.some(entry => entry.id === id) && !decryptedEntries.some(entry => entry.id === id))) return;
+    const missing = indices.some(index => index < 0);
+    if (missing && contextLinkSource.current.changingRange && contextLinkSource.current.entries === timeEntries) return;
+    if (missing && hasMore) { void loadMore().catch(() => { contextLinkApplied.current = contextLinkKey; toast.error("Could not load all linked entries. Refresh to retry."); }); return; }
+    const visibleIndices = indices.filter(index => index >= 0);
+    if (visibleIndices.length) {
+      setSelectedRows(new Set(visibleIndices));
+      setSelectedCell({ rowIndex: visibleIndices[0], cellIndex: isFullscreen ? 2 : 1 });
+      const firstId = decryptedEntries[visibleIndices[0]].id;
+      requestAnimationFrame(() => {
+        const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-entry-id="${firstId}"]`)).find(element => element.offsetParent !== null);
+        row?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+    if (missing) toast("Some linked entries are no longer in this time range.", { id: "linked-entry-context-missing" });
+    contextLinkApplied.current = contextLinkKey;
+  }, [contextLinkKey, contextEntryIds, searchParams, timeZone, date, timeEntries, decryptedEntries, loading, isLoadingMore, hasMore, loadMore, isFullscreen]);
 
   const [descriptionReviewTarget, setDescriptionReviewTarget] = React.useState<{
     id: number; start?: string; deleted?: boolean; previousEntries?: TimeEntry[];
