@@ -7289,7 +7289,7 @@ export function TimeTrackerTable({
             reason === "no_overlapping_transcript"
               ? "No overlapping Limitless transcript was found"
               : reason === "already_summarized"
-                ? "This exact time range is already summarized"
+                ? "This entry already has a summary"
                 : reason === "encrypted_description"
                   ? "Encrypted descriptions cannot be summarized on the server"
                   : reason === "description_limit"
