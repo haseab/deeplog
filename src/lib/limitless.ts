@@ -51,9 +51,7 @@ const parseLimitlessPage = (data: unknown): LimitlessPage => {
   const nextCursor = response.meta?.lifelogs?.nextCursor;
 
   return {
-    lifelogs: Array.isArray(lifelogs)
-      ? (lifelogs as LimitlessLifelog[])
-      : [],
+    lifelogs: Array.isArray(lifelogs) ? (lifelogs as LimitlessLifelog[]) : [],
     nextCursor: typeof nextCursor === "string" ? nextCursor : null,
   };
 };
@@ -73,7 +71,7 @@ export const fetchLimitlessPage = async ({
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
     throw new Error(
-      errorData?.error || `HTTP ${response.status}: ${response.statusText}`
+      errorData?.error || `HTTP ${response.status}: ${response.statusText}`,
     );
   }
 
@@ -129,25 +127,59 @@ export const fetchLimitlessTimeRangeWithPreceding = async ({
       if (signal?.aborted) throw error;
       console.warn(
         "Could not fetch the lifelog preceding the requested time:",
-        error
+        error,
       );
       return null;
     }),
   ]);
   const lifelogs = Array.from(
     new Map(
-      [
-        ...rangePage.lifelogs,
-        ...(precedingResult?.lifelogs ?? []),
-      ].map((lifelog) => [lifelog.id, lifelog])
-    ).values()
+      [...rangePage.lifelogs, ...(precedingResult?.lifelogs ?? [])].map(
+        (lifelog) => [lifelog.id, lifelog],
+      ),
+    ).values(),
   ).sort(
-    (a, b) =>
-      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+    (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
   );
 
   return {
     lifelogs,
     nextCursor: rangePage.nextCursor,
   };
+};
+
+// Summary generation must use every page, not just the newest twenty lifelogs.
+export const fetchAllLimitlessTimeRangeWithPreceding = async (
+  options: FetchTimeRangeWithPrecedingOptions,
+): Promise<LimitlessPage> => {
+  const first = await fetchLimitlessTimeRangeWithPreceding(options);
+  const lifelogs = new Map(first.lifelogs.map((log) => [log.id, log]));
+  const seen = new Set<string>();
+  let cursor = first.nextCursor;
+  while (cursor) {
+    if (seen.has(cursor))
+      throw new Error(
+        "Limitless repeated a pagination cursor; summary was not saved.",
+      );
+    seen.add(cursor);
+    const page = await fetchLimitlessPage({
+      apiKey: options.apiKey,
+      endpoint: options.endpoint,
+      apiKeyHeader: options.apiKeyHeader,
+      signal: options.signal,
+      params: new URLSearchParams({
+        start: options.startTime.toISOString(),
+        end: options.endTime.toISOString(),
+        limit: String(options.limit ?? 20),
+        direction: "desc",
+        cursor,
+        includeMarkdown: "true",
+        includeHeadings: "true",
+        includeContents: "true",
+      }),
+    });
+    for (const log of page.lifelogs) lifelogs.set(log.id, log);
+    cursor = page.nextCursor;
+  }
+  return { lifelogs: [...lifelogs.values()], nextCursor: null };
 };
