@@ -7597,6 +7597,36 @@ export function TimeTrackerTable({
     };
   }, [handleCancelSync]);
 
+  // Opening Retrace is independent of table navigation and row editing.
+  // Capture before editors/menus can consume the event, after shortcut remapping
+  // at window capture. Keep the current editor and its unsaved changes intact.
+  React.useEffect(() => {
+    const handleRetraceKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.defaultPrevented || e.isComposing ||
+        document.documentElement.hasAttribute("data-settings-open") ||
+        e.key.toLowerCase() !== "p" ||
+        !(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey ||
+        !selectedCell
+      ) return;
+
+      const target = e.target as HTMLElement | null;
+      const inRow = target?.closest?.('[data-entry-id], [data-row-editor-content="true"]');
+      // Other page inputs and dialogs do not operate on the selected entry.
+      if (!inRow && target?.closest?.('input, textarea, [contenteditable="true"], [role="textbox"], [role="dialog"]')) return;
+
+      const entry = getSelectedCellEntry();
+      if (!entry) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startTimestamp = new Date(entry.start).getTime();
+      window.location.href = `retracedev://timeline?t=${startTimestamp}`;
+    };
+
+    document.addEventListener("keydown", handleRetraceKeyDown, true);
+    return () => document.removeEventListener("keydown", handleRetraceKeyDown, true);
+  }, [selectedCell, getSelectedCellEntry]);
+
   // Toast actions may submit from anywhere, but text editors own text undo.
   React.useEffect(() => {
     const handleToastActionKeyDown = (e: KeyboardEvent) => {
@@ -7909,7 +7939,7 @@ export function TimeTrackerTable({
         return;
       }
 
-      // Check if Limitless API key exists (required for both Cmd+P shortcuts)
+      // Only Pendant requires a Limitless API key; Retrace opens a local app.
       const hasLimitlessKey = !!localStorage.getItem("limitless_api_key");
 
       // Cmd+P: Open Limitless pendant page in new tab with selected entry's time range
@@ -7944,25 +7974,6 @@ export function TimeTrackerTable({
           }
 
           window.open(`/pendant?q=${encodeURIComponent(query)}`, '_blank');
-        }
-        return;
-      }
-
-      // Cmd+Shift+P: Open Retrace timeline deeplink with selected entry's start timestamp
-      if (
-        e.key.toLowerCase() === "p" &&
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        !isInInput &&
-        selectedCell &&
-        hasLimitlessKey
-      ) {
-        e.preventDefault();
-        const entry = decryptedEntries[selectedCell.rowIndex];
-        if (entry) {
-          const startTimestamp = new Date(entry.start).getTime();
-          const retraceUrl = `retracedev://timeline?t=${startTimestamp}`;
-          window.location.href = retraceUrl;
         }
         return;
       }
