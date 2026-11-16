@@ -34,9 +34,18 @@ The dialog offers **Keep mine** and **Keep Toggl**. It rereads Toggl
 before accepting a choice, and refreshes the comparison if it changed. The next
 upload checks again. Choosing Keep Toggl does not write to Toggl. Both versions are
 copied to local recovery history in the same IndexedDB transaction as resolution.
-Clicking the **Toggl / Entry deleted** card marks a deleted entry complete,
+Opening a conflict refreshes its Toggl copy, including entries previously marked
+unavailable. If Toggl already contains the local text, the conflict clears without
+a write. Background checks also recheck conflicts on startup, reconnect, returning
+to the tab, and every five minutes. Successful uploads acknowledge matching text
+even if another tab raised a conflict during the request; differing newer text
+stays pending. A lookup 404 displays **Entry not found**; only an explicit Toggl deletion
+record displays **Entry deleted**. Nearby timeline entries are identified as different
+entries, since combinations and replacements can leave drafts on old IDs.
+Clicking the **Toggl / Entry not found** (or **Entry deleted**) card marks it complete,
 removes it from pending, and preserves the draft in recovery history, including
-while offline. The entry is not recreated.
+while offline. When online, completion first verifies that the entry is still
+unavailable. The entry is not recreated.
 
 Editing the description after a conflict resumes syncing against the known
 conflicting Toggl version and preserves both earlier versions in recovery history.

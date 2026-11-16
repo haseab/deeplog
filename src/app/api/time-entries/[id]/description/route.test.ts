@@ -49,7 +49,7 @@ test("review returns the original time of a soft-deleted entry without writing",
   const start = "2026-01-15T10:00:00Z";
   const result = await run({ reviewOnly: true }, { wid: 2, uid: 1, start, server_deleted_at: "2026-01-16T00:00:00Z" });
   assert.equal(result.status, 409);
-  assert.deepEqual(result.body, { deleted: true, start });
+  assert.deepEqual(result.body, { deleted: true, deletionConfirmed: true, start });
   assert.deepEqual(result.writes, []);
 });
 test("deleted entry context is still scoped to the authenticated account", async () => {

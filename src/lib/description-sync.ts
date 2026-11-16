@@ -16,6 +16,7 @@ export interface DescriptionDraft {
   status: "local" | "conflict" | "error" | "synced";
   remote?: string;
   deleted?: boolean;
+  deletionConfirmed?: boolean;
   // Original entry time allows timeline navigation after deletion in Toggl.
   start?: string;
   error?: string;
@@ -24,6 +25,21 @@ export interface DescriptionDraft {
   owner?: string;
   attempts?: number;
   retryAt?: number;
+}
+export interface DescriptionCheck {
+  remote?: string;
+  deleted: boolean;
+  deletionConfirmed?: boolean;
+  start?: string;
+}
+
+/** Refresh evidence without choosing between differing descriptions or discarding edits. */
+export function refreshDescriptionConflict(current: DescriptionDraft, shown: DescriptionDraft, check: DescriptionCheck): DescriptionDraft {
+  if (current.revision !== shown.revision || current.local !== shown.local || current.status !== "conflict") return current;
+  if (!check.deleted && check.remote !== undefined && current.local === check.remote) {
+    return { ...acknowledgeDraft(current, shown, check.remote), status: "synced", deleted: false, deletionConfirmed: false, start: check.start ?? current.start };
+  }
+  return { ...current, remote: check.remote, deleted: check.deleted, deletionConfirmed: !!check.deletionConfirmed, start: check.start ?? current.start, error: undefined };
 }
 export interface DescriptionHistory {
   key: string;
@@ -50,14 +66,20 @@ export function resolveEditedDescription(draft: DescriptionDraft): DescriptionDr
 }
 
 export function acknowledgeDraft(current: DescriptionDraft, sent: DescriptionDraft, remote: string): DescriptionDraft {
+  if (current.key !== sent.key) return current;
+  // A conflict can appear in another tab while this request is in flight.
+  // The returned value is evidence of success only for text it actually matches.
+  const matched = current.local === remote;
   return {
     ...current,
     base: remote,
-    status: current.status === "conflict" ? "conflict" : current.revision === sent.revision ? "synced" : "local",
+    status: matched ? "synced" : current.status === "conflict" ? "conflict" : "local",
     attempts: 0,
     retryAt: undefined,
     sent: undefined,
     error: undefined,
-    remote: undefined,
+    remote: !matched && current.status === "conflict" ? remote : undefined,
+    deleted: matched ? false : current.deleted,
+    deletionConfirmed: matched ? false : current.deletionConfirmed,
   };
 }

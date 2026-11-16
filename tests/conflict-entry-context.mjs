@@ -49,18 +49,18 @@ try {
   await page.keyboard.press('Meta+;');
   await review.waitFor();
   await review.getByRole('button', { name: 'Next', exact: true }).click();
-  await page.getByText('Entry deleted', { exact: true }).waitFor();
+  await page.getByText('Entry not found', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Go to time entry', exact: true }).click();
   await review.waitFor({ state: 'detached' });
   await page.locator('tr[data-entry-id="8"]:visible').waitFor();
-  await page.getByText('This entry was deleted. Showing the nearest entry from its original day.', { exact: true }).waitFor();
+  await page.getByText('Entry 4 is unavailable. Showing a nearby entry from its original day; this is a different entry.', { exact: true }).waitFor();
   // Older deleted drafts without a timestamp remain recoverable in the review.
   await page.keyboard.press('Meta+;');
   await review.waitFor();
   await review.getByRole('button', { name: 'Next', exact: true }).click();
   await review.getByRole('button', { name: 'Next', exact: true }).click();
   await page.getByRole('button', { name: 'Go to time entry', exact: true }).click();
-  await page.getByText("This entry was deleted, and its original time wasn't saved. Its place in the timeline is unavailable.", { exact: true }).waitFor();
+  await page.getByText("Toggl could not find this entry ID, and its original time wasn't saved. Its place in the timeline is unavailable.", { exact: true }).waitFor();
   assert.equal(await review.count(), 1);
   assert.equal(writes, 0);
   await review.getByRole('button', { name: 'Close review', exact: true }).click();

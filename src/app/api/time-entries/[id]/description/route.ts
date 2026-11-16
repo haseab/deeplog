@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!current.ok) return NextResponse.json({ error: "Could not read Toggl description" }, { status: current.status });
     const entry = await current.json();
     if ((entry.workspace_id ?? entry.wid) !== workspaceId || (entry.user_id ?? entry.uid) !== userId) return NextResponse.json({ error: "Entry belongs to another account or workspace" }, { status: 403 });
-    if (entry.server_deleted_at) return NextResponse.json({ deleted: true, start: entry.start }, { status: 409 });
+    if (entry.server_deleted_at) return NextResponse.json({ deleted: true, deletionConfirmed: true, start: entry.start }, { status: 409 });
     const remote = entry.description ?? "";
     if (body.reviewOnly) return NextResponse.json({ description: remote, start: entry.start });
     const comparison = compareDescription(body.base, body.local, remote);
