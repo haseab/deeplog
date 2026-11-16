@@ -4,6 +4,7 @@ import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
+import { recordSyncDiagnostic } from "@/lib/sync-diagnostics";
 import { formatTimeEntryRangeLabel } from "@/lib/time-entry-range-label";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
@@ -2432,6 +2433,8 @@ export function TimeTrackerTable({
   React.useEffect(() => {
     const onSynced = (event: Event) => {
       const { id, description } = (event as CustomEvent<{ id: number; description: string }>).detail;
+      recordSyncDiagnostic({ event: "ui.sync-acknowledgement", entryId: id,
+        texts: { previousBaseline: descriptionBasesRef.current.get(id), rowBefore: timeEntriesRef.current.find(e => e.id === id)?.description, acknowledged: description } });
       descriptionBasesRef.current.set(id, description);
       setTimeEntries(current => {
         const next = current.map(entry => entry.id === id ? { ...entry, description } : entry);
@@ -2785,7 +2788,11 @@ export function TimeTrackerTable({
 
       if (open && !wasOpen) {
         const entry = timeEntriesRef.current.find(e => e.id === entryId);
-        if (entry) descriptionBasesRef.current.set(entryId, entry.description || "");
+        if (entry) {
+          recordSyncDiagnostic({ event: "editor.baseline-captured", entryId,
+            texts: { previousBaseline: descriptionBasesRef.current.get(entryId), rowDescription: entry.description || "" } });
+          descriptionBasesRef.current.set(entryId, entry.description || "");
+        }
       }
       if (open) {
         justClosedDescriptionEntryIdRef.current = null;
@@ -3338,6 +3345,8 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
+      recordSyncDiagnostic({ event: "ui.description-submit", entryId, fields: { notify, entryFound: !!entry },
+        texts: { storedBaseline: descriptionBasesRef.current.get(entryId), rowDescription: entry?.description, submitted: newDescription } });
       if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription, entry.start);
     },
     [handleUpdateWithQueue, encryption]

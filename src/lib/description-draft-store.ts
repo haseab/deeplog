@@ -1,4 +1,5 @@
 import type { DescriptionDraft, DescriptionHistory } from "./description-sync";
+import { draftDiagnostic, recordSyncDiagnostic } from "./sync-diagnostics";
 let database: Promise<IDBDatabase> | undefined;
 function open() {
   return database ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -27,12 +28,15 @@ export async function changeDraft(key: string, change: (old?: DescriptionDraft) 
     const tx = db.transaction(["drafts", "history"], "readwrite");
     const store = tx.objectStore("drafts");
     let result: DescriptionDraft | undefined;
+    let previous: DescriptionDraft | undefined;
+    let crossTabConflict = false;
     const req = store.get(key);
     req.onsuccess = () => {
       try {
+        previous = req.result as DescriptionDraft | undefined;
         result = change(req.result);
-        const previous = req.result as DescriptionDraft | undefined;
         if (previous && result && previous.owner !== result.owner && previous.local !== result.local && previous.status !== "synced") {
+          crossTabConflict = true;
           tx.objectStore("history").put({ key: crypto.randomUUID(), account: previous.account, entryId: previous.entryId, local: previous.local, remote: previous.remote, at: Date.now() });
           result = { ...result, status: "conflict", remote: undefined, error: "Another browser tab edited this draft. Its version is preserved in recovery history." };
         }
@@ -43,8 +47,18 @@ export async function changeDraft(key: string, change: (old?: DescriptionDraft) 
         if (history) tx.objectStore("history").put(history);
       } catch { tx.abort(); }
     };
-    tx.oncomplete = () => resolve(result);
-    tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Local draft could not be saved."));
+    tx.oncomplete = () => {
+      const identity = result ?? previous;
+      const before = draftDiagnostic(previous, "before"), after = draftDiagnostic(result, "after");
+      if (identity) recordSyncDiagnostic({ event: crossTabConflict ? "draft.cross-tab-conflict" : "draft.persisted", account: identity.account, entryId: identity.entryId,
+        fields: { ...before.fields, ...after.fields, archived: !!history, removed: !result, ownerChanged: previous?.owner !== result?.owner }, texts: { ...before.texts, ...after.texts } });
+      resolve(result);
+    };
+    tx.onabort = tx.onerror = () => {
+      const identity = result ?? previous;
+      if (identity) recordSyncDiagnostic({ event: "draft.storage-failed", account: identity.account, entryId: identity.entryId, fields: { errorType: tx.error?.name ?? "TransactionAborted" } });
+      reject(tx.error ?? new Error("Local draft could not be saved."));
+    };
   });
 }
 export async function listHistory(account: string): Promise<DescriptionHistory[]> {
