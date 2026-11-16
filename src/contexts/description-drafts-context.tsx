@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useEncryptionContext } from "./encryption-context";
 import { encryptDescription, decryptDescription } from "@/lib/encryption";
 import { isEncryptedDescription } from "@/lib/ai-summary";
-import { acknowledgeDraft, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
+import { acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
 import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-store";
 import { bindingFromEvent } from "@/lib/keyboard-shortcuts";
 
@@ -44,6 +44,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const tokenRef = React.useRef("");
   const channel = React.useRef<BroadcastChannel | null>(null);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conflictChecks = React.useRef(new Map<string, number>());
   const work = React.useRef<() => Promise<void>>(async () => {});
   const encryptionRef = React.useRef(encryption);
   encryptionRef.current = encryption;
@@ -103,9 +104,13 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       } catch { /* A previously verified account can keep drafting while offline. */ }
     }
     void identify();
-    const online = () => { void identify(); };
+    const online = () => { conflictChecks.current.clear(); void identify(); };
+    const visible = () => {
+      if (document.visibilityState === "visible") { conflictChecks.current.clear(); schedule(); }
+    };
     const storage = (event: StorageEvent) => { if (event.key === "toggl_session_token") void identify(); };
     window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visible);
     window.addEventListener("storage", storage);
     const interval = setInterval(() => {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current || !accountRef.current) void identify();
@@ -118,6 +123,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     return () => {
       cancelled = true; clearInterval(interval); if (timer.current) clearTimeout(timer.current);
       window.removeEventListener("online", online); window.removeEventListener("storage", storage);
+      document.removeEventListener("visibilitychange", visible);
       channel.current?.close();
     };
   }, [refresh, schedule]);
@@ -147,7 +153,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       });
       const data = await response.json();
       if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
-      return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, start: data.start as string | undefined };
+      return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
     });
   }, []);
   const notifySynced = (id: number, description: string) => window.dispatchEvent(new CustomEvent("deeplog-description-synced", { detail: { id, description } }));
@@ -158,7 +164,20 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     await navigator.locks.request(`deeplog-description-sync:${active}`, { ifAvailable: true }, async lock => {
       if (!lock) return;
       for (let draft of await listDrafts(active)) {
-        if (draft.status === "conflict" || draft.status === "synced" || (draft.retryAt ?? 0) > Date.now() || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
+        if (draft.status === "synced" || (draft.status !== "conflict" && (draft.retryAt ?? 0) > Date.now()) || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
+        if (draft.status === "conflict") {
+          // Conflicts are read-only here. Recheck without making the user open
+          // the review, but do not poll every keystroke or retry after a choice.
+          if (Date.now() - (conflictChecks.current.get(draft.key) ?? 0) < 300000) continue;
+          conflictChecks.current.set(draft.key, Date.now());
+          try {
+            const check = await request(draft, true);
+            const updated = await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, check));
+            if (updated?.status === "synced") notifySynced(draft.entryId, updated.local);
+            await publish();
+          } catch { /* Keep the draft and last comparison until a read succeeds. */ }
+          continue;
+        }
         const id = draft.entryId;
         setSyncing(old => new Set(old).add(id));
         try {
@@ -167,7 +186,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             const check = await request(draft, true);
             if (!check.deleted && check.remote === draft.sent) {
               const previous = draft;
-              draft = (await changeDraft(draft.key, current => current && ({ ...current, base: check.remote!, sent: undefined, status: current.local === previous.sent ? "synced" : "local" })))!;
+              const recovered = await changeDraft(draft.key, current => current && acknowledgeDraft(current, previous, check.remote!));
+              if (!recovered) continue;
+              draft = recovered;
               if (draft.status === "synced") { notifySynced(id, check.remote!); continue; }
             }
           }
@@ -175,7 +196,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           if (!snapshot || snapshot.status === "conflict") continue;
           const result = await request(snapshot);
           if (result.conflict) {
-            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, start: result.start ?? current.start, sent: undefined, error: undefined }));
+            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, deletionConfirmed: result.deletionConfirmed, start: result.start ?? current.start, sent: undefined, error: undefined }));
           } else {
             await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
             notifySynced(id, result.remote!);
@@ -205,6 +226,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined });
       });
       failedDrafts.current.delete(entryId);
+      if (saved?.status === "conflict") conflictChecks.current.delete(saved.key);
       setStorageError(""); await publish(); schedule();
       if (notify && saved) {
         const submitted = saved;
@@ -279,19 +301,20 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       window.dispatchEvent(event);
       return event.defaultPrevented;
     };
-    if (navigate() || (draft?.start && navigate(draft.start, !!draft.deleted))) return true;
+    if (navigate() || (draft?.start && !draft.deleted && navigate(draft.start))) return true;
     try {
       const check = await request({ account: accountRef.current, entryId: id, base: "", local: "" } as DescriptionDraft, true);
       if (revision !== navigationRevision.current) return false;
-      if (check.start) {
+      const start = check.start ?? (check.deleted ? draft?.start : undefined);
+      if (start) {
         if (draft) {
-          await changeDraft(draft.key, current => current && ({ ...current, start: check.start }));
+          await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, { ...check, start }));
           await publish();
         }
-        return navigate(check.start, check.deleted);
+        return navigate(start, check.deleted);
       }
       if (reveal) toast.error(check.deleted
-        ? "This entry was deleted, and its original time wasn't saved. Its place in the timeline is unavailable."
+        ? "Toggl could not find this entry ID, and its original time wasn't saved. Its place in the timeline is unavailable."
         : "The original entry time is unavailable. Please try again when connected.");
     } catch (error) { if (reveal && revision === navigationRevision.current) toast.error(error instanceof Error ? error.message : "Could not locate entry"); }
     return false;
@@ -303,10 +326,15 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const openDraft = React.useCallback(async (id: number) => {
     setSelectedChoice("mine"); setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
     const draft = drafts.get(id);
-    if (draft?.status === "conflict" && draft.remote === undefined && !draft.deleted && navigator.onLine) {
+    if (draft?.status === "conflict" && navigator.onLine) {
       try {
         const check = await request(draft, true);
-        await changeDraft(draft.key, current => current && ({ ...current, remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
+        const updated = await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, check));
+        if (updated?.status === "synced") {
+          notifySynced(id, updated.local);
+          setSelected(current => current === id ? null : current);
+          toast("This description is already synced with Toggl.");
+        }
         await publish();
       } catch (e) { toast.error((e as Error).message); }
     }
@@ -360,6 +388,14 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         const latest = (await listDrafts(shown.account)).find(d => d.key === shown.key);
         if (!latest || latest.revision !== shown.revision) throw new Error("Your local draft changed. Review the updated comparison.");
         if (choice === "complete") {
+          if (navigator.onLine) {
+            const check = await request(shown, true);
+            if (!check.deleted) {
+              const updated = await changeDraft(shown.key, current => current && refreshDescriptionConflict(current, shown, check));
+              if (updated?.status === "synced") notifySynced(shown.entryId, updated.local);
+              throw new Error("This entry is available in Toggl. The comparison has been refreshed; your draft was kept.");
+            }
+          }
           // Archive and clear atomically, including offline. A failed history
           // write must leave the pending draft available for recovery.
           await changeDraft(shown.key, current => {
@@ -369,8 +405,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         } else {
           const check = await request(shown, true);
           if (check.deleted || check.remote !== shown.remote) {
-            await changeDraft(shown.key, current => current && ({ ...current, status: "conflict", remote: check.remote, deleted: check.deleted, start: check.start ?? current.start }));
-            throw new Error(check.deleted ? "This entry was deleted. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
+            await changeDraft(shown.key, current => current && refreshDescriptionConflict(current, shown, check));
+            throw new Error(check.deleted ? "Toggl could not find this entry. Your draft is available to copy." : "Toggl changed again. Review the updated comparison.");
           }
           const local = choice === "toggl" ? check.remote! : shown.local;
           const updated = await changeDraft(shown.key, current => {
@@ -425,14 +461,14 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         </div>
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
-          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">This entry was deleted in Toggl. Click the Toggl copy to mark complete. Your draft will remain in recovery history.</p>}
+          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">{selectedDraft.deletionConfirmed ? "Toggl confirms this entry was deleted." : "Toggl could not find this entry ID. This does not confirm deletion; a combined or replacement entry may have a different ID."} Click the Toggl copy to mark complete. Your draft will remain in recovery history.</p>}
           {selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined && <p className="mb-3 text-xs text-muted-foreground">Use arrow keys to select a copy. Press Enter to keep it.</p>}
           <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
             {(["mine", "toggl"] as const).map(choice => {
               const isLocal = choice === "mine";
               const available = isLocal || selectedDraft.remote !== undefined;
               const canChoose = selectedDraft.deleted ? !isLocal : selectedDraft.status === "conflict" && selectedDraft.remote !== undefined;
-              const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? "Entry deleted" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
+              const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? selectedDraft.deletionConfirmed ? "Entry deleted" : "Entry not found" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
               const label = isLocal ? "Local" : "Toggl";
               const content = <>
                 <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">{label}{canChoose && selectedChoice === choice && <Check aria-hidden="true" className="h-4 w-4 text-primary" />}</span>

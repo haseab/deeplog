@@ -7,12 +7,14 @@ try {
   await context.addInitScript(() => localStorage.setItem('toggl_session_token', 'conflict-shortcut-test'));
   let writes = 0;
   const remote = new Map([3, 4, 5].map(id => [id, 'Remote']));
+  const unavailable = new Set();
   await context.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/validate-session-token') return route.fulfill({ json: { user: { id: 1 }, workspace: { id: 2 } } });
     if (path.endsWith('/description')) {
       const body = route.request().postDataJSON();
       const id = Number(path.split('/')[3]);
+      if (unavailable.has(id)) return route.fulfill({ status: 409, json: { deleted: true } });
       if (!body.reviewOnly) { writes++; remote.set(id, body.local); }
       return route.fulfill({ json: { description: remote.get(id) } });
     }
@@ -135,6 +137,8 @@ try {
   assert.equal(writes, 1);
   assert.equal(remote.get(5), 'Local 5');
   // Deleted entries require explicit completion and keep their recovery copy.
+  unavailable.add(3);
+  unavailable.add(6);
   await page.evaluate(() => new Promise(resolve => {
     const r = indexedDB.open('deeplog-description-drafts', 1);
     r.onsuccess = () => {
@@ -150,7 +154,7 @@ try {
   await page.getByRole('button', { name: 'Description conflict — click to resolve' }).first().waitFor();
   await page.keyboard.press('Meta+g');
   await review.waitFor();
-  await page.getByText('Entry deleted', { exact: true }).waitFor();
+  await page.getByText('Entry not found', { exact: true }).waitFor();
   assert.equal(await mine.count(), 0);
   assert.equal(await toggl.count(), 1);
   assert.equal(await review.getByRole('button', { name: 'Mark complete', exact: true }).count(), 0);
@@ -164,14 +168,14 @@ try {
       return window.originalDraftPut.apply(this, args);
     };
   });
-  await review.getByText('Entry deleted', { exact: true }).click();
+  await review.getByText('Entry not found', { exact: true }).click();
   await page.getByText('Local draft could not be saved.', { exact: true }).waitFor();
   assert.equal(await page.locator('#local-description').textContent(), 'Local 3');
   await page.evaluate(() => { IDBObjectStore.prototype.put = window.originalDraftPut; });
   await context.setOffline(true);
-  await review.getByText('Entry deleted', { exact: true }).click();
+  await review.getByText('Entry not found', { exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#local-description')?.textContent === 'Local 6');
-  await review.getByText('Entry deleted', { exact: true }).click();
+  await review.getByText('Entry not found', { exact: true }).click();
   await review.waitFor({ state: 'detached' });
   assert.equal(writes, 1, 'Completing deleted entries must not upload or recreate them');
   await context.setOffline(false);

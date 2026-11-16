@@ -8792,9 +8792,9 @@ export function TimeTrackerTable({
         const targetTime = Date.parse(descriptionReviewTarget.start);
         rowIndex = timeEntries.reduce((closest, entry, index) =>
           Math.abs(Date.parse(entry.start) - targetTime) < Math.abs(Date.parse(timeEntries[closest].start) - targetTime) ? index : closest, 0);
-        toast("This entry was deleted. Showing the nearest entry from its original day.", { id: "description-deleted-context" });
+        toast(`Entry ${descriptionReviewTarget.id} is unavailable. Showing a nearby entry from its original day; this is a different entry.`, { id: "description-deleted-context" });
       } else {
-        toast(descriptionReviewTarget.deleted ? "This entry was deleted. Showing its original day; no other entries are available." : "This entry is not present in the timeline for its original day.", { id: "description-missing-context" });
+        toast(descriptionReviewTarget.deleted ? "This entry ID is unavailable. Showing its original day; no other entries are available." : "This entry is not present in the timeline for its original day.", { id: "description-missing-context" });
         setDescriptionReviewTarget(null);
         return;
       }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareDescription, acknowledgeDraft, resolveEditedDescription, type DescriptionDraft } from "./description-sync";
+import { compareDescription, acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft } from "./description-sync";
 
 test("three-way comparison never overwrites a changed remote description", () => {
   assert.equal(compareDescription("original", "mine", "original"), "upload");
@@ -20,6 +20,73 @@ test("an older upload acknowledgement cannot erase newer typing", () => {
 });
 test("only the uploaded revision becomes synced", () => {
   assert.equal(acknowledgeDraft(draft, draft, draft.local).status, "synced");
+});
+
+test("a successful upload clears a conflict raised while the matching text was in flight", () => {
+  const concurrent: DescriptionDraft = { ...draft, status: "conflict", remote: "outdated comparison", deleted: true, error: "old error" };
+  const result = acknowledgeDraft(concurrent, draft, draft.local);
+  assert.equal(result.status, "synced");
+  assert.equal(result.remote, undefined);
+  assert.equal(result.deleted, false);
+  assert.equal(result.error, undefined);
+});
+
+test("a successful older upload preserves a competing draft and its actual remote comparison", () => {
+  const concurrent: DescriptionDraft = { ...draft, local: "other tab's edit", revision: 2, status: "conflict" };
+  const result = acknowledgeDraft(concurrent, draft, draft.local);
+  assert.equal(result.status, "conflict");
+  assert.equal(result.local, concurrent.local);
+  assert.equal(result.remote, draft.local);
+});
+
+test("the same revision number cannot acknowledge different text from another tab", () => {
+  const current = { ...draft, local: "other tab with the same revision" };
+  assert.equal(acknowledgeDraft(current, draft, draft.local).status, "local");
+});
+
+test("an acknowledged value shared by newer revisions does not need another upload", () => {
+  const newer = { ...draft, revision: 3 };
+  assert.equal(acknowledgeDraft(newer, draft, draft.local).status, "synced");
+});
+
+test("an acknowledgement cannot be applied to another entry or account", () => {
+  const other = { ...draft, key: "9:2:3" };
+  assert.equal(acknowledgeDraft(other, draft, draft.local), other);
+});
+
+test("a stale deletion or comparison clears when Toggl already contains the local draft", () => {
+  const shown: DescriptionDraft = { ...draft, status: "conflict", deleted: true, deletionConfirmed: true, remote: "old remote" };
+  const result = refreshDescriptionConflict(shown, shown, { deleted: false, remote: shown.local });
+  assert.equal(result.status, "synced");
+  assert.equal(result.local, shown.local);
+  assert.equal(result.base, shown.local);
+  assert.equal(result.deleted, false);
+  assert.equal(result.deletionConfirmed, false);
+});
+
+test("rechecking an unavailable entry restores a comparison without choosing a winner", () => {
+  const shown: DescriptionDraft = { ...draft, status: "conflict", deleted: true };
+  const result = refreshDescriptionConflict(shown, shown, { deleted: false, remote: "current Toggl text" });
+  assert.equal(result.deleted, false);
+  assert.equal(result.status, "conflict");
+  assert.equal(result.remote, "current Toggl text");
+  assert.equal(result.local, draft.local);
+  assert.equal(result.base, draft.base);
+});
+
+test("a delayed review check cannot overwrite a newer edit or resolution", () => {
+  const shown: DescriptionDraft = { ...draft, status: "conflict", deleted: true };
+  for (const current of [{ ...shown, local: "newer typing", revision: 2 }, { ...shown, status: "synced" as const }]) {
+    assert.equal(refreshDescriptionConflict(current, shown, { deleted: false, remote: shown.local }), current);
+  }
+});
+
+test("not found does not retain old evidence of confirmed deletion", () => {
+  const shown: DescriptionDraft = { ...draft, status: "conflict", deleted: true, deletionConfirmed: true };
+  const result = refreshDescriptionConflict(shown, shown, { deleted: true });
+  assert.equal(result.deletionConfirmed, false);
+  assert.equal(result.local, shown.local);
+  assert.equal(result.status, "conflict");
 });
 
 test("editing a known conflict resumes sync against the conflicting remote version", () => {
