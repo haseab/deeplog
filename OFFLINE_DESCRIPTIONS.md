@@ -16,6 +16,11 @@ in the draft dialog. Escape closes an existing-entry editor; edits are autosaved
 
 ## Conflict behavior
 
+Clicking a row's attention icon reviews only that entry. Resolving it closes
+the review, leaving other pending drafts alone. Open an icon in the bottom-right
+pending drafts drawer (or use the conflict-review shortcut) to review the queue;
+that mode offers Previous/Next and advances after resolving an entry.
+
 Press **Cmd+;** (Ctrl+; on Windows/Linux) to open a local description conflict,
 including conflicts outside the current date range. Press it again to cycle
 through remaining conflicts, ordered by the most recently updated draft first.
