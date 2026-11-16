@@ -29,6 +29,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const [drafts, setDrafts] = React.useState(new Map<number, DescriptionDraft>());
   const [syncing, setSyncing] = React.useState(new Set<number>());
   const [selected, setSelected] = React.useState<number | null>(null);
+  const [reviewMode, setReviewMode] = React.useState<"single" | "queue">("single");
   const reviewRef = React.useRef<HTMLElement>(null);
   const choiceRefs = React.useRef<Partial<Record<"mine" | "toggl", HTMLButtonElement | null>>>({});
   const [selectedChoice, setSelectedChoice] = React.useState<"mine" | "toggl">("mine");
@@ -326,8 +327,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     setHistoryIndex(index); setSelected(null);
     if (history?.[index]) void navigateToEntry(history[index].entryId);
   };
-  const openDraft = React.useCallback(async (id: number) => {
-    setSelectedChoice("mine"); setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
+  const openDraft = React.useCallback(async (id: number, mode: "single" | "queue" = "single") => {
+    setReviewMode(mode); setSelectedChoice("mine"); setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
     const draft = drafts.get(id);
     if (draft?.status === "conflict" && navigator.onLine) {
       try {
@@ -358,7 +359,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         return;
       }
       const index = conflicts.findIndex(d => d.entryId === selected);
-      void openDraft(conflicts[(index + 1) % conflicts.length].entryId);
+      void openDraft(conflicts[(index + 1) % conflicts.length].entryId, "queue");
     };
     // Window capture normalizes customized shortcuts before this listener runs.
     // Document capture also works inside editors and the review panel.
@@ -419,7 +420,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           if (updated?.status === "synced") notifySynced(shown.entryId, local);
         }
         const remaining = pending.filter(d => d.entryId !== shown.entryId);
-        if (remaining.length) void openDraft(remaining[0].entryId);
+        if (reviewMode === "queue" && remaining.length) void openDraft(remaining[0].entryId, "queue");
         else { setSelected(null); setMerge(null); }
         schedule();
       });
@@ -428,9 +429,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   };
   return <Context.Provider value={{ drafts, syncing, save, decode, open: id => { void openDraft(id); }, ready: !!account }}>
     {children}
-    <div className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
+    <div role="group" aria-label="Pending description drafts" className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
-      {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} />)}
+      {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} onOpen={() => { if (!busy) void openDraft(d.entryId, "queue"); }} />)}
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
     {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
@@ -457,11 +458,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             if (located) { setSelected(current => current === selected ? null : current); setMerge(null); }
           });
         }}>Go to time entry</Button>
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId)}>Previous</Button>
+        {reviewMode === "queue" && <div className="mb-4 flex items-center justify-between gap-2">
+          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId, "queue")}>Previous</Button>
           <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} pending</span>
-          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) < 0 || pending.findIndex(d => d.entryId === selected) >= pending.length - 1} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) + 1].entryId)}>Next</Button>
-        </div>
+          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) < 0 || pending.findIndex(d => d.entryId === selected) >= pending.length - 1} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) + 1].entryId, "queue")}>Next</Button>
+        </div>}
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
           {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">{selectedDraft.deletionConfirmed ? "Toggl confirms this entry was deleted." : "Toggl could not find this entry ID. This does not confirm deletion; a combined or replacement entry may have a different ID."} Click the Toggl copy to mark complete. Your draft will remain in recovery history.</p>}
@@ -505,10 +506,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   </Context.Provider>;
 }
 
-export function DescriptionDraftIcon({ entryId, rowStatus, onRetry }: {
+export function DescriptionDraftIcon({ entryId, rowStatus, onRetry, onOpen }: {
   entryId: number;
   rowStatus?: "pending" | "syncing" | "synced" | "error";
   onRetry?: (id: number) => void;
+  onOpen?: () => void;
 }) {
   const context = useDescriptionDrafts();
   const draft = context?.drafts.get(entryId);
@@ -540,7 +542,7 @@ export function DescriptionDraftIcon({ entryId, rowStatus, onRetry }: {
     title = draft.status === "conflict" ? "Description conflict — click to resolve" :
       draft.error?.startsWith("NOT SAVED") ? draft.error : `Saved locally · ${draft.error ?? "Description sync failed"}`;
     icon = <AlertTriangle className="h-4 w-4 text-amber-500" />;
-    action = () => context?.open(entryId);
+    action = onOpen ?? (() => context?.open(entryId));
   } else if (rowStatus === "error") {
     title = "Changes failed to sync — click to retry";
     icon = <AlertTriangle className="h-4 w-4 text-amber-500" />;
@@ -551,7 +553,7 @@ export function DescriptionDraftIcon({ entryId, rowStatus, onRetry }: {
   } else if (descriptionPending || rowStatus === "pending") {
     title = descriptionPending ? "Saved locally · Waiting to sync" : "Pending changes · Waiting to sync";
     icon = <HardDrive className="h-4 w-4 text-muted-foreground" />;
-    if (descriptionPending) action = () => context?.open(entryId);
+    if (descriptionPending) action = onOpen ?? (() => context?.open(entryId));
   } else if (recentlySynced || rowStatus === "synced") {
     title = "Changes synced";
     icon = <Check className="h-4 w-4 text-green-500" />;
