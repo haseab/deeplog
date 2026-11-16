@@ -23,6 +23,10 @@ The first copy (Local) is selected and focused automatically. Arrow keys switch
 between copies, Enter keeps the selected copy, and Escape closes the review.
 Customize the binding in keyboard shortcut settings.
 
+Opening a review, moving between drafts, or resolving a draft preserves the
+selected timeline date range. Review can highlight an already loaded entry;
+only **Go to time entry** navigates to an entry outside the current view.
+
 The browser saves the original server description alongside the local draft. The
 server reads Toggl immediately before an update:
 

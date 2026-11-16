@@ -301,6 +301,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       window.dispatchEvent(event);
       return event.defaultPrevented;
     };
+    // Reviewing or advancing drafts may highlight an already loaded entry, but
+    // only the explicit Go action may change the user's timeline range.
+    if (!reveal) return navigate();
     if (navigate() || (draft?.start && !draft.deleted && navigate(draft.start))) return true;
     try {
       const check = await request({ account: accountRef.current, entryId: id, base: "", local: "" } as DescriptionDraft, true);
