@@ -73,6 +73,35 @@ on every description request. E2EE descriptions are encrypted before storage and
 upload; encryption failures never fall back to plaintext persistence. Storage
 failures keep text in memory, display a failure, and warn before leaving the page.
 
+## Sync diagnostics
+
+Diagnostics run automatically and keep a bounded local ring of 3,000 events for
+up to seven days, across reloads and tabs in this browser. The download icon in
+the bottom-right pending-drafts drawer exports the current account's logs;
+**Download entry logs** in a review exports only that entry. Export reports also
+show dropped events or storage failures, so an incomplete trace is visible.
+
+Events trace editor baseline capture, UI submissions and acknowledgement,
+IndexedDB before/after revisions and owners, cross-tab conflicts, mutation queue
+ordering and temporary-ID remapping, request queue/start/result, and review
+choices. Each page has a unique ID and sequence; each request has a shared ID
+in the browser trace, response header and `[description-sync]` server log.
+
+Descriptions (including encrypted content) are represented only by SHA-256
+fingerprints, lengths and encryption-format flags. Tokens, PINs, raw descriptions
+and arbitrary error messages are not recorded. Logs stay local unless exported;
+API decision logs appear in the hosting server logs. No extra Toggl reads or
+writes are made for diagnostics, and diagnostic failures do not block saving.
+
+To investigate a same-app conflict, compare the editor's captured baseline to
+the previous acknowledgement, then correlate the request with the API outcome.
+If the remote hash matches a preceding `uploaded` request's local/returned hash,
+the server is seeing this app's own earlier write. Compare the queued revision,
+current revision and acknowledgement to locate an in-flight edit. A
+`draft.cross-tab-conflict` event separately identifies an owner change while a
+local draft was still pending. Retention limits mean a missing earlier write is
+not evidence that a different app made the change.
+
 ## Trying it
 
 1. Start the app with `npm run dev`, connect to Toggl, and load an existing entry.

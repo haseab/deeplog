@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { entryMutations } from "@/lib/entry-mutations";
-import { AlertTriangle, HardDrive, Loader2, History, Check, X } from "lucide-react";
+import { AlertTriangle, HardDrive, Loader2, History, Check, X, Download } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { useEncryptionContext } from "./encryption-context";
@@ -11,6 +11,7 @@ import { isEncryptedDescription } from "@/lib/ai-summary";
 import { acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
 import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-store";
 import { bindingFromEvent } from "@/lib/keyboard-shortcuts";
+import { downloadSyncDiagnostics, draftDiagnostic, recordSyncDiagnostic, setSyncDiagnosticAccount } from "@/lib/sync-diagnostics";
 
 type DraftContext = {
   drafts: Map<number, DescriptionDraft>;
@@ -79,6 +80,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     async function identify() {
       const token = localStorage.getItem("toggl_session_token") ?? "";
       if (token !== tokenRef.current) {
+        setSyncDiagnosticAccount("");
         accountRef.current = "";
         setAccount(""); setDrafts(new Map()); setSelected(null); setHistory(null);
       }
@@ -89,6 +91,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         const key = "deeplog-draft-account:" + Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, "0")).join("");
         const cached = localStorage.getItem(key);
         if (cached && !cancelled && token === tokenRef.current) {
+          setSyncDiagnosticAccount(cached);
           accountRef.current = cached; setAccount(cached); await refresh();
         }
         const response = await fetch("/api/validate-session-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionToken: token }), signal: AbortSignal.timeout(20000) });
@@ -98,6 +101,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         const identity = `${data.user.id}:${data.workspace.id}`;
         localStorage.setItem(key, identity);
         accountRef.current = identity; setAccount(identity);
+        setSyncDiagnosticAccount(identity);
+        recordSyncDiagnostic({ event: "browser.ready", account: identity, fields: { tabId: owner.current, online: navigator.onLine } });
         for (const draft of await listDrafts(identity)) {
           if (draft.status === "error") await changeDraft(draft.key, current => current && ({ ...current, retryAt: undefined }));
         }
@@ -119,7 +124,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }, 30000);
     if (typeof BroadcastChannel !== "undefined") {
       channel.current = new BroadcastChannel("deeplog-description-drafts");
-      channel.current.onmessage = () => { void refresh().then(schedule).catch(() => {}); };
+      channel.current.onmessage = () => {
+        recordSyncDiagnostic({ event: "browser.other-tab-notification", account: accountRef.current, fields: { tabId: owner.current } });
+        void refresh().then(schedule).catch(() => {});
+      };
     }
     return () => {
       cancelled = true; clearInterval(interval); if (timer.current) clearTimeout(timer.current);
@@ -146,15 +154,34 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   }, []);
   const request = React.useCallback(async (draft: DescriptionDraft, reviewOnly = false) => {
     if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
+    const requestId = crypto.randomUUID();
+    const queuedAt = Date.now();
+    recordSyncDiagnostic({ event: "request.queued", account: draft.account, entryId: draft.entryId, requestId,
+      ...draftDiagnostic(draft), fields: { ...draftDiagnostic(draft).fields, tabId: owner.current, reviewOnly } });
     return entryMutations.run([draft.entryId], async () => {
       if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
-      const response = await fetch(`/api/time-entries/${draft.entryId}/description`, {
-        method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current },
-        body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
-      });
-      const data = await response.json();
-      if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
-      return { conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
+      const started = Date.now();
+      let responseStatus: number | undefined;
+      recordSyncDiagnostic({ event: "request.started", account: draft.account, entryId: draft.entryId, requestId, fields: { tabId: owner.current, reviewOnly, queueWaitMs: started - queuedAt, revision: draft.revision } });
+      try {
+        const response = await fetch(`/api/time-entries/${draft.entryId}/description`, {
+          method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current,
+            "x-deeplog-sync-request-id": requestId, "x-deeplog-tab-id": owner.current, "x-deeplog-revision": String(draft.revision ?? 0) },
+          body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
+        });
+        responseStatus = response.status;
+        const data = await response.json();
+        recordSyncDiagnostic({ event: "request.finished", account: draft.account, entryId: draft.entryId, requestId,
+          fields: { status: response.status, reviewOnly, durationMs: Date.now() - started, deleted: !!data.deleted,
+            remoteMatchesBase: data.description === draft.base, remoteMatchesLocal: data.description === draft.local, remoteMatchesSent: typeof data.description === "string" && data.description === draft.sent },
+          texts: { base: draft.base, local: draft.local, remote: typeof data.description === "string" ? data.description : undefined, sent: draft.sent } });
+        if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
+        return { requestId, conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
+      } catch (error) {
+        recordSyncDiagnostic({ event: "request.failed", account: draft.account, entryId: draft.entryId, requestId,
+          fields: { status: responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
+        throw error;
+      }
     });
   }, []);
   const notifySynced = (id: number, description: string) => window.dispatchEvent(new CustomEvent("deeplog-description-synced", { detail: { id, description } }));
@@ -189,6 +216,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
               const previous = draft;
               const recovered = await changeDraft(draft.key, current => current && acknowledgeDraft(current, previous, check.remote!));
               if (!recovered) continue;
+              recordSyncDiagnostic({ event: "upload.recovered", account: active, entryId: id, requestId: check.requestId, ...draftDiagnostic(recovered) });
               draft = recovered;
               if (draft.status === "synced") { notifySynced(id, check.remote!); continue; }
             }
@@ -199,7 +227,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           if (result.conflict) {
             await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, deletionConfirmed: result.deletionConfirmed, start: result.start ?? current.start, sent: undefined, error: undefined }));
           } else {
-            await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
+            const acknowledged = await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
+            recordSyncDiagnostic({ event: "upload.acknowledged", account: active, entryId: id, requestId: result.requestId, ...draftDiagnostic(acknowledged),
+              fields: { ...draftDiagnostic(acknowledged).fields, uploadedRevision: snapshot.revision, newerEditPresent: acknowledged?.revision !== snapshot.revision,
+                remoteMatchesCurrentLocal: result.remote === acknowledged?.local }, texts: { ...draftDiagnostic(acknowledged).texts, uploaded: snapshot.local, returned: result.remote } });
             notifySynced(id, result.remote!);
           }
         } catch (error) {
@@ -217,6 +248,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
 
   const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false, undoDescription?: string, start?: string) => {
     const active = accountRef.current;
+    recordSyncDiagnostic({ event: "edit.requested", account: active, entryId,
+      fields: { tabId: owner.current, notify, encryptionEnabled: encryptionRef.current.isE2EEEnabled, inputMatchesBase: base === text }, texts: { suppliedBase: base, input: text } });
     try {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed. Reopen the app before editing.");
       if (!active) throw new Error("Connect once to verify your account before saving offline drafts.");
@@ -226,6 +259,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         return resolveEditedDescription({ ...old, key: `${active}:${entryId}`, account: active, entryId, start: start ?? old?.start, base: old && old.status !== "synced" ? old.base : base,
           local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined });
       });
+      recordSyncDiagnostic({ event: "edit.saved", account: active, entryId, ...draftDiagnostic(saved), fields: { ...draftDiagnostic(saved).fields, tabId: owner.current } });
       failedDrafts.current.delete(entryId);
       if (saved?.status === "conflict") conflictChecks.current.delete(saved.key);
       setStorageError(""); await publish(); schedule();
@@ -328,6 +362,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (history?.[index]) void navigateToEntry(history[index].entryId);
   };
   const openDraft = React.useCallback(async (id: number, mode: "single" | "queue" = "single") => {
+    recordSyncDiagnostic({ event: "review.opened", account: accountRef.current, entryId: id, fields: { mode, tabId: owner.current } });
     setReviewMode(mode); setSelectedChoice("mine"); setSelected(id); setHistory(null); setMerge(null); void navigateToEntry(id);
     const draft = drafts.get(id);
     if (draft?.status === "conflict" && navigator.onLine) {
@@ -385,6 +420,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const resolve = async (choice: "mine" | "toggl" | "complete") => {
     if (!selectedDraft || busy || !navigator.locks) return;
     setBusy(true);
+    recordSyncDiagnostic({ event: "review.choice", account: selectedDraft.account, entryId: selectedDraft.entryId,
+      fields: { choice, mode: reviewMode, revision: selectedDraft.revision } });
     try {
       await navigator.locks.request(`deeplog-description-sync:${selectedDraft.account}`, async () => {
         const shown = selectedDraft;
@@ -432,6 +469,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     <div role="group" aria-label="Pending description drafts" className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
       {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} onOpen={() => { if (!busy) void openDraft(d.entryId, "queue"); }} />)}
+      <button aria-label="Download sync diagnostics" title="Download sync diagnostics" disabled={!account} className="p-1 text-muted-foreground" onClick={() => void downloadSyncDiagnostics(account).catch(() => toast.error("Could not export sync diagnostics"))}><Download className="h-4 w-4" /></button>
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
     {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
@@ -458,6 +496,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             if (located) { setSelected(current => current === selected ? null : current); setMerge(null); }
           });
         }}>Go to time entry</Button>
+        <Button variant="ghost" size="sm" className="mb-3 ml-2" disabled={!account} onClick={() => void downloadSyncDiagnostics(account, selected).catch(() => toast.error("Could not export sync diagnostics"))}>Download entry logs</Button>
         {reviewMode === "queue" && <div className="mb-4 flex items-center justify-between gap-2">
           <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId, "queue")}>Previous</Button>
           <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} pending</span>

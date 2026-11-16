@@ -1,4 +1,6 @@
 // Reserve at the time of an optimistic action, before its undo timer expires.
+import { recordSyncDiagnostic } from "./sync-diagnostics";
+let mutationSequence = 0;
 // A dependent action commits the predecessor and waits for its acknowledgement.
 export type EntryMutation<T> = {
   completion: Promise<T>;
@@ -16,6 +18,7 @@ export class EntryMutations {
   }
 
   identify(tempId: number, realId: number): void {
+    recordSyncDiagnostic({ event: "mutation.identified", entryId: realId, fields: { tempId, realId } });
     // Keep queued and newly issued commands attached to the same identity.
     this.aliases.set(realId, this.key(tempId));
   }
@@ -24,6 +27,11 @@ export class EntryMutations {
     const keys = [...new Set(ids.map(id => this.key(id)))];
     const predecessors = new Map(keys.map(id => [id, this.tails.get(id)]));
     const previous = [...new Set(predecessors.values())].filter(Boolean) as EntryMutation<unknown>[];
+    const operationId = `mutation-${++mutationSequence}`;
+    const log = (event: string) => {
+      for (const entryId of ids) recordSyncDiagnostic({ event, entryId, fields: { operationId, predecessors: previous.length, queueKey: this.key(entryId) } });
+    };
+    log("mutation.reserved");
     let resolveCompletion!: (value: T | PromiseLike<T>) => void;
     let rejectCompletion!: (error: unknown) => void;
     const completion = new Promise<T>((resolve, reject) => {
@@ -46,8 +54,9 @@ export class EntryMutations {
           onStart?.();
           promise = Promise.all(previous.map(op => op.run())).then(() => {
             if (cancelled) throw new Error("Earlier entry change was undone");
+            log("mutation.started");
             return execute();
-          }).finally(cleanup);
+          }).then(value => { log("mutation.succeeded"); return value; }, error => { log("mutation.failed"); throw error; }).finally(cleanup);
           // Deferred operations can fail before their caller awaits them.
           void promise.then(resolveCompletion, rejectCompletion);
         }
@@ -56,6 +65,7 @@ export class EntryMutations {
       cancel: () => {
         if (started || cancelled) return false;
         cancelled = true;
+        log("mutation.cancelled");
         this.pending.delete(operation);
         for (const id of keys) {
           if (this.tails.get(id) !== operation) continue;
