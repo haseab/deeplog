@@ -1,3 +1,4 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 import { type NextRequest } from "next/server";
 import { createErrorResponse, setupTogglApi } from "../time-entries/utils";
 
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("API key validation error:", error);
 
     // Handle specific error cases

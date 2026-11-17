@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import { createErrorResponse, setupSessionApi } from "../session-utils";
 
@@ -17,13 +19,13 @@ export async function POST(request: NextRequest) {
 
     // Fetch both entries
     const [currentEntryResponse, olderEntryResponse] = await Promise.all([
-      fetch(`https://track.toggl.com/api/v9/me/time_entries/${currentEntryId}`, {
+      togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${currentEntryId}`, {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${sessionToken}`,
         },
       }),
-      fetch(`https://track.toggl.com/api/v9/me/time_entries/${olderEntryId}`, {
+      togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${olderEntryId}`, {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${sessionToken}`,
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
     const isCurrentEntryRunning = !currentEntry.stop || currentEntry.duration === -1;
 
     // Delete the entry we're not keeping
-    const deleteResponse = await fetch(
+    const deleteResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryToDeleteId}`,
       {
         method: "DELETE",
@@ -109,7 +111,7 @@ export async function POST(request: NextRequest) {
       updateBody.tag_ids = entryToKeep.tag_ids;
     }
 
-    const updateResponse = await fetch(
+    const updateResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryToKeepId}`,
       {
         method: "PUT",
@@ -152,6 +154,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error combining time entries:", error);
 
     if (error instanceof Error) {

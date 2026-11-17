@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { NextRequest, NextResponse } from "next/server";
 import { setupSessionApi } from "../../session-utils";
 import { compareDescription } from "@/lib/description-sync";
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!/^\d+$/.test(id) || typeof body.base !== "string" || typeof body.local !== "string") return reply({ error: "Invalid description update" }, 400, "invalid-input");
     base = body.base; local = body.local; reviewOnly = !!body.reviewOnly;
     const headers = { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" };
-    const current = await fetch(`https://track.toggl.com/api/v9/me/time_entries/${id}`, { headers, cache: "no-store", signal: request.signal });
+    const current = await togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${id}`, { headers, cache: "no-store", signal: request.signal });
     if (current.status === 404) return reply({ deleted: true }, 409, "entry-not-found", 404);
     if (!current.ok) return reply({ error: "Could not read Toggl description" }, current.status, "read-rejected", current.status);
     const entry = await current.json();
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (comparison === "conflict") return reply({ description: remote, start: entry.start }, 409, "remote-changed");
     if (comparison === "synced") return reply({ description: remote }, 200, "already-matches");
     if (body.local.length > 3000) return reply({ error: "Description exceeds Toggl's 3000-character limit." }, 400, "description-too-long");
-    const updated = await fetch(`https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`, {
+    const updated = await togglFetch(`https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`, {
       method: "PUT", headers, body: JSON.stringify({ description: body.local }), signal: request.signal,
     });
     if (!updated.ok) return reply({ error: `Toggl rejected the description (${updated.status}). Your draft is retained.` }, updated.status, "write-rejected", updated.status);
@@ -55,6 +57,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     returned = result.description ?? "";
     return reply({ description: result.description ?? "" }, 200, "uploaded", updated.status);
   } catch (error) {
+    if (error instanceof TogglRateLimitError) {
+      await reply({ error: error.message, code: error.code, retryAfter: error.retryAfter }, 429, "rate-limited", 429);
+      return error.response({ "x-deeplog-sync-request-id": requestId });
+    }
     const message = error instanceof Error ? error.message : "Description sync failed";
     return reply({ error: message }, /session|authenticate/i.test(message) ? 401 : 503, "request-failed");
   }

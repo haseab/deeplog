@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import { calendarRangeToUtc } from "@/lib/timezone";
 import {
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${sessionToken}`,
     };
-    const response = await fetch(
+    const response = await togglFetch(
       `https://track.toggl.com/analytics/api/organizations/${organizationId}/query?response_format=json&include_dicts=true`,
       {
         method: "POST",
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
     const entries = transformAnalyticsData(data, profileTimeZone);
     const timeEntries = await Promise.all(entries.map(async (entry) => {
       if (entry._timezoneAmbiguous) {
-        const canonicalResponse = await fetch(`https://track.toggl.com/api/v9/me/time_entries/${entry.id}`, {
+        const canonicalResponse = await togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${entry.id}`, {
           headers, cache: "no-store", signal: request.signal,
         });
         if (canonicalResponse.status === 401) throw new Error("Session expired - please reauthenticate");
@@ -94,6 +96,7 @@ export async function GET(request: NextRequest) {
       profileTimeZone,
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     if (error instanceof Error) {
       if (error.message === "Toggl session token is required") return createErrorResponse(error.message, 400);
       if (error.message.includes("reauthenticate")) return createErrorResponse(error.message, 401);

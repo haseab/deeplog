@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import { createErrorResponse, setupSessionApi } from "../session-utils";
 
@@ -18,7 +20,7 @@ export async function PATCH(
     const { description, project_name, start, stop, tag_ids, duration } = body;
 
     // First, get the current time entry using the correct endpoint
-    const getCurrentResponse = await fetch(
+    const getCurrentResponse = await togglFetch(
       `https://track.toggl.com/api/v9/me/time_entries/${id}`,
       {
         headers: {
@@ -46,7 +48,7 @@ export async function PATCH(
         project_id = null;
       } else {
         // Fetch projects to find the matching project ID
-        const projectsResponse = await fetch(
+        const projectsResponse = await togglFetch(
           `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true`,
           {
             headers: {
@@ -90,7 +92,7 @@ export async function PATCH(
       delete updateData.stop;
     }
 
-    const updateResponse = await fetch(
+    const updateResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
       {
         method: "PUT",
@@ -118,6 +120,7 @@ export async function PATCH(
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Toggl API Error:", error);
 
     // Handle specific error cases
@@ -151,7 +154,7 @@ export async function DELETE(
   try {
     const { sessionToken, workspaceId } = await setupSessionApi(request);
 
-    const deleteResponse = await fetch(
+    const deleteResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${id}`,
       {
         method: "DELETE",
@@ -173,6 +176,7 @@ export async function DELETE(
 
     return new Response(null, { status: 204 });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Toggl API Error:", error);
 
     // Handle specific error cases

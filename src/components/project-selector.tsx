@@ -1,5 +1,8 @@
 "use client";
 
+import { apiFetch } from "@/lib/api-fetch";
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -142,7 +145,7 @@ export const ProjectSelector = React.forwardRef<
     setIsCreatingProject(true);
     try {
       const sessionToken = localStorage.getItem("toggl_session_token");
-      const response = await fetch("/api/projects", {
+      const response = await apiFetch("/api/projects", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -177,7 +180,7 @@ export const ProjectSelector = React.forwardRef<
       setSelectedColor(PROJECT_COLORS[0]);
     } catch (error) {
       console.error("Error creating project:", error);
-      toast.error("Failed to create project");
+      if (!(error instanceof TogglRateLimitError)) toast.error("Failed to create project");
     } finally {
       setIsCreatingProject(false);
     }

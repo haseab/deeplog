@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 const json = (body: unknown, status = 200) => Response.json(body, {
@@ -12,7 +14,7 @@ export async function GET(request: Request) {
   const session = process.env.TOGGL_SESSION_TOKEN;
   if (!session) return json({ error: "DeepLog tracking connection is not configured" }, 503);
   try {
-    const response = await fetch("https://track.toggl.com/api/v9/me/time_entries/current", {
+    const response = await togglFetch("https://track.toggl.com/api/v9/me/time_entries/current", {
       headers: { Accept: "application/json", Authorization: `Bearer ${session}` },
       cache: "no-store", redirect: "error",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]),
@@ -25,5 +27,5 @@ export async function GET(request: Request) {
       description: typeof entry.description === "string" ? entry.description.slice(0, 4000) : "",
       start: new Date(entry.start).toISOString(),
     } });
-  } catch { return json({ error: "DeepLog tracking connection is unavailable" }, 503); }
+  } catch (error) { if (error instanceof TogglRateLimitError) return error.response(); return json({ error: "DeepLog tracking connection is unavailable" }, 503); }
 }
