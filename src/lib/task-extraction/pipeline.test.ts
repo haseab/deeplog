@@ -271,7 +271,7 @@ test('completed legacy imports are preserved and corrupt review coverage is refu
   const corrupt = await record(ledger);
   corrupt.versions.at(-1)!.qualityReview!.decisions = [];
   await ledger.saveRecord(corrupt);
-  await assert.rejects(ledger.record(saved.id), /Invalid transcript ledger/);
+  await assert.rejects(ledger.record(saved.id), /Invalid recording ledger/);
 }));
 
 test('deadline between enumeration and review defers delivery until a later reviewed attempt', () => fixture(async ledger => {

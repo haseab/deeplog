@@ -22,6 +22,8 @@ export interface DescriptionDraft {
   error?: string;
   // Kept before sending, so an ambiguous timeout can be reconciled on the next attempt.
   sent?: string;
+  // Retain uncertain attempts until an acknowledgement, including newer typing.
+  uncertainUploads?: string[];
   owner?: string;
   attempts?: number;
   retryAt?: number;
@@ -64,6 +66,7 @@ export function resolveEditedDescription(draft: DescriptionDraft): DescriptionDr
     status: "local",
     remote: undefined,
     sent: undefined,
+    uncertainUploads: undefined,
     error: undefined,
     attempts: 0,
     retryAt: undefined,
@@ -82,9 +85,19 @@ export function acknowledgeDraft(current: DescriptionDraft, sent: DescriptionDra
     attempts: 0,
     retryAt: undefined,
     sent: undefined,
+    uncertainUploads: undefined,
     error: undefined,
     remote: !matched && current.status === "conflict" ? remote : undefined,
     deleted: matched ? false : current.deleted,
     deletionConfirmed: matched ? false : current.deletionConfirmed,
+  };
+}
+
+/** Keep recovery evidence if a retry also loses its response. Oldest evidence
+ * is bounded; dropping it can only yield a conflict, never an unsafe overwrite. */
+export function prepareDescriptionUpload(draft: DescriptionDraft): DescriptionDraft {
+  return {
+    ...draft, sent: draft.local,
+    uncertainUploads: [...new Set([...(draft.uncertainUploads ?? []), ...(draft.sent !== undefined ? [draft.sent] : []), draft.local])].slice(-16),
   };
 }

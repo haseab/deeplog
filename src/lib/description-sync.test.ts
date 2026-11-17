@@ -127,3 +127,19 @@ test("new edits still upload and failed uploads respect their retry time", () =>
   assert.equal(needsDescriptionUpload({ ...draft, status: "error", retryAt: 101 }, 100), false);
   assert.equal(needsDescriptionUpload({ ...draft, status: "error", retryAt: 100 }, 100), true);
 });
+
+
+test("repeated lost responses retain earlier upload evidence until acknowledged", async () => {
+  const { prepareDescriptionUpload, acknowledgeDraft } = await import("./description-sync");
+  const initial = { key: "1:2:3", account: "1:2", entryId: 3, base: "base", local: "first", revision: 1, updatedAt: 1, status: "local" as const };
+  const first = prepareDescriptionUpload(initial);
+  const second = prepareDescriptionUpload({ ...first, local: "second", revision: 2 });
+  const third = prepareDescriptionUpload({ ...second, local: "third", revision: 3 });
+  assert.deepEqual(third.uncertainUploads, ["first", "second", "third"]);
+  const acknowledged = acknowledgeDraft(third, third, "third");
+  assert.equal(acknowledged.status, "synced");
+  assert.equal(acknowledged.uncertainUploads, undefined);
+  let bounded = third;
+  for (let i = 0; i < 30; i++) bounded = prepareDescriptionUpload({ ...bounded, local: String(i) });
+  assert.equal(bounded.uncertainUploads?.length, 16);
+});

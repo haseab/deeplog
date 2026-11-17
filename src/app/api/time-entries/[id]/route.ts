@@ -19,31 +19,11 @@ export async function PATCH(
     const body = await request.json();
     const { description, project_name, start, stop, tag_ids, duration } = body;
 
-    // First, get the current time entry using the correct endpoint
-    const getCurrentResponse = await togglFetch(
-      `https://track.toggl.com/api/v9/me/time_entries/${id}`,
-      {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-
-    if (!getCurrentResponse.ok) {
-      if (getCurrentResponse.status === 401) {
-        return createErrorResponse("Session expired - please reauthenticate", 401);
-      }
-      const errorText = await getCurrentResponse.text();
-      console.error("Toggl API error:", getCurrentResponse.status, errorText);
-      throw new Error("Failed to get current time entry from Toggl");
-    }
-
-    const currentEntry = await getCurrentResponse.json();
-
-    // If project_name is provided, we need to find the project_id
-    let project_id = currentEntry.project_id;
-    if (project_name !== undefined) {
+    if (!/^\d+$/.test(id)) return createErrorResponse("Invalid entry ID", 400);
+    if (body.project_id !== undefined && body.project_id !== null && (!Number.isSafeInteger(body.project_id) || body.project_id <= 0)) return createErrorResponse("Invalid project ID", 400);
+    // Direct field updates are authorized by Toggl's workspace PUT endpoint.
+    let project_id: number | null | undefined = body.project_id;
+    if (project_id === undefined && project_name !== undefined) {
       if (project_name === "No Project" || project_name === "") {
         project_id = null;
       } else {
@@ -74,7 +54,7 @@ export async function PATCH(
     // Update the time entry using the workspace-based PUT endpoint
     const updateData = {
       ...(description !== undefined && { description }),
-      ...(project_name !== undefined && { project_id }),
+      ...(project_id !== undefined && { project_id }),
       ...(tag_ids !== undefined && { tag_ids }),
       ...(start !== undefined && { start }),
       ...(stop !== undefined && { stop }),

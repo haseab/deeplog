@@ -3,6 +3,7 @@
 import { apiFetch } from "@/lib/api-fetch";
 import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 
+import { projectSelection } from "@/lib/project-selection";
 import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
@@ -3371,6 +3372,7 @@ export function TimeTrackerTable({
               ? "#6b7280"
               : selectedProject?.color || "#6b7280";
           return {
+            project_id: selectedProject?.id ?? null,
             project_name: newProject || "No Project",
             project_color: newProjectColor,
           };
@@ -3382,7 +3384,7 @@ export function TimeTrackerTable({
               "Content-Type": "application/json",
               "x-toggl-session-token": sessionToken,
             },
-            body: JSON.stringify({ project_name: newProject }),
+            body: JSON.stringify(projectSelection(newProject, projectsRef.current)),
           })
       );
 
@@ -3406,6 +3408,7 @@ export function TimeTrackerTable({
           entry.id === entryId
             ? {
                 ...entry,
+                project_id: selectedProject?.id ?? null,
                 project_name: newProject || "No Project",
                 project_color: newProjectColor,
               }
@@ -3424,7 +3427,7 @@ export function TimeTrackerTable({
                 "Content-Type": "application/json",
                 "x-toggl-session-token": sessionToken || "",
               },
-              body: JSON.stringify({ project_name: newProject }),
+              body: JSON.stringify(projectSelection(newProject, projectsRef.current)),
             });
 
             if (!response.ok) {
@@ -4989,7 +4992,7 @@ export function TimeTrackerTable({
               ...entry,
               project_name: projectName,
               project_color: project?.color || entry.project_color,
-              project_id: project?.id || entry.project_id,
+              project_id: project?.id ?? null,
             } as TimeEntry;
           }
           return entry;
@@ -5058,7 +5061,7 @@ export function TimeTrackerTable({
                 "Content-Type": "application/json",
                 "x-toggl-session-token": sessionToken || "",
               },
-              body: JSON.stringify({ project_name: projectName }),
+              body: JSON.stringify(projectSelection(projectName, projectsRef.current)),
             });
 
             if (!response.ok) {
@@ -6092,7 +6095,7 @@ export function TimeTrackerTable({
                 description: finalDescription,
                 start: latestEntry.start,
                 ...(latestEntry.stop && { stop: latestEntry.stop }),
-                project_name: latestEntry.project_name,
+                ...projectSelection(latestEntry.project_name, projectsRef.current),
                 tag_ids: latestEntry.tags
                   .map((tagName) => {
                     const tag = availableTagsRef.current.find(
@@ -6398,6 +6401,7 @@ export function TimeTrackerTable({
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
+  const timelineSnapshotRef = React.useRef<{ scope: string; id: string } | null>(null);
   const FETCH_DEBOUNCE_DELAY = 1000; // 1 second minimum between fetches
 
   const handleCancelSync = React.useCallback(() => {
@@ -6455,6 +6459,8 @@ export function TimeTrackerTable({
       const limit =
         resetData && preservePagination ? (retainedPage + 1) * 100 : 100;
       const pageToFetch = resetData ? 0 : currentPageRef.current + 1;
+      const snapshotScope = JSON.stringify([fromDate, toDate, timeZone]);
+      const snapshot = !resetData && timelineSnapshotRef.current?.scope === snapshotScope ? timelineSnapshotRef.current.id : undefined;
 
       // Get credentials from localStorage
       const sessionToken = localStorage.getItem("toggl_session_token");
@@ -6462,7 +6468,7 @@ export function TimeTrackerTable({
       try {
         setSyncStatus("syncing");
         const response = await apiFetch(
-          `/api/time-entries?from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}`,
+          `/api/time-entries?from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}${snapshot ? `&snapshot=${encodeURIComponent(snapshot)}` : ""}`,
           {
             cache: "no-store",
             headers: {
@@ -6494,6 +6500,8 @@ export function TimeTrackerTable({
         ) {
           return;
         }
+
+        timelineSnapshotRef.current = typeof data.snapshot === "string" ? { scope: snapshotScope, id: data.snapshot } : null;
 
         // Handle the new response structure
         if (data.timeEntries && data.projects && data.pagination) {

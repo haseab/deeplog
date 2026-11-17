@@ -7,7 +7,7 @@ async function run(body: Record<string, unknown>, entry: Record<string, unknown>
   const original = globalThis.fetch;
   const originalLog = console.info;
   const logs: Record<string, unknown>[] = [];
-  console.info = (_prefix, json) => { logs.push(JSON.parse(String(json))); };
+  console.info = (prefix, json) => { if (prefix === "[description-sync]") logs.push(JSON.parse(String(json))); };
   const writes: unknown[] = [];
   globalThis.fetch = async (url, init) => {
     const path = String(url);
