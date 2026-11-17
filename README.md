@@ -130,3 +130,53 @@ npx tsx --test src/lib/toggl-fetch.test.ts
 - Run `npm run dev` in the normal checkout; its development script sets port **3020** explicitly. Do not use localhost:3000 or silently increment ports.
 - Reuse an existing server for this checkout. If the assigned port is occupied by an unrelated process, inspect ownership rather than stopping another project's server.
 - Port changes must update the development script, README, environment examples, and local integration/callback URLs together. Keep real credentials in ignored local environment files; never commit them or change production URLs for local development.
+
+
+## Toggl request efficiency and diagnostics
+
+Stable profile/workspace/project/tag reads are credential-scoped, coalesced and
+cached for five minutes per server process. Entry edits keep that metadata warm.
+Project/tag mutations invalidate only the matching metadata family; upstream 401s
+invalidate all metadata for that credential. External metadata changes appear on
+expiry (or after a server restart). Cold processes must still load metadata.
+
+The UI sends project IDs for known selections; name-only requests remain supported
+for old clients and pins whose projects are absent from the active list. Ordinary
+field edits use one workspace PUT without first reading the entry. Description
+edits retain a fresh account-scoped three-way conflict check. Recovery sends bounded
+uncertain-upload evidence with that same check, so an acknowledged or uncertain
+upload does not require a separate review read. Evidence is cleared on acknowledgement.
+
+Timeline loads return a `snapshot` token. Load More sends that token to reuse the
+same sorted range rather than download the full Analytics range again. Snapshots
+are scoped to credential, range and timezone, expire after five minutes, and are
+bounded to 32 per process. Successful entry/project/tag writes and upstream 401s
+invalidate that credential's snapshots; a write during loading prevents publishing
+that load as a reusable snapshot. Explicit refresh always queries fresh entry data.
+Expired, evicted, invalidated or cross-process snapshots fall back to a fresh load.
+Changes made in other Toggl clients become visible on refresh or snapshot expiry.
+
+Server logs contain two structured event families:
+
+- `[toggl-request]`: one per wrapper call, with cache `hit`, `shared`, `miss` or
+  `bypass`, status, outcome, total duration and queue/network timings.
+- `[toggl-upstream]`: one per actual outbound fetch, including failed fetches and
+  reads which finish after the initiating browser request cancels. Count these
+  events for actual egress; a shared cache caller does not produce another fetch.
+
+Endpoint IDs are normalized to `:id`; headers, credentials, query strings,
+descriptions, bodies and exception messages are excluded. `networkMs` measures
+fetch through response headers, and `queueWaitMs` includes both predecessor wait
+and rate pacing. The existing 1.1-second per-credential pacing remains in place.
+
+Summarize captured logs by endpoint, cache reuse, egress, errors and p95 timings:
+
+```sh
+node scripts/summarize-toggl-requests.mjs /path/to/server.log
+# Or pipe captured hosting logs into the command without a filename.
+```
+
+Warm-cache request counts verified at the mocked upstream boundary: field edits
+1, description save/recovery 2, timeline refresh 2, timer switch using an ID 3,
+and snapshot pagination 0. Cold metadata and additional tag pages add requests.
+These counts are regression-test results, not a production traffic measurement.

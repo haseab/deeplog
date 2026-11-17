@@ -1,3 +1,4 @@
+import { timelineSnapshots, timelinePage, togglCredential } from "@/lib/timeline-snapshots";
 import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
@@ -67,8 +68,9 @@ export async function GET(request: NextRequest) {
     const fromDate = searchParams.get("from_date");
     const toDate = searchParams.get("to_date");
     const requestedTimeZone = searchParams.get("timezone");
-    const page = parseInt(searchParams.get("page") || "0");
-    const limit = parseInt(searchParams.get("limit") || "100");
+    const page = Number(searchParams.get("page") ?? "0");
+    const limit = Number(searchParams.get("limit") ?? "100");
+    if (!Number.isSafeInteger(page) || page < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 5000) return createErrorResponse("Invalid pagination", 400);
     const displayTimeZone = isValidTimeZone(requestedTimeZone)
       ? requestedTimeZone
       : profileTimeZone;
@@ -79,6 +81,15 @@ export async function GET(request: NextRequest) {
         400
       );
     }
+
+    const credential = togglCredential(`Bearer ${sessionToken}`);
+    const scope = JSON.stringify([fromDate, toDate, displayTimeZone, profileTimeZone]);
+    const snapshotId = searchParams.get("snapshot");
+    if (page > 0 && snapshotId) {
+      const cached = timelineSnapshots.get(snapshotId, credential, scope);
+      if (cached) return Response.json(timelinePage(cached, page, limit, snapshotId), { headers: { "Cache-Control": "no-store" } });
+    }
+    const snapshotGeneration = timelineSnapshots.generation();
 
     // Fetch projects using regular API
     const projectsResponse = await togglFetch(
@@ -397,36 +408,16 @@ export async function GET(request: NextRequest) {
       (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
     );
 
-    // Apply pagination on the frontend side (since we get all data at once)
-    const startIndex = page * limit;
-    const endIndex = startIndex + limit;
-    const paginatedEntries = enrichedEntries.slice(startIndex, endIndex).map((entry) => {
-      return { ...entry, _timezoneAmbiguous: undefined };
+    const data = {
+      timeEntries: enrichedEntries.map(entry => ({ ...entry, _timezoneAmbiguous: undefined })),
+      projects: activeProjects,
+      tags: tags.map(tag => ({ id: tag.id, name: tag.name })),
+      profileTimeZone, displayTimeZone,
+    };
+    const snapshot = timelineSnapshots.put(credential, scope, data, snapshotGeneration);
+    return Response.json(timelinePage(data, page, limit, snapshot), {
+      headers: { "Cache-Control": "no-store, max-age=0" },
     });
-
-    return new Response(
-      JSON.stringify({
-        timeEntries: paginatedEntries,
-        projects: activeProjects,
-        tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
-        pagination: {
-          page,
-          limit,
-          total: enrichedEntries.length,
-          hasMore: endIndex < enrichedEntries.length,
-        },
-        syncStatus: "synced", // Add sync status for UI
-        profileTimeZone,
-        displayTimeZone,
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store, max-age=0",
-        },
-      }
-    );
   } catch (error) {
     if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error fetching time entries:", error);
@@ -458,6 +449,7 @@ export async function POST(request: NextRequest) {
     const { sessionToken, workspaceId, userId } = await setupSessionApi(request);
     const body = await request.json();
     const { description, start, project_name, tag_ids } = body;
+    if (body.project_id !== undefined && body.project_id !== null && (!Number.isSafeInteger(body.project_id) || body.project_id <= 0)) return createErrorResponse("Invalid project ID", 400);
 
     return await serializeTimerStart(userId, async () => {
       let stoppedEntry: Record<string, unknown> | null = null;
@@ -519,8 +511,8 @@ export async function POST(request: NextRequest) {
       }
 
     // If project_name is provided, find the project_id
-    let project_id: number | undefined;
-    if (project_name && project_name !== "No Project") {
+    let project_id: number | null | undefined = body.project_id;
+    if (project_id === undefined && project_name && project_name !== "No Project") {
       const projectsResponse = await togglFetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true&only_me=true&sort_field=client_name&pinned=false`,
         {

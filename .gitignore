@@ -45,6 +45,7 @@ next-env.d.ts
 # scripts
 /scripts/*
 !/scripts/cron.ts
+!/scripts/summarize-toggl-requests.mjs
 
 # Local extraction ledger (production uses a Railway volume)
 /data/task-extraction/

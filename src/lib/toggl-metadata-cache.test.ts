@@ -86,3 +86,26 @@ test("failed metadata and body reads do not poison the cache; upstream 401 inval
   await f(`${origin}/me`, auth());
   assert.equal(calls, cachedCalls + 2);
 });
+
+
+test("metadata lasts five minutes; project writes invalidate only project lists", async t => {
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const events: import("./toggl-request-diagnostics").TogglRequestDiagnostic[] = [];
+  const f = createTogglFetch(new TogglRequestQueue(0), undefined, e => events.push(e));
+  const mock = t.mock.method(globalThis, "fetch", async () => Response.json({ id: 1 }));
+  const read = (path: string) => f(`${origin}${path}`, auth("private-token"));
+  for (const path of ["/me", "/workspaces", "/workspaces/2/projects", "/workspaces/2/tags"]) await read(path);
+  now += 120_000;
+  for (const path of ["/me", "/workspaces", "/workspaces/2/projects", "/workspaces/2/tags"]) await read(path);
+  assert.equal(mock.mock.callCount(), 4);
+  await f(`${origin}/workspaces/2/projects/7`, auth("private-token", { method: "PUT", body: '{"name":"private name"}' }));
+  for (const path of ["/me", "/workspaces", "/workspaces/2/tags", "/workspaces/2/projects"]) await read(path);
+  assert.equal(mock.mock.callCount(), 6, "only project metadata needs reloading");
+  now += 301_000;
+  await read("/me");
+  assert.equal(mock.mock.callCount(), 7);
+  assert.ok(events.some(e => e.cache === "hit" && !e.upstream));
+  assert.ok(!JSON.stringify(events).includes("private"));
+  assert.ok(!JSON.stringify(events).includes("/2/"));
+});

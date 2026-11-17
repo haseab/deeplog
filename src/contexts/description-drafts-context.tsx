@@ -1,5 +1,7 @@
 "use client";
 
+import { prepareDescriptionUpload } from "@/lib/description-sync";
+
 import { apiFetch, togglRetryAt } from "@/lib/api-fetch";
 import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 
@@ -178,7 +180,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         const response = await apiFetch(`/api/time-entries/${draft.entryId}/description`, {
           method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current,
             "x-deeplog-sync-request-id": requestId, "x-deeplog-tab-id": owner.current, "x-deeplog-revision": String(draft.revision ?? 0) },
-          body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly, ...(draft.uncertainUploads ? { uncertainUploads: draft.uncertainUploads } : {}) }), signal: AbortSignal.timeout(20000),
         });
         responseStatus = response.status;
         const data = await response.json();
@@ -202,29 +204,19 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (!active || !timelineReady.current || !navigator.onLine || !navigator.locks || togglRetryAt(tokenRef.current) > Date.now()) return;
     await navigator.locks.request(`deeplog-description-sync:${active}`, { ifAvailable: true }, async lock => {
       if (!lock) return;
-      for (let draft of await listDrafts(active)) {
+      for (const draft of await listDrafts(active)) {
         // Conflict evidence refreshes on explicit review, not on every tab visit.
         if (!needsDescriptionUpload(draft) || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
         const id = draft.entryId;
         setSyncing(old => new Set(old).add(id));
         try {
-          // Recover an upload whose response was lost, even if more typing followed it.
-          if (draft.sent !== undefined) {
-            const check = await request(draft, true);
-            if (!check.deleted && check.remote === draft.sent) {
-              const previous = draft;
-              const recovered = await changeDraft(draft.key, current => current && acknowledgeDraft(current, previous, check.remote!));
-              if (!recovered) continue;
-              recordSyncDiagnostic({ event: "upload.recovered", account: active, entryId: id, requestId: check.requestId, ...draftDiagnostic(recovered) });
-              draft = recovered;
-              if (draft.status === "synced") { notifySynced(id, check.remote!); continue; }
-            }
-          }
-          const snapshot = await changeDraft(draft.key, current => current && current.status !== "conflict" ? { ...current, sent: current.local } : current);
+          // The API reconciles an uncertain prior upload with its one fresh
+          // conflict read, instead of doing a separate review request first.
+          const snapshot = await changeDraft(draft.key, current => current && current.status !== "conflict" ? prepareDescriptionUpload(current) : current);
           if (!snapshot || snapshot.status === "conflict") continue;
           const result = await request(snapshot);
           if (result.conflict) {
-            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, deletionConfirmed: result.deletionConfirmed, start: result.start ?? current.start, sent: undefined, error: undefined }));
+            await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, deletionConfirmed: result.deletionConfirmed, start: result.start ?? current.start, sent: undefined, uncertainUploads: undefined, error: undefined }));
           } else {
             const acknowledged = await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
             recordSyncDiagnostic({ event: "upload.acknowledged", account: active, entryId: id, requestId: result.requestId, ...draftDiagnostic(acknowledged),
@@ -451,7 +443,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           const local = choice === "toggl" ? check.remote! : shown.local;
           const updated = await changeDraft(shown.key, current => {
             if (!current || current.revision !== shown.revision) throw new Error("Draft changed");
-            return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, deleted: false, error: undefined };
+            return { ...current, base: check.remote!, local, status: choice === "toggl" ? "synced" : "local", revision: current.revision + 1, remote: undefined, sent: undefined, uncertainUploads: undefined, deleted: false, error: undefined };
           }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
           if (updated?.status === "synced") notifySynced(shown.entryId, local);
         }

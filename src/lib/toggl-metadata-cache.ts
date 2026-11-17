@@ -14,17 +14,20 @@ function forCaller<T>(result: Promise<T>, signal?: AbortSignal | null): Promise<
 /** Successful metadata only; coalesced reads have independent caller cancellation. */
 export class TogglMetadataCache {
   private entries = new Map<string, Entry>();
-  constructor(private readonly ttlMs = 60_000, private readonly limit = 128) {}
+  constructor(private readonly ttlMs = 300_000, private readonly limit = 128) {}
 
-  invalidate(credential: string) {
-    for (const key of this.entries.keys()) if (key.startsWith(`${credential}:`)) this.entries.delete(key);
+  invalidate(credential: string, path?: string) {
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(`${credential}:`) && (!path || new URL(key.slice(credential.length + 1)).pathname.startsWith(path))) this.entries.delete(key);
+    }
   }
 
-  async get(key: string, load: () => Promise<Response>, signal?: AbortSignal | null): Promise<Response> {
+  async get(key: string, load: () => Promise<Response>, signal?: AbortSignal | null, observe?: (state: "miss" | "hit" | "shared") => void): Promise<Response> {
     signal?.throwIfAborted();
     const now = Date.now();
     for (const [id, entry] of this.entries) if (entry.expiresAt <= now) this.entries.delete(id);
     let entry = this.entries.get(key);
+    observe?.(entry ? entry.expiresAt === Infinity ? "shared" : "hit" : "miss");
     if (!entry) {
       const result = load().then(async response => {
         const snapshot = { body: await response.arrayBuffer(), status: response.status, headers: [...response.headers.entries()] };

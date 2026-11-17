@@ -1,9 +1,11 @@
+import { logTogglUpstream, logTogglRequest, togglEndpoint, type TogglRequestDiagnostic } from "./toggl-request-diagnostics";
+import { timelineSnapshots, togglCredential } from "./timeline-snapshots";
 import { TogglMetadataCache } from "./toggl-metadata-cache";
 import { TogglRateLimitError, retryAfterSeconds } from "./toggl-rate-limit";
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-const TOGGL_HOSTS = new Set(["track.toggl.com", "api.track.toggl.com", "reports.api.track.toggl.com"]);
+const TOGGL_HOSTS = new Set(["track.toggl.com", "api.track.toggl.com", "reports.api.track.toggl.com", "reports.toggl.com"]);
 
 type Lane = { tail: Promise<void>; pending: number; nextStart: number; cooldownUntil: number };
 
@@ -26,7 +28,8 @@ export class TogglRequestQueue {
 
   constructor(private readonly spacingMs = 1100, private readonly cooldownMs = 120_000) {}
 
-  async fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  async fetch(input: string | URL | Request, init?: RequestInit, metrics?: { requestId?: string; queueWaitMs: number; networkMs: number; upstream: boolean }): Promise<Response> {
+    const queuedAt = Date.now();
     const request = input instanceof Request ? input : undefined;
     const url = new URL(request?.url ?? String(input));
     // Keep unrelated services (e.g. transcription providers) outside this queue.
@@ -34,7 +37,7 @@ export class TogglRequestQueue {
       return fetch(input, init);
     }
     const headers = new Headers(init?.headers ?? request?.headers);
-    const key = createHash("sha256").update(headers.get("authorization") ?? "anonymous").digest("hex");
+    const key = togglCredential(headers.get("authorization") ?? "anonymous");
     const signal = init?.signal ?? request?.signal;
     signal?.throwIfAborted();
     // Evict idle lanes without retaining credentials or per-user timers.
@@ -67,7 +70,17 @@ export class TogglRequestQueue {
       }
       signal?.throwIfAborted();
       lane.nextStart = Date.now() + this.spacingMs;
-      const response = await fetch(input, init);
+      const networkStarted = Date.now();
+      if (metrics) { metrics.queueWaitMs = networkStarted - queuedAt; metrics.upstream = true; }
+      let response: Response | undefined;
+      try { response = await fetch(input, init); }
+      finally {
+        const networkMs = Date.now() - networkStarted;
+        if (metrics) metrics.networkMs = networkMs;
+        logTogglUpstream({ requestId: metrics?.requestId ?? randomUUID(), method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+          endpoint: togglEndpoint(url), queueWaitMs: networkStarted - queuedAt, networkMs,
+          status: response?.status, outcome: response ? "completed" : signal?.aborted ? "aborted" : "failed" });
+      }
       if (response.status === 429) {
         const retryAfter = response.headers.get("Retry-After");
         const seconds = retryAfter === null ? NaN : Number(retryAfter);
@@ -88,30 +101,57 @@ export class TogglRequestQueue {
   }
 }
 
-/** Shared only for GET metadata. Entry reads and Analytics are always fresh. */
-export function createTogglFetch(queue: TogglRequestQueue, metadata = new TogglMetadataCache()) {
+/** Stable metadata is shared for five minutes; entry and conflict reads stay fresh. */
+export function createTogglFetch(
+  queue: TogglRequestQueue,
+  metadata = new TogglMetadataCache(),
+  log: (event: TogglRequestDiagnostic) => void = logTogglRequest,
+) {
   return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const started = Date.now();
     const request = input instanceof Request ? input : undefined;
     const url = new URL(request?.url ?? String(input));
     const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
     const headers = new Headers(init?.headers ?? request?.headers);
-    const credential = createHash("sha256").update(headers.get("authorization") ?? "anonymous").digest("hex");
+    const credential = togglCredential(headers.get("authorization") ?? "anonymous");
     const signal = init?.signal ?? request?.signal;
-    signal?.throwIfAborted();
-    const metadataPath = /^\/api\/v9\/(?:me|workspaces(?:\/\d+\/(?:projects|tags))?)$/.test(url.pathname);
-    const cacheable = TOGGL_HOSTS.has(url.hostname) && method === "GET" && metadataPath;
-    const response = cacheable
-      ? await metadata.get(`${credential}:${url.href}`, () => queue.fetch(input, {
-          ...init, headers, signal: AbortSignal.timeout(15_000),
-        }), signal)
-      : await queue.fetch(input, init);
-    if (TOGGL_HOSTS.has(url.hostname)) {
-      if (response.status === 401 || (response.ok && method !== "GET" && /\/(?:projects|tags)(?:\/|$)/.test(url.pathname))) {
-        metadata.invalidate(credential);
+    const isToggl = TOGGL_HOSTS.has(url.hostname);
+    const event: TogglRequestDiagnostic = {
+      requestId: randomUUID(), method, endpoint: togglEndpoint(url), cache: "bypass",
+      upstream: false, queueWaitMs: 0, networkMs: 0, durationMs: 0, outcome: "failed",
+    };
+    try {
+      signal?.throwIfAborted();
+      const metadataPath = /^\/api\/v9\/(?:me|workspaces(?:\/\d+\/(?:projects|tags))?)$/.test(url.pathname);
+      const cacheable = isToggl && method === "GET" && metadataPath;
+      const response = cacheable
+        ? await metadata.get(`${credential}:${url.href}`, () => queue.fetch(input, {
+            ...init, headers, signal: AbortSignal.timeout(15_000),
+          }, event), signal, state => { event.cache = state; })
+        : await queue.fetch(input, init, event);
+      event.status = response.status;
+      event.outcome = "completed";
+      if (isToggl) {
+        if (response.status === 401) {
+          metadata.invalidate(credential);
+          timelineSnapshots.invalidate(credential);
+        } else if (response.ok && method !== "GET" && /^\/api\/v9\/workspaces\/\d+\/(?:projects|tags|time_entries)(?:\/|$)/.test(url.pathname)) {
+          // Entry writes cannot invalidate profile/workspace/project/tag metadata.
+          const metadataWrite = url.pathname.match(/^(\/api\/v9\/workspaces\/\d+\/(?:projects|tags))(?:\/|$)/);
+          if (metadataWrite) metadata.invalidate(credential, metadataWrite[1]);
+          timelineSnapshots.invalidate(credential);
+        }
+        if (response.status === 429) throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")));
       }
-      if (response.status === 429) throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")));
+      return response;
+    } catch (error) {
+      if (signal?.aborted) event.outcome = "aborted";
+      throw error;
+    } finally {
+      event.durationMs = Date.now() - started;
+      if (!event.upstream && (event.cache === "miss" || event.cache === "bypass")) event.queueWaitMs = event.durationMs;
+      if (isToggl) { try { log({ ...event }); } catch { /* Telemetry cannot block requests. */ } }
     }
-    return response;
   };
 }
 

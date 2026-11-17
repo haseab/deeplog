@@ -35,6 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json();
     if (body.account !== account) return reply({ error: "Account changed. Sign in to the draft's account." }, 403, "account-mismatch");
     if (!/^\d+$/.test(id) || typeof body.base !== "string" || typeof body.local !== "string") return reply({ error: "Invalid description update" }, 400, "invalid-input");
+    if (body.uncertainUploads !== undefined && (!Array.isArray(body.uncertainUploads) || body.uncertainUploads.length > 16 || body.uncertainUploads.some((value: unknown) => typeof value !== "string"))) return reply({ error: "Invalid recovery evidence" }, 400, "invalid-input");
     base = body.base; local = body.local; reviewOnly = !!body.reviewOnly;
     const headers = { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" };
     const current = await togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${id}`, { headers, cache: "no-store", signal: request.signal });
@@ -45,7 +46,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (entry.server_deleted_at) return reply({ deleted: true, deletionConfirmed: true, start: entry.start }, 409, "deletion-confirmed");
     remote = entry.description ?? "";
     if (reviewOnly) return reply({ description: remote, start: entry.start }, 200, "review-read");
-    const comparison = compareDescription(body.base, body.local, remote!);
+    // A lost acknowledgement may have committed `sent` while newer typing
+    // changed `local`. Only that exact prior upload is a safe alternate base.
+    const recovered = (typeof body.sent === "string" && remote === body.sent) || body.uncertainUploads?.includes(remote) === true;
+    const comparison = compareDescription(recovered ? remote! : body.base, body.local, remote!);
     if (comparison === "conflict") return reply({ description: remote, start: entry.start }, 409, "remote-changed");
     if (comparison === "synced") return reply({ description: remote }, 200, "already-matches");
     if (body.local.length > 3000) return reply({ error: "Description exceeds Toggl's 3000-character limit." }, 400, "description-too-long");
