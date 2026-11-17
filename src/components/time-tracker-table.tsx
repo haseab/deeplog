@@ -1,5 +1,8 @@
 "use client";
 
+import { apiFetch } from "@/lib/api-fetch";
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+
 import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
@@ -3085,7 +3088,7 @@ export function TimeTrackerTable({
           if (toastId !== undefined) {
             toast.dismiss(toastId);
           }
-          toast.error(errorMessage);
+          if (!(error instanceof TogglRateLimitError)) toast.error(errorMessage);
           // Retain the optimistic edit and its retry, but stop dependent writes.
           throw error;
         }
@@ -3331,7 +3334,7 @@ export function TimeTrackerTable({
             }
           }
 
-          return fetch(`/api/time-entries/${realId}`, {
+          return apiFetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -3373,7 +3376,7 @@ export function TimeTrackerTable({
           };
         },
         (realId, sessionToken) =>
-          fetch(`/api/time-entries/${realId}`, {
+          apiFetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -3415,7 +3418,7 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            const response = await fetch(`/api/time-entries/${entryId}`, {
+            const response = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -3468,7 +3471,7 @@ export function TimeTrackerTable({
         "UPDATE_TAGS",
         () => ({ tags: newTags }),
         (realId, sessionToken) =>
-          fetch(`/api/time-entries/${realId}`, {
+          apiFetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -3500,7 +3503,7 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            const response = await fetch(`/api/time-entries/${entryId}`, {
+            const response = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -3707,7 +3710,7 @@ export function TimeTrackerTable({
                 payload.tag_ids = tagIds;
               }
 
-              const response = await fetch(`/api/time-entries/${realId}`, {
+              const response = await apiFetch(`/api/time-entries/${realId}`, {
                 method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
@@ -3815,7 +3818,7 @@ export function TimeTrackerTable({
                 payload.tag_ids = tagIds;
               }
 
-              const response = await fetch(`/api/time-entries/${entryId}`, {
+              const response = await apiFetch(`/api/time-entries/${entryId}`, {
                 method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
@@ -4061,7 +4064,7 @@ export function TimeTrackerTable({
               ? (isRunning ? { start: newStart.toISOString() } : { duration: newDuration })
               : (isRunning ? { start: newStart.toISOString() } : { start: newStart.toISOString(), duration: newDuration });
 
-            const response1 = await fetch(`/api/time-entries/${entryId}`, {
+            const response1 = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -4079,7 +4082,7 @@ export function TimeTrackerTable({
               const prevStart = new Date(prevEntry.start);
               const newPrevDuration = Math.floor((newStart.getTime() - prevStart.getTime()) / 1000);
 
-              const response2 = await fetch(`/api/time-entries/${prevEntry.id}`, {
+              const response2 = await apiFetch(`/api/time-entries/${prevEntry.id}`, {
                 method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
@@ -4103,7 +4106,7 @@ export function TimeTrackerTable({
                 ? Math.floor((nextStop.getTime() - newEnd.getTime()) / 1000)
                 : nextEntry.duration;
 
-              const response3 = await fetch(`/api/time-entries/${nextEntry.id}`, {
+              const response3 = await apiFetch(`/api/time-entries/${nextEntry.id}`, {
                 method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
@@ -4148,7 +4151,7 @@ export function TimeTrackerTable({
           duration: duration,
         }),
         (realId, sessionToken) =>
-          fetch(`/api/time-entries/${realId}`, {
+          apiFetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -4190,7 +4193,7 @@ export function TimeTrackerTable({
           () => setTimeEntries(originalEntries),
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            const response = await fetch(`/api/time-entries/${entryId}`, {
+            const response = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -4288,7 +4291,7 @@ export function TimeTrackerTable({
           }
         },
         (realId, sessionToken) =>
-          fetch(`/api/time-entries/${realId}`, {
+          apiFetch(`/api/time-entries/${realId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -4341,7 +4344,7 @@ export function TimeTrackerTable({
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
 
-            const response = await fetch(`/api/time-entries/${entryId}`, {
+            const response = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -4432,7 +4435,7 @@ export function TimeTrackerTable({
                   new Date(entry.stop!).getTime() - newDuration * 1000
                 ).toISOString();
 
-            const response = await fetch(`/api/time-entries/${entryId}`, {
+            const response = await apiFetch(`/api/time-entries/${entryId}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -4502,7 +4505,7 @@ export function TimeTrackerTable({
           },
           async () => {
             const sessionToken = localStorage.getItem("toggl_session_token");
-            const response = await fetch(
+            const response = await apiFetch(
               `/api/time-entries/${entryToDelete.id}`,
               {
                 method: "DELETE",
@@ -4632,7 +4635,7 @@ export function TimeTrackerTable({
           const entry = entriesToDelete[i];
 
           try {
-            const response = await fetch(`/api/time-entries/${entry.id}`, {
+            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
               method: "DELETE",
               headers: {
                 "x-toggl-session-token": sessionToken || "",
@@ -4887,7 +4890,7 @@ export function TimeTrackerTable({
               ])
             );
 
-            const response = await fetch(`/api/time-entries/${entry.id}`, {
+            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -5049,7 +5052,7 @@ export function TimeTrackerTable({
           const entry = entriesToUpdate[i];
 
           try {
-            const response = await fetch(`/api/time-entries/${entry.id}`, {
+            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
               method: "PATCH",
               headers: {
                 "Content-Type": "application/json",
@@ -5273,7 +5276,7 @@ export function TimeTrackerTable({
             const entry = entriesToDelete[i];
 
             try {
-              const response = await fetch(`/api/time-entries/${entry.id}`, {
+              const response = await apiFetch(`/api/time-entries/${entry.id}`, {
                 method: "DELETE",
                 headers: {
                   "x-toggl-session-token": sessionToken || "",
@@ -5310,7 +5313,7 @@ export function TimeTrackerTable({
 
           // Step 2: Update the entry to keep
           try {
-            const updateResponse = await fetch(
+            const updateResponse = await apiFetch(
               `/api/time-entries/${entryToKeep.id}`,
               {
                 method: "PATCH",
@@ -5350,13 +5353,13 @@ export function TimeTrackerTable({
           } catch (error) {
             console.error("Failed to update earliest entry:", error);
             toast.dismiss(toastId);
-            toast.error("Failed to combine entries. Reverting changes.");
+            if (!(error instanceof TogglRateLimitError)) toast.error("Failed to combine entries. Reverting changes.");
             throw error;
           }
         } catch (error) {
           console.error("Failed to combine entries:", error);
           toast.dismiss(toastId);
-          toast.error("Failed to combine entries. Reverting changes.");
+          if (!(error instanceof TogglRateLimitError)) toast.error("Failed to combine entries. Reverting changes.");
           setTimeEntries(originalEntries);
           throw error;
         } finally {
@@ -5365,10 +5368,10 @@ export function TimeTrackerTable({
       };
 
       const operation = entryMutations.reserve(entries.map(entry => entry.id), submitOperation);
-      void operation.completion.catch(() => {
+      void operation.completion.catch((error) => {
         releaseCombine();
         toast.dismiss(toastId);
-        toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
+        if (!(error instanceof TogglRateLimitError)) toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
       });
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
@@ -5518,7 +5521,7 @@ export function TimeTrackerTable({
         splitStarted = true;
         const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
         if (sourceId < 0) throw new Error("Wait for this entry to finish creating before splitting");
-        return fetch("/api/time-entries/split", {
+        return apiFetch("/api/time-entries/split", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -5659,7 +5662,7 @@ export function TimeTrackerTable({
           clearTimeout(timeoutId);
           toast.dismiss(toastId);
           console.error("Failed to split time entry:", error);
-          toast.error("Failed to split entry. Reverting changes.");
+          if (!(error instanceof TogglRateLimitError)) toast.error("Failed to split entry. Reverting changes.");
           if (selectedCellEntryIdRef.current === tempId) {
             selectedCellEntryIdRef.current = entryToSplit.id;
           }
@@ -5848,7 +5851,7 @@ export function TimeTrackerTable({
     };
 
     const executeCombine = async (finalCurrentId: number, finalOlderId: number) => {
-      const response = await fetch("/api/time-entries/combine", {
+      const response = await apiFetch("/api/time-entries/combine", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -5935,7 +5938,7 @@ export function TimeTrackerTable({
       toast.dismiss(toastId);
       console.error("Failed to combine time entries:", error);
       restoreCombine();
-      toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
+      if (!(error instanceof TogglRateLimitError)) toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
     });
 
   }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle, protectCombine]);
@@ -6079,7 +6082,7 @@ export function TimeTrackerTable({
           }
 
           const executeStartRequest = async () => {
-            const response = await fetch("/api/time-entries", {
+            const response = await apiFetch("/api/time-entries", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -6272,7 +6275,7 @@ export function TimeTrackerTable({
 
         // If the API call succeeded, delete the created entry
         if (createdEntryId) {
-          fetch(`/api/time-entries/${createdEntryId}`, {
+          apiFetch(`/api/time-entries/${createdEntryId}`, {
             method: "DELETE",
             headers: {
               "x-toggl-session-token": sessionToken || "",
@@ -6352,7 +6355,7 @@ export function TimeTrackerTable({
       "STOP",
       () => ({ stop, duration: durationInSeconds }),
       (realId, sessionToken) =>
-        fetch(`/api/time-entries/${realId}`, {
+        apiFetch(`/api/time-entries/${realId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -6366,7 +6369,7 @@ export function TimeTrackerTable({
 
     try {
       const sessionToken = localStorage.getItem("toggl_session_token");
-      const response = await fetch(`/api/time-entries/${entry.id}`, {
+      const response = await apiFetch(`/api/time-entries/${entry.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -6389,7 +6392,7 @@ export function TimeTrackerTable({
       );
     } catch (error) {
       console.error("Error stopping timer:", error);
-      toast.error("Failed to stop timer");
+      if (!(error instanceof TogglRateLimitError)) toast.error("Failed to stop timer");
     }
   }, [handleUpdateWithQueue]);
 
@@ -6454,7 +6457,7 @@ export function TimeTrackerTable({
 
       try {
         setSyncStatus("syncing");
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/time-entries?from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}&timezone=${encodeURIComponent(timeZone)}&page=${pageToFetch}&limit=${limit}&sync_nonce=${now}`,
           {
             cache: "no-store",
@@ -6649,7 +6652,7 @@ export function TimeTrackerTable({
 
         // Only show toast for initial load, not for infinite scroll loads
         // And debounce error toasts to prevent spam
-        if (resetData) {
+        if (resetData && !(error instanceof TogglRateLimitError)) {
           const now = Date.now();
           if (now - lastErrorToastRef.current > 5000) {
             // Max one error toast per 5 seconds
@@ -7269,7 +7272,7 @@ export function TimeTrackerTable({
       const toastId = toast.loading("Generating recall summary...");
 
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           "/api/cron/summarize-time-entries",
           {
             method: "POST",
@@ -7337,7 +7340,8 @@ export function TimeTrackerTable({
         setEntryAiSummaryStatus((current) =>
           new Map(current).set(entry.id, "error")
         );
-        toast.error(message, { id: toastId });
+        if (error instanceof TogglRateLimitError) toast.dismiss(toastId);
+        else toast.error(message, { id: toastId });
         window.setTimeout(() => {
           setEntryAiSummaryStatus((current) => {
             const next = new Map(current);
@@ -7429,7 +7433,7 @@ export function TimeTrackerTable({
           next.set(entryId, "error");
           return next;
         });
-        toast.error("Retry failed. Please try again.");
+        if (!(error instanceof TogglRateLimitError)) toast.error("Retry failed. Please try again.");
       }
 
       return;
@@ -7490,7 +7494,7 @@ export function TimeTrackerTable({
         return next;
       });
 
-      toast.error(errorMessage);
+      if (!(error instanceof TogglRateLimitError)) toast.error(errorMessage);
     }
   }, []);
 

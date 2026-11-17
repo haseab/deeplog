@@ -1,5 +1,8 @@
 "use client";
 
+import { apiFetch } from "@/lib/api-fetch";
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -186,7 +189,7 @@ export function TagSelector({
     setIsCreatingTag(true);
     try {
       const sessionToken = localStorage.getItem("toggl_session_token");
-      const response = await fetch("/api/tags", {
+      const response = await apiFetch("/api/tags", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,7 +224,7 @@ export function TagSelector({
       setHighlightedIndex(0);
     } catch (error) {
       console.error("Error creating tag:", error);
-      toast.error("Failed to create tag");
+      if (!(error instanceof TogglRateLimitError)) toast.error("Failed to create tag");
     } finally {
       setIsCreatingTag(false);
     }

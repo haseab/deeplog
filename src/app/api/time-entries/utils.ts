@@ -1,3 +1,4 @@
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 
 export type TogglApiSetup = {
@@ -18,7 +19,7 @@ export async function setupTogglApi(
   const auth = Buffer.from(`${togglApiKey}:api_token`).toString("base64");
 
   // First, get the user's workspaces to find the default workspace
-  const workspacesResponse = await fetch(
+  const workspacesResponse = await togglFetch(
     "https://api.track.toggl.com/api/v9/workspaces",
     {
       headers: {

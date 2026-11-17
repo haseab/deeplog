@@ -7,6 +7,8 @@ const columns = ["time_entry_id", "description", "start_date", "start_time", "st
 const row = [3, "Planning & review", "2026-10-30", "07:15:26", "07:16:57", 91000, 5, [6]];
 
 async function run(query = "", options: { token?: string | null; status?: number; meStatus?: number; workspaceStatus?: number; rows?: unknown[][]; malformed?: boolean } = {}) {
+  // Each simulated session has its own upstream rate-limit state.
+  const session = options.token ?? `test-session-${crypto.randomUUID()}`;
   const original = globalThis.fetch;
   const calls: { url: string; init?: RequestInit }[] = [];
   globalThis.fetch = async (url, init) => {
@@ -21,9 +23,9 @@ async function run(query = "", options: { token?: string | null; status?: number
   };
   try {
     const headers = new Headers();
-    if (options.token !== null) headers.set("x-toggl-session-token", options.token ?? "test-session");
+    if (options.token !== null) headers.set("x-toggl-session-token", session);
     const response = await GET(new NextRequest(`http://localhost/api/time-entries/search?${query || "q=Planning%20%26%20review&from_date=2026-10-26&to_date=2026-11-01&page=2&limit=1"}`, { headers }));
-    return { status: response.status, body: await response.json(), calls, cache: response.headers.get("Cache-Control") };
+    return { status: response.status, body: await response.json(), calls, session, cache: response.headers.get("Cache-Control") };
   } finally {
     globalThis.fetch = original;
   }
@@ -35,7 +37,7 @@ test("search forwards session auth and scopes the captured contains filter to th
   const call = result.calls[2];
   assert.equal(call.url, "https://track.toggl.com/analytics/api/organizations/4/query?response_format=json&include_dicts=true");
   assert.equal(call.init?.method, "POST");
-  assert.equal(new Headers(call.init?.headers).get("Authorization"), "Bearer test-session");
+  assert.equal(new Headers(call.init?.headers).get("Authorization"), `Bearer ${result.session}`);
   assert.equal(call.init?.cache, "no-store");
   const payload = JSON.parse(String(call.init?.body));
   assert.deepEqual(payload.filters, [

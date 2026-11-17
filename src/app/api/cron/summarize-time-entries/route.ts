@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { generateRecallSummary, fitSummary } from "@/lib/summary-generation";
 import {
   buildAiSummaryBlock,
@@ -69,7 +71,7 @@ const fetchTogglJson = async <T>(
   signal: AbortSignal,
   init?: RequestInit,
 ): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await togglFetch(url, {
     ...init,
     headers: {
       Accept: "application/json",
@@ -306,7 +308,7 @@ const appendSummary = async ({
       ...currentEntry,
       description: `${currentDescription}${separator}${summaryBlock}`,
     };
-    const response = await fetch(
+    const response = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entry.id}`,
       {
         method: "PUT",
@@ -558,6 +560,7 @@ export async function POST(request: NextRequest) {
             reason: appendResult.status,
           };
         } catch (error) {
+          if (error instanceof TogglRateLimitError) throw error;
           return {
             entryId: entry.id,
             status: "failed",
@@ -581,6 +584,7 @@ export async function POST(request: NextRequest) {
       results,
     });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Time-entry summarization failed:", error);
     return jsonResponse(
       {

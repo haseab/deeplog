@@ -87,6 +87,33 @@ TEST_BASE_URL=http://127.0.0.1:3020 node tests/offline-descriptions.mjs
 npx tsx --test src/lib/entry-mutations.test.ts
 ```
 
+## Toggl request pacing
+
+Server-side Toggl requests share a per-credential queue across timeline routes,
+session validation, tracking integrations, and summarization jobs. Each credential
+has at most one upstream request in flight, with at least 1.1 seconds between
+request starts. Different credentials have independent queues.
+
+A Toggl `429` starts a shared cooldown of at least two minutes, extended by a
+longer `Retry-After` header. Queued and new calls return a local `429` during that
+cooldown without contacting Toggl. The queue never automatically replays writes;
+existing draft recovery and operation error handling remain responsible for retrying.
+Rate limits propagate as HTTP `429` with `code: "TOGGL_RATE_LIMITED"`,
+`retryAfter` seconds, `isSessionExpired: false`, and a `Retry-After` header,
+including failures during session validation. The frontend shows a shared rate-limit
+toast and pauses background description checks for that session until the cooldown
+ends. Description drafts remain saved locally; failed interactive writes keep their
+existing rollback/retry behavior.
+Requests canceled while queued do not reach Toggl, and network errors release the semaphore.
+
+Coordination is in memory within one Node process. Multiple production replicas,
+other applications, and different credentials for the same Toggl account are not
+coordinated. Restarting the process clears the queue and cooldown state.
+
+```sh
+npx tsx --test src/lib/toggl-fetch.test.ts
+```
+
 ## Local development ports
 
 - The development server for **deeplog** uses **http://localhost:3020**.

@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/api-fetch";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -67,7 +69,7 @@ export function WelcomeForm({
 
     const bodyKey = credentialType === "api_key" ? "apiKey" : "sessionToken";
 
-    const response = await fetch(endpoint, {
+    const response = await apiFetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import { setupSessionApi, createErrorResponse } from "../time-entries/session-utils";
 
@@ -22,7 +24,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Create project via Toggl API
-    const response = await fetch(
+    const response = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects`,
       {
         method: "POST",
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error creating project:", error);
     return createErrorResponse(
       error instanceof Error ? error.message : "Failed to create project",

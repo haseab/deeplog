@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import { createErrorResponse, setupSessionApi } from "../session-utils";
 
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the time entry
-    const getEntryResponse = await fetch(
+    const getEntryResponse = await togglFetch(
       `https://track.toggl.com/api/v9/me/time_entries/${entryId}`,
       {
         headers: {
@@ -110,7 +112,7 @@ export async function POST(request: NextRequest) {
         calculatedDurationSeconds: Math.round((newEndTime.getTime() - startTime.getTime()) / 1000),
       });
 
-      const updateResponse = await fetch(
+      const updateResponse = await togglFetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${entryId}`,
         {
           method: "PUT",
@@ -177,7 +179,7 @@ export async function POST(request: NextRequest) {
       calculatedDurationSeconds: Math.round(Math.abs(offsetMs) / 1000),
     });
 
-    const createResponse = await fetch(
+    const createResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries`,
       {
         method: "POST",
@@ -222,6 +224,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error splitting time entry:", error);
 
     if (error instanceof Error) {

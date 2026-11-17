@@ -1,3 +1,4 @@
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import {
   addCalendarDays,
@@ -24,7 +25,7 @@ export async function setupSessionApi(
   }
 
   // First, get user info and workspace details
-  const meResponse = await fetch("https://track.toggl.com/api/v9/me", {
+  const meResponse = await togglFetch("https://track.toggl.com/api/v9/me", {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${sessionToken}`,
@@ -47,7 +48,7 @@ export async function setupSessionApi(
     : "UTC";
 
   // Get workspaces
-  const workspacesResponse = await fetch(
+  const workspacesResponse = await togglFetch(
     "https://track.toggl.com/api/v9/workspaces",
     {
       headers: {

@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { type NextRequest } from "next/server";
 import {
   createErrorResponse,
@@ -79,7 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch projects using regular API
-    const projectsResponse = await fetch(
+    const projectsResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true&only_me=true&sort_field=client_name&pinned=false`,
       {
         headers: {
@@ -108,7 +110,7 @@ export async function GET(request: NextRequest) {
     let hasMoreTags = true;
 
     while (hasMoreTags) {
-      const tagsResponse = await fetch(
+      const tagsResponse = await togglFetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/tags?page=${currentPage}&per_page=${perPage}`,
         {
           headers: {
@@ -187,7 +189,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[API] Sending to Analytics API:', analyticsPayload);
 
-    const analyticsResponse = await fetch(
+    const analyticsResponse = await togglFetch(
       `https://track.toggl.com/analytics/api/organizations/${organizationId}/query?response_format=json&include_dicts=true`,
       {
         method: "POST",
@@ -225,7 +227,7 @@ export async function GET(request: NextRequest) {
     if (ambiguousEntries.length > 0) {
       const canonicalEntries = await Promise.all(
         ambiguousEntries.map(async (entry) => {
-          const response = await fetch(
+          const response = await togglFetch(
             `https://track.toggl.com/api/v9/me/time_entries/${entry.id}`,
             {
               headers: {
@@ -261,7 +263,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Fetch current running task
-    const currentTaskResponse = await fetch(
+    const currentTaskResponse = await togglFetch(
       "https://track.toggl.com/api/v9/me/time_entries/current",
       {
         cache: "no-store",
@@ -426,6 +428,7 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error fetching time entries:", error);
 
     if (error instanceof Error) {
@@ -460,7 +463,7 @@ export async function POST(request: NextRequest) {
       let stoppedEntry: Record<string, unknown> | null = null;
 
       // First, get the current running time entry
-      const currentEntryResponse = await fetch(
+      const currentEntryResponse = await togglFetch(
       "https://track.toggl.com/api/v9/me/time_entries/current",
       {
         headers: {
@@ -490,7 +493,7 @@ export async function POST(request: NextRequest) {
 
     // If there's a current entry, stop it using the dedicated stop endpoint
       if (currentEntry?.id) {
-      const stopResponse = await fetch(
+      const stopResponse = await togglFetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries/${currentEntry.id}/stop`,
         {
           method: "PATCH",
@@ -518,7 +521,7 @@ export async function POST(request: NextRequest) {
     // If project_name is provided, find the project_id
     let project_id: number | undefined;
     if (project_name && project_name !== "No Project") {
-      const projectsResponse = await fetch(
+      const projectsResponse = await togglFetch(
         `https://track.toggl.com/api/v9/workspaces/${workspaceId}/projects?page=1&per_page=200&active=true&only_me=true&sort_field=client_name&pinned=false`,
         {
           headers: {
@@ -565,7 +568,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the new time entry using Toggl API
-    const createResponse = await fetch(
+    const createResponse = await togglFetch(
       `https://track.toggl.com/api/v9/workspaces/${workspaceId}/time_entries`,
       {
         method: "POST",
@@ -598,6 +601,7 @@ export async function POST(request: NextRequest) {
       });
     });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Error creating time entry:", error);
 
     if (error instanceof Error) {

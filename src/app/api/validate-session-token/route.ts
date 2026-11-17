@@ -1,3 +1,5 @@
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+import { togglFetch } from "@/lib/toggl-fetch";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate the session token by making a test request to Toggl
-    const response = await fetch("https://track.toggl.com/api/v9/me", {
+    const response = await togglFetch("https://track.toggl.com/api/v9/me", {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${sessionToken}`,
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest) {
     const userData = await response.json();
 
     // Get workspaces to verify access
-    const workspacesResponse = await fetch(
+    const workspacesResponse = await togglFetch(
       "https://track.toggl.com/api/v9/workspaces",
       {
         headers: {
@@ -75,6 +77,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof TogglRateLimitError) return error.response();
     console.error("Session validation error:", error);
     return NextResponse.json(
       { error: "Failed to validate session token" },

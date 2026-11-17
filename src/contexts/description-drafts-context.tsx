@@ -1,5 +1,8 @@
 "use client";
 
+import { apiFetch, togglRetryAt } from "@/lib/api-fetch";
+import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
+
 import * as React from "react";
 import { entryMutations } from "@/lib/entry-mutations";
 import { AlertTriangle, HardDrive, Loader2, History, Check, X, Download } from "lucide-react";
@@ -94,7 +97,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           setSyncDiagnosticAccount(cached);
           accountRef.current = cached; setAccount(cached); await refresh();
         }
-        const response = await fetch("/api/validate-session-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionToken: token }), signal: AbortSignal.timeout(20000) });
+        const response = await apiFetch("/api/validate-session-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionToken: token }), signal: AbortSignal.timeout(20000) });
         if (!response.ok) return;
         const data = await response.json();
         if (cancelled || token !== tokenRef.current) return;
@@ -164,7 +167,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       let responseStatus: number | undefined;
       recordSyncDiagnostic({ event: "request.started", account: draft.account, entryId: draft.entryId, requestId, fields: { tabId: owner.current, reviewOnly, queueWaitMs: started - queuedAt, revision: draft.revision } });
       try {
-        const response = await fetch(`/api/time-entries/${draft.entryId}/description`, {
+        const response = await apiFetch(`/api/time-entries/${draft.entryId}/description`, {
           method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current,
             "x-deeplog-sync-request-id": requestId, "x-deeplog-tab-id": owner.current, "x-deeplog-revision": String(draft.revision ?? 0) },
           body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly }), signal: AbortSignal.timeout(20000),
@@ -179,7 +182,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         return { requestId, conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
       } catch (error) {
         recordSyncDiagnostic({ event: "request.failed", account: draft.account, entryId: draft.entryId, requestId,
-          fields: { status: responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
+          fields: { status: error instanceof TogglRateLimitError ? 429 : responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
         throw error;
       }
     });
@@ -188,7 +191,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
 
   work.current = async () => {
     const active = accountRef.current;
-    if (!active || !navigator.onLine || !navigator.locks) return;
+    if (!active || !navigator.onLine || !navigator.locks || togglRetryAt(tokenRef.current) > Date.now()) return;
     await navigator.locks.request(`deeplog-description-sync:${active}`, { ifAvailable: true }, async lock => {
       if (!lock) return;
       for (let draft of await listDrafts(active)) {
@@ -203,7 +206,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             const updated = await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, check));
             if (updated?.status === "synced") notifySynced(draft.entryId, updated.local);
             await publish();
-          } catch { /* Keep the draft and last comparison until a read succeeds. */ }
+          } catch (error) {
+            if (error instanceof TogglRateLimitError) break;
+            /* Keep the draft and last comparison until a read succeeds. */
+          }
           continue;
         }
         const id = draft.entryId;
@@ -234,7 +240,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             notifySynced(id, result.remote!);
           }
         } catch (error) {
-          await changeDraft(draft.key, current => current && current.status !== "conflict" ? { ...current, status: "error", attempts: (current.attempts ?? 0) + 1, retryAt: Date.now() + Math.min(300000, 30000 * 2 ** (current.attempts ?? 0)), error: error instanceof Error ? error.message : "Waiting to retry" } : current);
+          await changeDraft(draft.key, current => current && current.status !== "conflict" ? { ...current, status: "error", attempts: (current.attempts ?? 0) + 1, retryAt: error instanceof TogglRateLimitError ? error.retryAt : Date.now() + Math.min(300000, 30000 * 2 ** (current.attempts ?? 0)), error: error instanceof Error ? error.message : "Waiting to retry" } : current);
+          if (error instanceof TogglRateLimitError) break;
         } finally {
           setSyncing(old => { const next = new Set(old); next.delete(id); return next; });
           await publish();
