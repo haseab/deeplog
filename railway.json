@@ -1,0 +1,7 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "startCommand": "exec node node_modules/next/dist/bin/next start",
+    "drainingSeconds": 30
+  }
+}

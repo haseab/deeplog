@@ -5,6 +5,19 @@ open source software
 
 uses toggl in the backend
 
+## Railway process lifecycle
+
+`railway.json` starts Next.js directly with `exec node`, so Railway's SIGTERM
+reaches the server without an npm wrapper reporting the planned shutdown as a
+failed command. Next.js handles SIGTERM and exits successfully after closing
+connections. Railway allows 30 seconds for this cleanup before sending SIGKILL.
+Keep `NEXT_MANUAL_SIG_HANDLE` unset so Next.js retains its built-in signal handlers.
+
+This configuration takes effect on the next deployment. When checking the fix,
+replace that deployment once more and confirm its outgoing process shuts down
+without `npm error signal SIGTERM` or a crash notification. The first deployment
+of this fix still stops the previous version using its old npm command.
+
 ## Recording task extraction
 
 Task extraction runs on Railway with a persistent volume, using a per-recording
