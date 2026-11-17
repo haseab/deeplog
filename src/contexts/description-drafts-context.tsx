@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useEncryptionContext } from "./encryption-context";
 import { encryptDescription, decryptDescription } from "@/lib/encryption";
 import { isEncryptedDescription } from "@/lib/ai-summary";
-import { acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
+import { needsDescriptionUpload, acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft, type DescriptionHistory } from "@/lib/description-sync";
 import { changeDraft, listDrafts, listHistory } from "@/lib/description-draft-store";
 import { bindingFromEvent } from "@/lib/keyboard-shortcuts";
 import { downloadSyncDiagnostics, draftDiagnostic, recordSyncDiagnostic, setSyncDiagnosticAccount } from "@/lib/sync-diagnostics";
@@ -46,10 +46,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const owner = React.useRef("");
   const failedDrafts = React.useRef(new Map<number, DescriptionDraft>());
   const accountRef = React.useRef("");
+  const timelineReady = React.useRef(false);
   const tokenRef = React.useRef("");
   const channel = React.useRef<BroadcastChannel | null>(null);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const conflictChecks = React.useRef(new Map<string, number>());
   const work = React.useRef<() => Promise<void>>(async () => {});
   const encryptionRef = React.useRef(encryption);
   encryptionRef.current = encryption;
@@ -84,6 +84,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       const token = localStorage.getItem("toggl_session_token") ?? "";
       if (token !== tokenRef.current) {
         setSyncDiagnosticAccount("");
+        timelineReady.current = false;
         accountRef.current = "";
         setAccount(""); setDrafts(new Map()); setSelected(null); setHistory(null);
       }
@@ -113,9 +114,15 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       } catch { /* A previously verified account can keep drafting while offline. */ }
     }
     void identify();
-    const online = () => { conflictChecks.current.clear(); void identify(); };
+    const onTimelineReady = () => {
+      if (timelineReady.current) return;
+      timelineReady.current = true;
+      schedule();
+    };
+    window.addEventListener("deeplog-timeline-ready", onTimelineReady);
+    const online = () => { void identify(); };
     const visible = () => {
-      if (document.visibilityState === "visible") { conflictChecks.current.clear(); schedule(); }
+      if (document.visibilityState === "visible") schedule();
     };
     const storage = (event: StorageEvent) => { if (event.key === "toggl_session_token") void identify(); };
     window.addEventListener("online", online);
@@ -134,6 +141,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     }
     return () => {
       cancelled = true; clearInterval(interval); if (timer.current) clearTimeout(timer.current);
+      window.removeEventListener("deeplog-timeline-ready", onTimelineReady);
       window.removeEventListener("online", online); window.removeEventListener("storage", storage);
       document.removeEventListener("visibilitychange", visible);
       channel.current?.close();
@@ -191,27 +199,12 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
 
   work.current = async () => {
     const active = accountRef.current;
-    if (!active || !navigator.onLine || !navigator.locks || togglRetryAt(tokenRef.current) > Date.now()) return;
+    if (!active || !timelineReady.current || !navigator.onLine || !navigator.locks || togglRetryAt(tokenRef.current) > Date.now()) return;
     await navigator.locks.request(`deeplog-description-sync:${active}`, { ifAvailable: true }, async lock => {
       if (!lock) return;
       for (let draft of await listDrafts(active)) {
-        if (draft.status === "synced" || (draft.status !== "conflict" && (draft.retryAt ?? 0) > Date.now()) || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
-        if (draft.status === "conflict") {
-          // Conflicts are read-only here. Recheck without making the user open
-          // the review, but do not poll every keystroke or retry after a choice.
-          if (Date.now() - (conflictChecks.current.get(draft.key) ?? 0) < 300000) continue;
-          conflictChecks.current.set(draft.key, Date.now());
-          try {
-            const check = await request(draft, true);
-            const updated = await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, check));
-            if (updated?.status === "synced") notifySynced(draft.entryId, updated.local);
-            await publish();
-          } catch (error) {
-            if (error instanceof TogglRateLimitError) break;
-            /* Keep the draft and last comparison until a read succeeds. */
-          }
-          continue;
-        }
+        // Conflict evidence refreshes on explicit review, not on every tab visit.
+        if (!needsDescriptionUpload(draft) || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
         const id = draft.entryId;
         setSyncing(old => new Set(old).add(id));
         try {
@@ -268,7 +261,6 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       });
       recordSyncDiagnostic({ event: "edit.saved", account: active, entryId, ...draftDiagnostic(saved), fields: { ...draftDiagnostic(saved).fields, tabId: owner.current } });
       failedDrafts.current.delete(entryId);
-      if (saved?.status === "conflict") conflictChecks.current.delete(saved.key);
       setStorageError(""); await publish(); schedule();
       if (notify && saved) {
         const submitted = saved;

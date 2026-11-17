@@ -106,6 +106,16 @@ ends. Description drafts remain saved locally; failed interactive writes keep th
 existing rollback/retry behavior.
 Requests canceled while queued do not reach Toggl, and network errors release the semaphore.
 
+To keep foreground loads responsive, successful profile, workspace, project and tag
+GETs are cached per credential and full URL for 60 seconds. Concurrent metadata
+reads share one request; canceling a caller does not cancel other callers' reads.
+Entry descriptions, running timers, and Analytics queries are never cached.
+Project/tag writes and upstream 401 responses invalidate the credential's metadata.
+Background description uploads wait for the first successful timeline load.
+Unresolved conflicts (including missing entries) are retained for explicit review
+instead of being polled on tab focus or a timer. Focus refreshes never supersede
+an active timeline load; manual reloads and date changes still can.
+
 Coordination is in memory within one Node process. Multiple production replicas,
 other applications, and different credentials for the same Toggl account are not
 coordinated. Restarting the process clears the queue and cooldown state.

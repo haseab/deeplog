@@ -1,3 +1,4 @@
+import { TogglMetadataCache } from "./toggl-metadata-cache";
 import { TogglRateLimitError, retryAfterSeconds } from "./toggl-rate-limit";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -87,12 +88,39 @@ export class TogglRequestQueue {
   }
 }
 
-// Next route bundles share this process-wide queue, including background jobs.
-const shared = globalThis as typeof globalThis & { deeplogTogglQueue?: TogglRequestQueue };
-const queue = shared.deeplogTogglQueue ??= new TogglRequestQueue();
-export async function togglFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const response = await queue.fetch(input, init);
-  const url = new URL(input instanceof Request ? input.url : String(input));
-  if (response.status === 429 && TOGGL_HOSTS.has(url.hostname)) throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")));
-  return response;
+/** Shared only for GET metadata. Entry reads and Analytics are always fresh. */
+export function createTogglFetch(queue: TogglRequestQueue, metadata = new TogglMetadataCache()) {
+  return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const request = input instanceof Request ? input : undefined;
+    const url = new URL(request?.url ?? String(input));
+    const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+    const headers = new Headers(init?.headers ?? request?.headers);
+    const credential = createHash("sha256").update(headers.get("authorization") ?? "anonymous").digest("hex");
+    const signal = init?.signal ?? request?.signal;
+    signal?.throwIfAborted();
+    const metadataPath = /^\/api\/v9\/(?:me|workspaces(?:\/\d+\/(?:projects|tags))?)$/.test(url.pathname);
+    const cacheable = TOGGL_HOSTS.has(url.hostname) && method === "GET" && metadataPath;
+    const response = cacheable
+      ? await metadata.get(`${credential}:${url.href}`, () => queue.fetch(input, {
+          ...init, headers, signal: AbortSignal.timeout(15_000),
+        }), signal)
+      : await queue.fetch(input, init);
+    if (TOGGL_HOSTS.has(url.hostname)) {
+      if (response.status === 401 || (response.ok && method !== "GET" && /\/(?:projects|tags)(?:\/|$)/.test(url.pathname))) {
+        metadata.invalidate(credential);
+      }
+      if (response.status === 429) throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")));
+    }
+    return response;
+  };
 }
+
+// Next route bundles share these process-wide instances, including background jobs.
+const shared = globalThis as typeof globalThis & {
+  deeplogTogglQueue?: TogglRequestQueue;
+  deeplogTogglMetadata?: TogglMetadataCache;
+};
+export const togglFetch = createTogglFetch(
+  shared.deeplogTogglQueue ??= new TogglRequestQueue(),
+  shared.deeplogTogglMetadata ??= new TogglMetadataCache(),
+);

@@ -26,6 +26,11 @@ export interface DescriptionDraft {
   attempts?: number;
   retryAt?: number;
 }
+/** Resolved comparisons wait for explicit review; only unsent changes need background work. */
+export function needsDescriptionUpload(draft: DescriptionDraft, now = Date.now()): boolean {
+  return (draft.status === "local" || draft.status === "error") && (draft.retryAt ?? 0) <= now;
+}
+
 export interface DescriptionCheck {
   remote?: string;
   deleted: boolean;
