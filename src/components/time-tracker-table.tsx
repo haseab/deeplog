@@ -6420,6 +6420,10 @@ export function TimeTrackerTable({
     ) => {
       if (!date?.from || !date?.to) return;
 
+      // Focus/visibility refreshes must not keep aborting a slow initial load.
+      // Explicit reloads and date changes may still supersede it.
+      if (!showLoadingState && activeSyncAbortControllerRef.current) return;
+
       // Global debouncing to prevent rapid consecutive fetches
       // BUT: allow Load More calls (resetData=false) to always go through
       const now = Date.now();
@@ -6609,6 +6613,7 @@ export function TimeTrackerTable({
           });
 
           setHasMore(data.pagination.hasMore);
+          window.dispatchEvent(new Event("deeplog-timeline-ready"));
           setSyncStatus("synced");
           setLastSyncTime(new Date());
         } else {

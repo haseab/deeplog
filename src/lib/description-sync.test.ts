@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareDescription, acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft } from "./description-sync";
+import { needsDescriptionUpload, compareDescription, acknowledgeDraft, refreshDescriptionConflict, resolveEditedDescription, type DescriptionDraft } from "./description-sync";
 
 test("three-way comparison never overwrites a changed remote description", () => {
   assert.equal(compareDescription("original", "mine", "original"), "upload");
@@ -110,4 +110,20 @@ test("editing cannot resolve deleted entries or conflicts without a known remote
     { ...draft, status: "conflict" as const, remote: "phone edit", deleted: true },
   ]) assert.equal(resolveEditedDescription(conflict), conflict);
   assert.equal(resolveEditedDescription(draft), draft);
+});
+
+test("background sync skips all conflicts, including missing entries, without altering drafts", () => {
+  const missing: DescriptionDraft = { ...draft, status: "conflict", deleted: true };
+  const changed: DescriptionDraft = { ...draft, status: "conflict", remote: "phone edit" };
+  assert.equal(needsDescriptionUpload(missing), false);
+  assert.equal(needsDescriptionUpload(changed), false);
+  assert.equal(missing.local, "first edit");
+  assert.equal(changed.remote, "phone edit");
+  assert.equal(needsDescriptionUpload({ ...draft, status: "synced" }), false);
+});
+
+test("new edits still upload and failed uploads respect their retry time", () => {
+  assert.equal(needsDescriptionUpload(draft, 100), true);
+  assert.equal(needsDescriptionUpload({ ...draft, status: "error", retryAt: 101 }, 100), false);
+  assert.equal(needsDescriptionUpload({ ...draft, status: "error", retryAt: 100 }, 100), true);
 });
