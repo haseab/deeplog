@@ -5,10 +5,29 @@ import { TogglRateLimitError, retryAfterSeconds } from "./toggl-rate-limit";
 import { randomUUID } from "node:crypto";
 import { recordRefreshRequest } from "./refresh-timing-server";
 import { setTimeout as delay } from "node:timers/promises";
+import { TogglSessionBudget } from "./toggl-request-budget";
 
 const TOGGL_HOSTS = new Set(["track.toggl.com", "api.track.toggl.com", "reports.api.track.toggl.com", "reports.toggl.com"]);
 
-type Lane = { tail: Promise<void>; pending: number; nextStart: number; cooldownUntil: number };
+type Lane = {
+  tail: Promise<void>; pending: number; nextStart: number; cooldownUntil: number;
+  budget?: TogglSessionBudget; strikes: number; lastLimitedAt: number;
+  quotas: Map<string, number>;
+};
+
+// The upstream quota is per organization or user. Workspace-to-organization
+// mapping is not available here, so block only the scope actually observed.
+function quotaScope(url: URL) {
+  const workspace = url.pathname.match(/^\/api\/v9\/workspaces\/(\d+)(?:\/|$)/);
+  if (workspace) return `workspace:${workspace[1]}`;
+  const organization = url.pathname.match(/\/(?:api\/v9|analytics\/api)\/organizations\/(\d+)(?:\/|$)/);
+  return organization ? `organization:${organization[1]}` : "user";
+}
+
+function numericHeader(headers: Headers, name: string) {
+  const value = headers.get(name);
+  return value?.trim() && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : undefined;
+}
 
 async function waitForTurn(previous: Promise<void>, signal?: AbortSignal | null) {
   if (!signal) return previous;
@@ -23,11 +42,12 @@ async function waitForTurn(previous: Promise<void>, signal?: AbortSignal | null)
   });
 }
 
-/** Server-side, per-credential semaphore plus start-rate limiter. Never retries a write. */
+/** Per-credential serialization, burst budget and upstream backoff. Never retries a write. */
 export class TogglRequestQueue {
   private lanes = new Map<string, Lane>();
 
-  constructor(private readonly spacingMs = 1100, private readonly cooldownMs = 120_000) {}
+  // Explicit spacing/cooldown overrides also support isolated transport tests.
+  constructor(private readonly spacingMs?: number, private readonly cooldownMs?: number) {}
 
   async fetch(input: string | URL | Request, init?: RequestInit, metrics?: { requestId?: string; queueWaitMs: number; networkMs: number; upstream: boolean }): Promise<Response> {
     const queuedAt = Date.now();
@@ -38,24 +58,38 @@ export class TogglRequestQueue {
       return fetch(input, init);
     }
     const headers = new Headers(init?.headers ?? request?.headers);
+    const session = /^Bearer\s+\S/i.test(headers.get("authorization") ?? "");
+    const spacingMs = this.spacingMs ?? (session ? 0 : 1100);
     const key = togglCredential(headers.get("authorization") ?? "anonymous");
     const signal = init?.signal ?? request?.signal;
     signal?.throwIfAborted();
     // Evict idle lanes without retaining credentials or per-user timers.
     const now = Date.now();
     for (const [id, lane] of this.lanes) {
-      if (!lane.pending && Math.max(lane.nextStart, lane.cooldownUntil) + 600_000 < now) this.lanes.delete(id);
+      for (const [scope, until] of lane.quotas) if (until <= now) lane.quotas.delete(scope);
+      if (!lane.pending && Math.max(lane.nextStart, lane.cooldownUntil, ...lane.quotas.values()) + 600_000 < now) this.lanes.delete(id);
     }
     let lane = this.lanes.get(key);
     if (!lane) {
-      lane = { tail: Promise.resolve(), pending: 0, nextStart: 0, cooldownUntil: 0 };
+      lane = { tail: Promise.resolve(), pending: 0, nextStart: 0, cooldownUntil: 0,
+        budget: session && this.spacingMs === undefined ? new TogglSessionBudget() : undefined,
+        strikes: 0, lastLimitedAt: 0, quotas: new Map() };
       this.lanes.set(key, lane);
     }
     const rateLimited = () => Response.json(
       { error: "Toggl is rate limiting requests. Please wait before retrying." },
       { status: 429, headers: { "Retry-After": String(Math.max(1, Math.ceil((lane.cooldownUntil - Date.now()) / 1000))) } },
     );
+    const scope = quotaScope(url);
+    const quotaLimited = () => {
+      const remaining = Math.max(1, Math.ceil(((lane.quotas.get(scope) ?? 0) - Date.now()) / 1000));
+      return Response.json({ error: "Toggl's API quota is exhausted. Please wait before retrying." }, {
+        status: 402, headers: { "Retry-After": String(remaining),
+          "X-Toggl-Quota-Remaining": "0", "X-Toggl-Quota-Resets-In": String(remaining) },
+      });
+    };
     // Fail locally during cooldown, rather than holding HTTP requests open for minutes.
+    if ((lane.quotas.get(scope) ?? 0) > now) return quotaLimited();
     if (lane.cooldownUntil > now) return rateLimited();
     const previous = lane.tail;
     let release!: () => void;
@@ -65,12 +99,20 @@ export class TogglRequestQueue {
       // Cancellation must not release a slot before its predecessor finishes.
       await waitForTurn(previous, signal);
       signal?.throwIfAborted();
+      if ((lane.quotas.get(scope) ?? 0) > Date.now()) return quotaLimited();
       if (lane.cooldownUntil > Date.now()) return rateLimited();
       while (lane.nextStart > Date.now()) {
         await delay(lane.nextStart - Date.now(), undefined, { signal: signal ?? undefined });
       }
       signal?.throwIfAborted();
-      lane.nextStart = Date.now() + this.spacingMs;
+      if (lane.budget) {
+        let waitMs: number;
+        while ((waitMs = lane.budget.take()) > 0) {
+          await delay(waitMs, undefined, { signal: signal ?? undefined });
+          signal?.throwIfAborted();
+        }
+      }
+      lane.nextStart = Date.now() + spacingMs;
       const networkStarted = Date.now();
       if (metrics) { metrics.queueWaitMs = networkStarted - queuedAt; metrics.upstream = true; }
       let response: Response | undefined;
@@ -82,11 +124,25 @@ export class TogglRequestQueue {
           endpoint: togglEndpoint(url), queueWaitMs: networkStarted - queuedAt, networkMs,
           status: response?.status, outcome: response ? "completed" : signal?.aborted ? "aborted" : "failed" });
       }
+      const quotaRemaining = numericHeader(response.headers, "X-Toggl-Quota-Remaining");
+      const quotaReset = numericHeader(response.headers, "X-Toggl-Quota-Resets-In");
+      // A generic payment/feature 402 without quota evidence is not throttling.
+      if (quotaRemaining === 0 || (response.status === 402 && quotaRemaining === undefined && quotaReset !== undefined)) {
+        lane.quotas.set(scope, Date.now() + Math.max(1, quotaReset ?? 3600) * 1000);
+        if (response.status === 402) {
+          await response.body?.cancel();
+          return quotaLimited();
+        }
+      }
       if (response.status === 429) {
-        const retryAfter = response.headers.get("Retry-After");
-        const seconds = retryAfter === null ? NaN : Number(retryAfter);
-        const retryAt = Number.isFinite(seconds) ? Date.now() + Math.max(0, seconds) * 1000 : Date.parse(retryAfter ?? "");
-        lane.cooldownUntil = Math.max(Date.now() + this.cooldownMs, Number.isFinite(retryAt) ? retryAt : 0);
+        const limitedAt = Date.now();
+        lane.strikes = limitedAt - lane.lastLimitedAt >= 60_000 ? 1 : lane.strikes + 1;
+        lane.lastLimitedAt = limitedAt;
+        const base = this.cooldownMs ?? (session ? 1000 : 120_000);
+        const fallback = Math.min(Math.max(base, 30_000), base * 2 ** Math.min(lane.strikes - 1, 10));
+        const seconds = retryAfterSeconds(response.headers.get("Retry-After"), fallback / 1000);
+        lane.cooldownUntil = limitedAt + seconds * 1000;
+        lane.budget?.drain();
       }
       if (response.status === 429) {
         const headers = new Headers(response.headers);
@@ -143,6 +199,9 @@ export function createTogglFetch(
           timelineSnapshots.invalidate(credential);
         }
         if (response.status === 429) throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")));
+        if (response.status === 402 && response.headers.get("X-Toggl-Quota-Remaining") === "0") {
+          throw new TogglRateLimitError(retryAfterSeconds(response.headers.get("Retry-After")), "quota");
+        }
       }
       return response;
     } catch (error) {

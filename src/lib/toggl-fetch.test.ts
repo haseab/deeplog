@@ -6,6 +6,129 @@ import { TogglRequestQueue } from "./toggl-fetch";
 const url = "https://track.toggl.com/api/v9/me";
 const auth = (token = "session-a", signal?: AbortSignal) => ({ headers: { Authorization: `Bearer ${token}` }, signal });
 
+test("default session requests run consecutively without artificial pacing", async t => {
+  const queue = new TogglRequestQueue();
+  // A fixed clock would stall a paced request until cancellation.
+  t.mock.method(Date, "now", () => 1_800_000_000_000);
+  const mock = t.mock.method(globalThis, "fetch", async () => Response.json({ ok: true }));
+  const signal = AbortSignal.timeout(200);
+  for (let i = 0; i < 6; i++) {
+    assert.equal((await queue.fetch(url, auth("session-a", signal))).status, 200);
+  }
+  assert.equal(mock.mock.callCount(), 6);
+});
+
+test("default public API token requests retain pacing", async t => {
+  const queue = new TogglRequestQueue();
+  t.mock.method(Date, "now", () => 1_800_000_000_000);
+  const mock = t.mock.method(globalThis, "fetch", async () => new Response());
+  const headers = { Authorization: "Basic api-token-credentials" };
+  await queue.fetch(url, { headers });
+  await assert.rejects(queue.fetch(url, { headers, signal: AbortSignal.timeout(30) }), { name: "AbortError" });
+  assert.equal(mock.mock.callCount(), 1);
+});
+
+test("the session budget spans routes and hosts, refills, and does not debit canceled waiters", async t => {
+  const queue = new TogglRequestQueue();
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const mock = t.mock.method(globalThis, "fetch", async () => new Response());
+  for (let i = 0; i < 8; i++) await queue.fetch(i % 2 ? url : "https://api.track.toggl.com/api/v9/workspaces", auth());
+  await assert.rejects(queue.fetch(url, auth("session-a", AbortSignal.timeout(30))), { name: "AbortError" });
+  assert.equal(mock.mock.callCount(), 8);
+  now = 1000;
+  for (let i = 0; i < 3; i++) await queue.fetch(url, auth());
+  await assert.rejects(queue.fetch(url, auth("session-a", AbortSignal.timeout(30))), { name: "AbortError" });
+  assert.equal(mock.mock.callCount(), 11);
+  for (let i = 0; i < 8; i++) await queue.fetch(url, auth("other-session"));
+  assert.equal(mock.mock.callCount(), 19);
+});
+
+test("session backoff starts at one second, escalates across successes, and resets after quiet", async t => {
+  const queue = new TogglRequestQueue();
+  let now = 1_800_000_000_000;
+  t.mock.method(Date, "now", () => now);
+  let status = 429;
+  const mock = t.mock.method(globalThis, "fetch", async () => new Response(null, { status }));
+  for (const expected of [1, 2, 4, 8, 16, 30, 30]) {
+    const response = await queue.fetch(url, auth());
+    assert.equal(response.status, 429);
+    assert.equal(Number(response.headers.get("Retry-After")), expected);
+    const before = mock.mock.callCount();
+    assert.equal((await queue.fetch(url, auth())).status, 429);
+    assert.equal(mock.mock.callCount(), before);
+    now += expected * 1000 + 1;
+    status = 200;
+    assert.equal((await queue.fetch(url, auth())).status, 200);
+    status = 429;
+  }
+  now += 60_000;
+  assert.equal((await queue.fetch(url, auth())).headers.get("Retry-After"), "1");
+});
+
+test("session Retry-After overrides fallback and public auth keeps its conservative fallback", async t => {
+  const queue = new TogglRequestQueue();
+  t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 429, headers: { "Retry-After": "7" } }));
+  assert.equal((await queue.fetch(url, auth())).headers.get("Retry-After"), "7");
+  t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 429 }));
+  assert.equal((await queue.fetch(url, { headers: { Authorization: "Basic public-key" } })).headers.get("Retry-After"), "120");
+});
+
+test("last successful quota request blocks its queued scope until reset while other scopes and credentials work", async t => {
+  const queue = new TogglRequestQueue(0);
+  let now = 1_800_000_000_000;
+  t.mock.method(Date, "now", () => now);
+  const mock = t.mock.method(globalThis, "fetch", async () => new Response(null, {
+    headers: { "X-Toggl-Quota-Remaining": "0", "X-Toggl-Quota-Resets-In": "60" },
+  }));
+  const projects = "https://track.toggl.com/api/v9/workspaces/1/projects";
+  const [last, blocked] = await Promise.all([queue.fetch(projects, auth()), queue.fetch("https://track.toggl.com/api/v9/workspaces/1/tags", auth())]);
+  assert.equal(last.status, 200);
+  assert.equal(blocked.status, 402);
+  assert.equal(blocked.headers.get("Retry-After"), "60");
+  assert.equal(mock.mock.callCount(), 1);
+  for (const path of [url, "https://track.toggl.com/api/v9/workspaces/2/projects", "https://track.toggl.com/analytics/api/organizations/9/query"]) {
+    assert.equal((await queue.fetch(path, auth())).status, 200);
+  }
+  assert.equal((await queue.fetch(projects, auth("other-session"))).status, 200);
+  now += 60_001;
+  assert.equal((await queue.fetch(projects, auth())).status, 200);
+  assert.equal(mock.mock.callCount(), 6);
+});
+
+test("quota 402 honors reset, falls back when exhausted without a reset, and leaves billing errors alone", async t => {
+  for (const [headers, expected] of [
+    [{ "X-Toggl-Quota-Resets-In": "45" }, "45"],
+    [{ "X-Toggl-Quota-Remaining": "0" }, "3600"],
+  ] as const) {
+    const queue = new TogglRequestQueue(0);
+    const mock = t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 402, headers }));
+    assert.equal((await queue.fetch(url, auth())).headers.get("Retry-After"), expected);
+    assert.equal((await queue.fetch(url, auth())).status, 402);
+    assert.equal(mock.mock.callCount(), 1);
+    mock.mock.restore();
+  }
+  for (const headers of [{}, { "X-Toggl-Quota-Remaining": "10", "X-Toggl-Quota-Resets-In": "45" }] as HeadersInit[]) {
+    const queue = new TogglRequestQueue(0);
+    const mock = t.mock.method(globalThis, "fetch", async () => new Response("feature requires upgrade", { status: 402, headers }));
+    for (let i = 0; i < 2; i++) assert.equal(await (await queue.fetch(url, auth())).text(), "feature requires upgrade");
+    assert.equal(mock.mock.callCount(), 2);
+    mock.mock.restore();
+  }
+});
+
+test("a 429 carrying exhausted quota pauses that scope until the longer quota reset", async t => {
+  const queue = new TogglRequestQueue(0);
+  const mock = t.mock.method(globalThis, "fetch", async () => new Response(null, {
+    status: 429, headers: { "Retry-After": "1", "X-Toggl-Quota-Remaining": "0", "X-Toggl-Quota-Resets-In": "90" },
+  }));
+  assert.equal((await queue.fetch(url, auth())).status, 429);
+  const blocked = await queue.fetch(url, auth());
+  assert.equal(blocked.status, 402);
+  assert.equal(blocked.headers.get("Retry-After"), "90");
+  assert.equal(mock.mock.callCount(), 1);
+});
+
 test("concurrent routes sharing a credential serialize and space upstream starts", async t => {
   const queue = new TogglRequestQueue(30);
   const starts: number[] = [];
