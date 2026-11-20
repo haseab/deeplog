@@ -193,3 +193,31 @@ Warm-cache request counts verified at the mocked upstream boundary: field edits
 1, description save/recovery 2, timeline refresh 2, timer switch using an ID 3,
 and snapshot pagination 0. Cold metadata and additional tag pages add requests.
 These counts are regression-test results, not a production traffic measurement.
+
+## List refresh timings
+
+List loads emit one `[deeplog-refresh-client]` record in the browser console and
+best-effort server logs, and one `[deeplog-refresh-backend]` record in server logs.
+Match their `requestId` to distinguish browser delays from backend work. Existing
+`[toggl-request]` and `[toggl-upstream]` diagnostics remain available.
+
+Client fields are milliseconds: `requestMs` measures dispatch through response
+headers, `decodeMs` covers body transfer and JSON parsing, and `commitMs` covers
+reconciliation through React's layout effect. `totalMs` ends after two animation
+frames (`paint-opportunity`), an approximation rather than GPU paint completion.
+Hidden pages and stalled frames use `hidden` or `paint-timeout`; failed, aborted
+and superseded requests have distinct outcomes. Measurement starts at load
+execution, not the physical input event.
+
+Backend records include total handler time and fixed phases with request/cache
+counts, queue wait, network time and total request time. `Server-Timing` exposes
+`dl_api`, `dl_queue`, `dl_network` and per-phase totals on the list response.
+Phase durations include cache waits and can overlap; they need not sum to handler
+time. Comparing browser `requestMs` with `dl_api` exposes transport/dispatch overhead.
+
+Client reports contain only a random correlation ID, timing numbers, status,
+outcome and visibility. No descriptions, entries, selected dates, account IDs,
+URLs or credentials are logged. The same-origin JSON endpoint is strict,
+size-bounded and rate-limited; client reports are untrusted diagnostics, not audit
+evidence. Reports are never retried and cannot block refreshes. Caching,
+request pacing, mutations, timers and saved drafts are unchanged.

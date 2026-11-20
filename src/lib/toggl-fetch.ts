@@ -3,6 +3,7 @@ import { timelineSnapshots, togglCredential } from "./timeline-snapshots";
 import { TogglMetadataCache } from "./toggl-metadata-cache";
 import { TogglRateLimitError, retryAfterSeconds } from "./toggl-rate-limit";
 import { randomUUID } from "node:crypto";
+import { recordRefreshRequest } from "./refresh-timing-server";
 import { setTimeout as delay } from "node:timers/promises";
 
 const TOGGL_HOSTS = new Set(["track.toggl.com", "api.track.toggl.com", "reports.api.track.toggl.com", "reports.toggl.com"]);
@@ -150,7 +151,10 @@ export function createTogglFetch(
     } finally {
       event.durationMs = Date.now() - started;
       if (!event.upstream && (event.cache === "miss" || event.cache === "bypass")) event.queueWaitMs = event.durationMs;
-      if (isToggl) { try { log({ ...event }); } catch { /* Telemetry cannot block requests. */ } }
+      if (isToggl) {
+        try { recordRefreshRequest(event); } catch { /* Timing cannot block requests. */ }
+        try { log({ ...event }); } catch { /* Telemetry cannot block requests. */ }
+      }
     }
   };
 }
