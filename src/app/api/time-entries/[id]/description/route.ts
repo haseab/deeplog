@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return reply({ description: result.description ?? "" }, 200, "uploaded", updated.status);
   } catch (error) {
     if (error instanceof TogglRateLimitError) {
-      await reply({ error: error.message, code: error.code, retryAfter: error.retryAfter }, 429, "rate-limited", 429);
+      await reply({ error: error.message, code: error.code, retryAfter: error.retryAfter }, error.status, error.reason === "quota" ? "quota-exhausted" : "rate-limited", error.status);
       return error.response({ "x-deeplog-sync-request-id": requestId });
     }
     const message = error instanceof Error ? error.message : "Description sync failed";

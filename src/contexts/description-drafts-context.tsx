@@ -192,7 +192,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         return { requestId, conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
       } catch (error) {
         recordSyncDiagnostic({ event: "request.failed", account: draft.account, entryId: draft.entryId, requestId,
-          fields: { status: error instanceof TogglRateLimitError ? 429 : responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
+          fields: { status: error instanceof TogglRateLimitError ? error.status : responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
         throw error;
       }
     });

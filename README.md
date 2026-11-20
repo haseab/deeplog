@@ -104,11 +104,18 @@ npx tsx --test src/lib/entry-mutations.test.ts
 
 Server-side Toggl requests share a per-credential queue across timeline routes,
 session validation, tracking integrations, and summarization jobs. Each credential
-has at most one upstream request in flight, with at least 1.1 seconds between
-request starts. Different credentials have independent queues.
+has at most one upstream request in flight. Session-authenticated (Bearer) requests
+share a token bucket with capacity **8** and refill **3 requests/second**. Available
+tokens allow immediate starts; only an exhausted budget waits for refill. A normal
+six-request sync has no fixed gap between calls.
+Public API token (Basic) requests retain at least 1.1 seconds between starts.
+Different credentials have independent queues.
 
-A Toggl `429` starts a shared cooldown of at least two minutes, extended by a
-longer `Retry-After` header. Queued and new calls return a local `429` during that
+A Toggl `429` starts a shared cooldown using its valid `Retry-After` header.
+Without that header, session cooldowns start at one second and double on repeated
+throttling up to 30 seconds; escalation resets after a minute without throttling.
+The burst budget is drained on 429 and refills during recovery. Public API token
+requests retain a two-minute fallback. Queued and new calls return a local `429` during that
 cooldown without contacting Toggl. The queue never automatically replays writes;
 existing draft recovery and operation error handling remain responsible for retrying.
 Rate limits propagate as HTTP `429` with `code: "TOGGL_RATE_LIMITED"`,
@@ -120,7 +127,7 @@ existing rollback/retry behavior.
 Requests canceled while queued do not reach Toggl, and network errors release the semaphore.
 
 To keep foreground loads responsive, successful profile, workspace, project and tag
-GETs are cached per credential and full URL for 60 seconds. Concurrent metadata
+GETs are cached per credential and full URL for five minutes. Concurrent metadata
 reads share one request; canceling a caller does not cancel other callers' reads.
 Entry descriptions, running timers, and Analytics queries are never cached.
 Project/tag writes and upstream 401 responses invalidate the credential's metadata.
@@ -129,12 +136,28 @@ Unresolved conflicts (including missing entries) are retained for explicit revie
 instead of being polled on tab focus or a timer. Focus refreshes never supersede
 an active timeline load; manual reloads and date changes still can.
 
+Actual quota headers also matter: zero `X-Toggl-Quota-Remaining` pauses further
+network calls in the observed user/workspace/organization scope until
+`X-Toggl-Quota-Resets-In` expires. A successful last allowed request still succeeds.
+Explicit quota exhaustion without a reset uses a one-hour fallback. Quota failures
+return `402`, `code: "TOGGL_QUOTA_EXHAUSTED"` and `Retry-After`, retain drafts and
+pause their background checks. Generic payment/feature 402s are left alone.
+Workspace-to-organization aliases are not inferred, so sibling scopes can each
+observe their own exhaustion before being paused. Cached metadata remains usable.
+
+This session policy is based on read-only measurements recorded in [AGENTS.md](AGENTS.md):
+3.25 requests/second passed for two minutes; 3.5/second eventually throttled;
+saturated backend instances each accepted 11 immediate requests. Routing and other
+traffic affect results, so these are empirical observations rather than a service
+guarantee. Public API quotas were not consumed by the tested session traffic;
+the application still honors real quota signals.
+
 Coordination is in memory within one Node process. Multiple production replicas,
 other applications, and different credentials for the same Toggl account are not
 coordinated. Restarting the process clears the queue and cooldown state.
 
 ```sh
-npx tsx --test src/lib/toggl-fetch.test.ts
+npx tsx --test src/lib/toggl-fetch.test.ts src/lib/toggl-request-budget.test.ts src/lib/toggl-rate-limit.test.ts
 ```
 
 ## Local development ports
@@ -180,7 +203,9 @@ Server logs contain two structured event families:
 Endpoint IDs are normalized to `:id`; headers, credentials, query strings,
 descriptions, bodies and exception messages are excluded. `networkMs` measures
 fetch through response headers, and `queueWaitMs` includes both predecessor wait
-and rate pacing. The existing 1.1-second per-credential pacing remains in place.
+and, for public API token requests, rate pacing. Session requests have no fixed
+spacing; session requests use the shared burst budget, and both authentication
+types retain serialization, quota tracking and shared 429 cooldowns.
 
 Summarize captured logs by endpoint, cache reuse, egress, errors and p95 timings:
 
@@ -220,4 +245,4 @@ outcome and visibility. No descriptions, entries, selected dates, account IDs,
 URLs or credentials are logged. The same-origin JSON endpoint is strict,
 size-bounded and rate-limited; client reports are untrusted diagnostics, not audit
 evidence. Reports are never retried and cannot block refreshes. Caching,
-request pacing, mutations, timers and saved drafts are unchanged.
+mutations, timers and saved drafts are unchanged.
