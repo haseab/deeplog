@@ -14,6 +14,21 @@ test("client telemetry rejects private fields, cross-origin requests and oversiz
   assert.equal((await post({ ...value, extra: "x".repeat(2048) })).status, 413);
   assert.equal((await post(value, "https://other.example")).status, 403);
   assert.equal((await post(value, "https://deeplog.app", "text/plain")).status, 415);
+  const proxyHeaders: Record<string, string>[] = [
+    { host: "deeplog.app" },
+    { host: "internal:8080", "x-forwarded-host": "deeplog.app" },
+  ];
+  for (const headers of proxyHeaders) {
+    const proxy = await POST(new Request("http://0.0.0.0:8080/api/diagnostics/refresh-timing", {
+      method: "POST", headers: { ...headers, origin: "https://deeplog.app", "content-type": "application/json" }, body: "{}",
+    }));
+    assert.equal(proxy.status, 400, "same-origin proxied reports must reach payload validation");
+  }
+  assert.equal((await post(value, "not-an-origin")).status, 403);
+  const crossSite = await POST(new Request("https://deeplog.app/api/diagnostics/refresh-timing", {
+    method: "POST", headers: { origin: "https://deeplog.app", "sec-fetch-site": "cross-site", "content-type": "application/json" }, body: JSON.stringify(value),
+  }));
+  assert.equal(crossSite.status, 403);
   assert.equal(logs.length, 1);
   assert.doesNotMatch(logs[0], /private|description|origin/);
   for (let n = 0; n < 120; n++) await post(value);
