@@ -42,6 +42,12 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
+import {
+  startRefreshTiming,
+  reportRefreshTiming,
+  finishRefreshAfterPaint,
+  type RefreshTiming,
+} from "@/lib/refresh-timing";
 import { DateRange } from "react-day-picker";
 import { PinnedTimeEntries } from "./pinned-time-entries";
 import { SyncStatusBadge } from "./sync-status-badge";
@@ -2426,6 +2432,17 @@ export function TimeTrackerTable({
   }, [isRollingDateRange, timeZone]);
 
   const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
+  const refreshTimingRef = React.useRef<RefreshTiming | null>(null);
+  React.useLayoutEffect(() => {
+    const timing = refreshTimingRef.current;
+    if (timing?.ready) {
+      refreshTimingRef.current = null;
+      finishRefreshAfterPaint(timing);
+    }
+  });
+  React.useEffect(() => () => {
+    if (refreshTimingRef.current) reportRefreshTiming(refreshTimingRef.current, "aborted");
+  }, []);
   const timeEntriesRef = React.useRef<TimeEntry[]>([]);
 
   // Keep the imperative draft snapshot current before later effects (such as
@@ -6439,6 +6456,9 @@ export function TimeTrackerTable({
         return; // Skip if we're doing a background fetch and recently fetched
       }
       lastFetchTimeRef.current = now;
+      if (refreshTimingRef.current) reportRefreshTiming(refreshTimingRef.current, "superseded");
+      const refreshTiming = startRefreshTiming();
+      refreshTimingRef.current = refreshTiming;
 
       // Only one data sync should own the result state. Starting a newer one
       // invalidates the older request and prevents it from applying stale data.
@@ -6473,11 +6493,14 @@ export function TimeTrackerTable({
             cache: "no-store",
             headers: {
               "x-toggl-session-token": sessionToken || "",
+              "x-deeplog-refresh-id": refreshTiming.requestId,
             },
             signal: syncAbortController.signal,
           }
         );
 
+        refreshTiming.response = performance.now();
+        refreshTiming.status = response.status;
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           if (response.status === 401 || errorData.isSessionExpired) {
@@ -6488,6 +6511,7 @@ export function TimeTrackerTable({
         }
 
         const data = await response.json();
+        refreshTiming.decoded = performance.now();
 
         if (typeof data.profileTimeZone === "string") {
           setProfileTimeZone(data.profileTimeZone);
@@ -6498,6 +6522,7 @@ export function TimeTrackerTable({
           activeSyncAbortControllerRef.current !== syncAbortController ||
           clientMutationGenerationRef.current !== mutationGenerationAtStart
         ) {
+          reportRefreshTiming(refreshTiming, "superseded");
           return;
         }
 
@@ -6622,6 +6647,7 @@ export function TimeTrackerTable({
 
           setHasMore(data.pagination.hasMore);
           window.dispatchEvent(new Event("deeplog-timeline-ready"));
+          refreshTiming.ready = true;
           setSyncStatus("synced");
           setLastSyncTime(new Date());
         } else {
@@ -6633,6 +6659,7 @@ export function TimeTrackerTable({
           }
         }
       } catch (error) {
+        reportRefreshTiming(refreshTiming, syncAbortController.signal.aborted ? "aborted" : "failed");
         const wasAborted =
           syncAbortController.signal.aborted ||
           (error instanceof Error && error.name === "AbortError");
@@ -6685,6 +6712,7 @@ export function TimeTrackerTable({
           throw error;
         }
       } finally {
+        if (!refreshTiming.ready && !refreshTiming.sent) reportRefreshTiming(refreshTiming, "failed");
         const isCurrentRequest =
           activeSyncAbortControllerRef.current === syncAbortController;
         if (isCurrentRequest) {
