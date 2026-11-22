@@ -23,6 +23,8 @@ type DraftContext = {
   syncing: Set<number>;
   save: (id: number, base: string, text: string, notify?: boolean, undoDescription?: string, start?: string) => Promise<void>;
   decode: (text: string, id: number) => string;
+  getDescription: (id: number, fallback: string) => string;
+  commit: (id: number) => void;
   open: (id: number) => void;
   ready: boolean;
 };
@@ -33,6 +35,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const encryption = useEncryptionContext();
   const [account, setAccount] = React.useState("");
   const [drafts, setDrafts] = React.useState(new Map<number, DescriptionDraft>());
+  // Reads must see keystrokes before IndexedDB finishes persisting them.
+  const savingDescriptions = React.useRef(new Map<number, { text: string; persisted?: Promise<unknown> }>());
+  const draftsRef = React.useRef(drafts);
+  draftsRef.current = drafts;
   const [syncing, setSyncing] = React.useState(new Set<number>());
   const [selected, setSelected] = React.useState<number | null>(null);
   const [reviewMode, setReviewMode] = React.useState<"single" | "queue">("single");
@@ -52,6 +58,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const tokenRef = React.useRef("");
   const channel = React.useRef<BroadcastChannel | null>(null);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conflictChecks = React.useRef(new Map<string, number>());
   const work = React.useRef<() => Promise<void>>(async () => {});
   const encryptionRef = React.useRef(encryption);
   encryptionRef.current = encryption;
@@ -66,6 +73,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (active === accountRef.current) {
       const next = new Map(items.map(d => [d.entryId, d]));
       for (const [id, draft] of failedDrafts.current) if (draft.account === active) next.set(id, draft);
+      draftsRef.current = next;
       setDrafts(next);
     }
   }, []);
@@ -88,6 +96,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         setSyncDiagnosticAccount("");
         timelineReady.current = false;
         accountRef.current = "";
+        savingDescriptions.current.clear();
+        draftsRef.current = new Map();
         setAccount(""); setDrafts(new Map()); setSelected(null); setHistory(null);
       }
       tokenRef.current = token;
@@ -122,9 +132,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       schedule();
     };
     window.addEventListener("deeplog-timeline-ready", onTimelineReady);
-    const online = () => { void identify(); };
+    const online = () => { conflictChecks.current.clear(); void identify(); };
     const visible = () => {
-      if (document.visibilityState === "visible") schedule();
+      if (document.visibilityState === "visible") { conflictChecks.current.clear(); schedule(); }
     };
     const storage = (event: StorageEvent) => { if (event.key === "toggl_session_token") void identify(); };
     window.addEventListener("online", online);
@@ -156,6 +166,15 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     if (!key || !encryptionRef.current.isUnlocked) throw new Error("Unlock encryption to access this draft.");
     return decryptDescription(text, key, id);
   }, []);
+  const getDescription = React.useCallback((id: number, fallback: string) => {
+    const saving = savingDescriptions.current.get(id);
+    if (saving) return saving.text;
+    const draft = draftsRef.current.get(id);
+    if (draft && draft.status !== "synced") {
+      try { return decode(draft.local, id); } catch { /* Preserve locked content. */ }
+    }
+    return fallback;
+  }, [decode]);
   const encode = React.useCallback((text: string, id: number, base: string) => {
     const enc = encryptionRef.current;
     if (!enc.isE2EEEnabled && !isEncryptedDescription(base)) return text;
@@ -165,13 +184,13 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     enc.markEntryEncrypted(id);
     return result;
   }, []);
-  const request = React.useCallback(async (draft: DescriptionDraft, reviewOnly = false) => {
+  const request = React.useCallback(async (draft: DescriptionDraft, reviewOnly = false, queued = true) => {
     if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
     const requestId = crypto.randomUUID();
     const queuedAt = Date.now();
     recordSyncDiagnostic({ event: "request.queued", account: draft.account, entryId: draft.entryId, requestId,
       ...draftDiagnostic(draft), fields: { ...draftDiagnostic(draft).fields, tabId: owner.current, reviewOnly } });
-    return entryMutations.run([draft.entryId], async () => {
+    const send = async () => {
       if (draft.account !== accountRef.current || localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed; reopen the app before syncing.");
       const started = Date.now();
       let responseStatus: number | undefined;
@@ -195,9 +214,40 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           fields: { status: error instanceof TogglRateLimitError ? error.status : responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
         throw error;
       }
-    });
+    };
+    return queued ? entryMutations.run([draft.entryId], send) : send();
   }, []);
   const notifySynced = (id: number, description: string) => window.dispatchEvent(new CustomEvent("deeplog-description-synced", { detail: { id, description } }));
+
+  // Reserve immediately, before split/combine reserves its dependent write.
+  // Waiting inside that later mutation would put the upload behind itself.
+  const commit = React.useCallback((id: number) => {
+    if (id < 0) return;
+    const active = accountRef.current;
+    const persistence = savingDescriptions.current.get(id)?.persisted;
+    const operation = entryMutations.reserve([id], async () => {
+      await persistence;
+      if (active !== accountRef.current) throw new Error("Account changed; reopen the entry.");
+      if (failedDrafts.current.has(id)) throw new Error("Save the description locally before continuing.");
+      const draft = (await listDrafts(active)).find(draft => draft.entryId === id);
+      if (!draft || draft.status === "synced") return;
+      if (draft.status === "conflict") throw new Error("Resolve the description conflict before continuing.");
+      try {
+        const snapshot = await changeDraft(draft.key, current => current && prepareDescriptionUpload(current));
+        if (!snapshot || snapshot.status === "conflict") throw new Error("Description changed; review it before continuing.");
+        const result = await request(snapshot, false, false);
+        if (result.conflict) {
+          await changeDraft(snapshot.key, current => current && ({ ...current, status: "conflict", remote: result.remote, deleted: result.deleted, deletionConfirmed: result.deletionConfirmed, sent: undefined }));
+          throw new Error("Resolve the description conflict before continuing.");
+        }
+        await changeDraft(snapshot.key, current => current && acknowledgeDraft(current, snapshot, result.remote!));
+        notifySynced(id, result.remote!);
+      } finally {
+        await publish();
+      }
+    });
+    void operation.run().catch(error => toast.error(error instanceof Error ? error.message : "Description sync failed"));
+  }, [request, publish]);
 
   work.current = async () => {
     const active = accountRef.current;
@@ -205,7 +255,20 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     await navigator.locks.request(`deeplog-description-sync:${active}`, { ifAvailable: true }, async lock => {
       if (!lock) return;
       for (const draft of await listDrafts(active)) {
-        // Conflict evidence refreshes on explicit review, not on every tab visit.
+        // Reconcile matching conflicts read-only, with a bounded check interval.
+        if (draft.status === "conflict" && active === accountRef.current) {
+          // Conflicts are read-only here. Recheck without making the user open
+          // the review, but do not poll every keystroke or retry after a choice.
+          if (Date.now() - (conflictChecks.current.get(draft.key) ?? 0) < 300000) continue;
+          conflictChecks.current.set(draft.key, Date.now());
+          try {
+            const check = await request(draft, true);
+            const updated = await changeDraft(draft.key, current => current && refreshDescriptionConflict(current, draft, check));
+            if (updated?.status === "synced") notifySynced(draft.entryId, updated.local);
+            await publish();
+          } catch { /* Keep the draft and last comparison until a read succeeds. */ }
+          continue;
+        }
         if (!needsDescriptionUpload(draft) || failedDrafts.current.has(draft.entryId) || active !== accountRef.current) continue;
         const id = draft.entryId;
         setSyncing(old => new Set(old).add(id));
@@ -242,17 +305,20 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     const active = accountRef.current;
     recordSyncDiagnostic({ event: "edit.requested", account: active, entryId,
       fields: { tabId: owner.current, notify, encryptionEnabled: encryptionRef.current.isE2EEEnabled, inputMatchesBase: base === text }, texts: { suppliedBase: base, input: text } });
+    const saving: { text: string; persisted?: Promise<unknown> } = { text };
     try {
       if (localStorage.getItem("toggl_session_token") !== tokenRef.current) throw new Error("Account changed. Reopen the app before editing.");
       if (!active) throw new Error("Connect once to verify your account before saving offline drafts.");
       const local = encode(text, entryId, base);
-      const saved = await changeDraft(`${active}:${entryId}`, old => {
+      savingDescriptions.current.set(entryId, saving);
+      const saved = await (saving.persisted = changeDraft(`${active}:${entryId}`, old => {
         if (old && decode(old.local, entryId) === text && (old.status !== "synced" || old.base === base)) return { ...old, start: start ?? old.start };
         return resolveEditedDescription({ ...old, key: `${active}:${entryId}`, account: active, entryId, start: start ?? old?.start, base: old && old.status !== "synced" ? old.base : base,
           local, owner: owner.current, revision: (old?.revision ?? 0) + 1, updatedAt: Date.now(), status: old?.status === "conflict" ? "conflict" : "local", error: undefined, attempts: 0, retryAt: undefined });
-      });
+      }));
       recordSyncDiagnostic({ event: "edit.saved", account: active, entryId, ...draftDiagnostic(saved), fields: { ...draftDiagnostic(saved).fields, tabId: owner.current } });
       failedDrafts.current.delete(entryId);
+      if (saved?.status === "conflict") conflictChecks.current.delete(saved.key);
       setStorageError(""); await publish(); schedule();
       if (notify && saved) {
         const submitted = saved;
@@ -306,8 +372,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       const message = error instanceof Error ? error.message : "Local storage is unavailable";
       const failed: DescriptionDraft = { key: `${active}:${entryId}`, account: active, entryId, base, local: text, start, revision: 0, updatedAt: Date.now(), status: "error", error: `NOT SAVED LOCALLY: ${message}` };
       failedDrafts.current.set(entryId, failed);
-      setDrafts(old => new Map(old).set(entryId, failed));
+      draftsRef.current = new Map(draftsRef.current).set(entryId, failed);
+      setDrafts(draftsRef.current);
       setStorageError(message); toast.error(message, { id: "description-storage-error" });
+    } finally {
+      if (savingDescriptions.current.get(entryId) === saving) savingDescriptions.current.delete(entryId);
     }
   }, [encode, decode, publish, schedule]);
 
@@ -455,7 +524,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not resolve conflict"); }
     finally { await publish(); setBusy(false); }
   };
-  return <Context.Provider value={{ drafts, syncing, save, decode, open: id => { void openDraft(id); }, ready: !!account }}>
+  return <Context.Provider value={{ drafts, syncing, save, decode, getDescription, commit, open: id => { void openDraft(id); }, ready: !!account }}>
     {children}
     <div role="group" aria-label="Pending description drafts" className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
