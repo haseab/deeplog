@@ -256,3 +256,22 @@ per opening, including when Enter is repeated during the closing animation.
 Matching description conflicts are rechecked read-only at a bounded interval.
 
 Run the component regressions with `npm run test:optimistic`.
+
+## AI activity by time entry
+
+Select an entry and press Ctrl+Shift+Option+P (Command+Option+Shift+P also works)
+to open BB AI activity for the entry's exact interval. Running entries use the
+time the shortcut was pressed as the end. The BB page groups your sent messages
+by project and thread, links to each message, and estimates foreground time from
+Retrace. URL matches take precedence over unique exact thread titles; conflicts,
+missing recordings and other apps stay unattributed. This is an attention estimate,
+not a measurement of all work related to a thread. Reports include archived visible
+BB threads and exclude agent/system prompts. Intervals use [start, end).
+
+Standalone DeepLog uses the BB web address saved in Settings → General → BB analytics,
+or the runtime server environment variable `BB_PUBLIC_URL` when no browser override is saved
+(for example `https://bb.example.com`); embedded DeepLog
+navigates directly within BB. No message contents are sent to DeepLog's server.
+Set the recording machine and optional database path in BB's DeepLog plugin settings.
+The database is queried read-only on that machine; it defaults to Retrace's configured
+storage location. Browser URL matching uses the configured BB public URL.

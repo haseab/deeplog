@@ -29,6 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { BbAnalyticsSettings } from "@/components/bb-analytics-settings";
 import { KeyboardShortcutSettings } from "@/components/keyboard-shortcut-settings";
 import { Settings, Keyboard, Eye, EyeOff, Key, AlertTriangle, LayoutGrid, Shield, Check, ChevronsUpDown, Search } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -486,6 +487,7 @@ export function AppSettings({
                   </div>
 
                   <div className="space-y-6 pt-4">
+                    <BbAnalyticsSettings />
                     {/* Theme Toggle */}
                     <div className="flex items-center justify-between p-4 rounded-lg border bg-card">
                       <div className="space-y-0.5">

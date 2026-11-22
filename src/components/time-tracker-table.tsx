@@ -1,4 +1,5 @@
 "use client";
+import { openBbAnalytics } from "@/lib/bb-analytics";
 
 import { apiFetch } from "@/lib/api-fetch";
 import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
@@ -7695,6 +7696,26 @@ export function TimeTrackerTable({
 
     document.addEventListener("keydown", handleRetraceKeyDown, true);
     return () => document.removeEventListener("keydown", handleRetraceKeyDown, true);
+  }, [selectedCell, getSelectedCellEntry]);
+
+  // Capture before row editors, while preserving unsaved edits and selection.
+  React.useEffect(() => {
+    const handleAnalyticsKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.repeat ||
+          document.documentElement.hasAttribute("data-settings-open") ||
+          document.documentElement.hasAttribute("data-shortcut-recording") ||
+          e.code !== "KeyP" || !(e.ctrlKey || e.metaKey) || !e.shiftKey || !e.altKey || !selectedCell) return;
+      const target = e.target as HTMLElement | null;
+      const inRow = target?.closest?.('[data-entry-id], [data-row-editor-content="true"]');
+      if (!inRow && target?.closest?.('input, textarea, [contenteditable="true"], [role="textbox"], [role="dialog"]')) return;
+      const entry = getSelectedCellEntry();
+      if (!entry) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void openBbAnalytics(entry).catch(error => toast.error(error instanceof Error ? error.message : "Could not open BB analytics."));
+    };
+    document.addEventListener("keydown", handleAnalyticsKeyDown, true);
+    return () => document.removeEventListener("keydown", handleAnalyticsKeyDown, true);
   }, [selectedCell, getSelectedCellEntry]);
 
   // Toast actions may submit from anywhere, but text editors own text undo.
