@@ -74,3 +74,11 @@ Pushing a feature branch alone does not complete shipping.
 On Haseab's BB machine, the shared registry is `~/.bb/dev-ports.json` and
 `~/.bb/bin/project-dev deeplog` uses the same assignment. These personal
 files are optional; collaborators can use the repository commands above.
+
+## Canonical DeepLog source
+
+All DeepLog application changes, including fixes first made in the embedded BB
+plugin, must also be implemented and released in this repository. Audit recent
+embedded changes when syncing; preserve newer application behavior and keep
+BB-specific adapters outside the standalone app. A BB plugin reload alone does
+not deploy the DeepLog website.

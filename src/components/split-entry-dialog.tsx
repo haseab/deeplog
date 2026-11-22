@@ -32,6 +32,11 @@ export function SplitEntryDialog({
 }: SplitEntryDialogProps) {
   const [offsetMinutes, setOffsetMinutes] = React.useState("5");
   const [error, setError] = React.useState("");
+  const confirmationHandledRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (open) confirmationHandledRef.current = false;
+  }, [open]);
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     // Select all text when input receives focus
@@ -39,6 +44,10 @@ export function SplitEntryDialog({
   };
 
   const handleConfirm = (splitFromStart = true) => {
+    // Closing animations leave the input mounted and focused. Lock this
+    // opening synchronously so repeated keys/clicks cannot create another split.
+    if (!open || confirmationHandledRef.current) return;
+
     const minutes = parseInt(offsetMinutes);
 
     if (isNaN(minutes)) {
@@ -46,6 +55,7 @@ export function SplitEntryDialog({
       return;
     }
 
+    confirmationHandledRef.current = true;
     onConfirm(minutes, splitFromStart);
     onOpenChange(false);
     setOffsetMinutes("5");
@@ -54,6 +64,7 @@ export function SplitEntryDialog({
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
+      confirmationHandledRef.current = true;
       setOffsetMinutes("5");
       setError("");
     }
@@ -120,7 +131,8 @@ export function SplitEntryDialog({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleConfirm(!e.altKey);
+                  e.stopPropagation();
+                  if (!e.repeat) handleConfirm(!e.altKey);
                 }
               }}
               className="col-span-3"

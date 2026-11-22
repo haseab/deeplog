@@ -66,11 +66,7 @@ export function ExpandableDescription({
   "data-testid": dataTestId,
 }: ExpandableDescriptionProps) {
   const drafts = useDescriptionDrafts();
-  const draft = entryId === undefined ? undefined : drafts?.drafts.get(entryId);
-  let description = serverDescription;
-  if (draft && draft.status !== "synced") {
-    try { description = drafts!.decode(draft.local, entryId!); } catch { /* Keep encrypted content locked. */ }
-  }
+  const description = entryId === undefined ? serverDescription : drafts?.getDescription(entryId, serverDescription) ?? serverDescription;
   const autosaveRef = React.useRef(onSave);
   autosaveRef.current = onSave;
   const offlineDrafting = !!entryId && entryId > 0 && !!drafts;

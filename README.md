@@ -246,3 +246,13 @@ URLs or credentials are logged. The same-origin JSON endpoint is strict,
 size-bounded and rate-limited; client reports are untrusted diagnostics, not audit
 evidence. Reports are never retried and cannot block refreshes. Caching,
 mutations, timers and saved drafts are unchanged.
+
+## Optimistic entry actions
+
+Entry actions read the current local snapshot, including unsynced description
+drafts and empty descriptions. Split and combine save earlier description edits
+before their dependent server writes. Split confirmation accepts one submission
+per opening, including when Enter is repeated during the closing animation.
+Matching description conflicts are rechecked read-only at a bounded interval.
+
+Run the component regressions with `npm run test:optimistic`.

@@ -5,6 +5,7 @@ import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 
 import { projectSelection } from "@/lib/project-selection";
 import { parseContextEntryIds } from "@/lib/entry-context-link";
+import { useOptimisticEntries } from "@/hooks/use-optimistic-entries";
 import { entryMutations } from "@/lib/entry-mutations";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
@@ -2431,7 +2432,7 @@ export function TimeTrackerTable({
     return () => clearTimeout(midnightTimer);
   }, [isRollingDateRange, timeZone]);
 
-  const [timeEntries, setTimeEntries] = React.useState<TimeEntry[]>([]);
+  const [timeEntries, setTimeEntries, timeEntriesRef] = useOptimisticEntries<TimeEntry>();
   const refreshTimingRef = React.useRef<RefreshTiming | null>(null);
   React.useLayoutEffect(() => {
     const timing = refreshTimingRef.current;
@@ -2443,14 +2444,6 @@ export function TimeTrackerTable({
   React.useEffect(() => () => {
     if (refreshTimingRef.current) reportRefreshTiming(refreshTimingRef.current, "aborted");
   }, []);
-  const timeEntriesRef = React.useRef<TimeEntry[]>([]);
-
-  // Keep the imperative draft snapshot current before later effects (such as
-  // editor-close submission) read it.
-  React.useEffect(() => {
-    timeEntriesRef.current = timeEntries;
-  }, [timeEntries]);
-
   React.useEffect(() => {
     const onSynced = (event: Event) => {
       const { id, description } = (event as CustomEvent<{ id: number; description: string }>).detail;
@@ -2465,7 +2458,7 @@ export function TimeTrackerTable({
     };
     window.addEventListener("deeplog-description-synced", onSynced);
     return () => window.removeEventListener("deeplog-description-synced", onSynced);
-  }, []);
+  }, [ setTimeEntries, timeEntriesRef]);
 
   // Cache decrypted entries by ID to survive array reordering
   const decryptedEntriesById = React.useRef<
@@ -2473,7 +2466,11 @@ export function TimeTrackerTable({
   >(new Map());
 
   // Decrypt entries when E2EE is enabled and unlocked
-  const decryptedEntries = React.useMemo(() => {
+  const getCurrentEntries = React.useCallback(() => {
+    const timeEntries = timeEntriesRef.current.map(entry => {
+      const description = descriptionDrafts?.getDescription(entry.id, entry.description) ?? entry.description;
+      return description === entry.description ? entry : { ...entry, description };
+    });
     if (!encryption.isE2EEEnabled || !encryption.isUnlocked) {
       return timeEntries;
     }
@@ -2534,7 +2531,10 @@ export function TimeTrackerTable({
     }
 
     return newDecryptedEntries;
-  }, [timeEntries, encryption]);
+  }, [encryption, descriptionDrafts, timeEntriesRef]);
+  // The snapshot ref changes synchronously; the published state invalidates this render cache.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const decryptedEntries = React.useMemo(() => getCurrentEntries(), [timeEntries, getCurrentEntries]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
@@ -2619,6 +2619,7 @@ export function TimeTrackerTable({
   }, [selectedCell]);
 
   const getSelectedEntries = React.useCallback(() => {
+    const decryptedEntries = getCurrentEntries();
     const selectedIds = selectedEntryIdsRef.current;
 
     // The fallback covers an action fired in the same event turn as a
@@ -2630,9 +2631,10 @@ export function TimeTrackerTable({
     }
 
     return decryptedEntries.filter((entry) => selectedIds.has(entry.id));
-  }, [selectedRows, decryptedEntries]);
+  }, [selectedRows, getCurrentEntries]);
 
   const getSelectedCellEntry = React.useCallback(() => {
+    const decryptedEntries = getCurrentEntries();
     const selectedEntryId = selectedCellEntryIdRef.current;
     if (selectedEntryId !== null) {
       const selectedEntry = decryptedEntries.find(
@@ -2644,7 +2646,7 @@ export function TimeTrackerTable({
     return selectedCell
       ? decryptedEntries[selectedCell.rowIndex] ?? null
       : null;
-  }, [selectedCell, decryptedEntries]);
+  }, [selectedCell, getCurrentEntries]);
 
   // Hover state for showing checkboxes
   const [hoveredRowIndex, setHoveredRowIndex] = React.useState<number | null>(
@@ -2821,7 +2823,7 @@ export function TimeTrackerTable({
         justClosedDescriptionEntryIdRef.current = entryId;
       }
     },
-    [handleRowEditorStateChange]
+    [handleRowEditorStateChange, timeEntriesRef]
   );
   const handleProjectEditorChange = React.useCallback(
     (entryId: number, open: boolean) =>
@@ -3322,7 +3324,7 @@ export function TimeTrackerTable({
 
       return false; // Indicates should continue with normal flow
     },
-    []
+    [ setTimeEntries]
   );
 
   const handleDescriptionSave = React.useCallback(
@@ -3370,7 +3372,7 @@ export function TimeTrackerTable({
         texts: { storedBaseline: descriptionBasesRef.current.get(entryId), rowDescription: entry?.description, submitted: newDescription } });
       if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription, entry.start);
     },
-    [handleUpdateWithQueue, encryption]
+    [handleUpdateWithQueue, encryption, timeEntriesRef]
   );
 
   const handleProjectChange = React.useCallback(
@@ -3471,7 +3473,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue, setTimeEntries]
   );
 
   const handleTagsChange = React.useCallback(
@@ -3554,7 +3556,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue, setTimeEntries]
   );
 
   const handleTagCreated = React.useCallback((newTag: Tag) => {
@@ -3861,7 +3863,7 @@ export function TimeTrackerTable({
           return updatedEntries;
         });
       },
-    [queueEntryMutation, projects, availableTags, encryption, handleDescriptionSave]
+    [queueEntryMutation, projects, availableTags, encryption, handleDescriptionSave, setTimeEntries]
   );
 
   // Helper to handle bulk update resolving temp ID to real ID (avoids closure issues)
@@ -3902,7 +3904,7 @@ export function TimeTrackerTable({
         // Call the actual bulk update with the CURRENT entry ID
         handleBulkEntryUpdate(currentEntry.id)(updates, onCommit);
       },
-    [handleBulkEntryUpdate]
+    [handleBulkEntryUpdate, timeEntriesRef]
   );
 
   // Unified helper for force push updates (handles all overlap scenarios)
@@ -4148,7 +4150,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation]
+    [queueEntryMutation, setTimeEntries]
   );
 
   const handleTimeChange = React.useCallback(
@@ -4248,7 +4250,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue, setTimeEntries]
   );
 
   const handleTimeChangeWithForcePush = React.useCallback(
@@ -4395,7 +4397,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation, handleUpdateWithQueue]
+    [queueEntryMutation, handleUpdateWithQueue, setTimeEntries, timeEntriesRef]
   );
 
   const handleDurationChangeWithStartTimeAdjustment = React.useCallback(
@@ -4475,7 +4477,7 @@ export function TimeTrackerTable({
         return updatedEntries;
       });
     },
-    [queueEntryMutation]
+    [queueEntryMutation, setTimeEntries]
   );
 
   const handleDurationChangeWithForcePush = React.useCallback(
@@ -4581,7 +4583,7 @@ export function TimeTrackerTable({
         });
       }
     },
-    [queueEntryMutation, selectedCell, timeEntries]
+    [queueEntryMutation, selectedCell, timeEntries, setTimeEntries]
   );
 
   const handleDeleteMultiple = React.useCallback(
@@ -4733,7 +4735,7 @@ export function TimeTrackerTable({
         }
       }
     },
-    [selectedCell, timeEntries, toastDuration]
+    [selectedCell, timeEntries, toastDuration, setTimeEntries]
   );
 
   const handleDeleteSelectedClick = React.useCallback(() => {
@@ -4968,7 +4970,7 @@ export function TimeTrackerTable({
 
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [timeEntries, toastDuration]
+    [timeEntries, toastDuration, setTimeEntries]
   );
 
   const handleAddTagClick = React.useCallback(() => {
@@ -5119,7 +5121,7 @@ export function TimeTrackerTable({
 
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [timeEntries, projects, toastDuration]
+    [timeEntries, projects, toastDuration, setTimeEntries]
   );
 
   const handleSetProjectClick = React.useCallback(() => {
@@ -5158,6 +5160,8 @@ export function TimeTrackerTable({
 
   const handleCombineMultiple = React.useCallback(
     (entries: TimeEntry[], reverse = false) => {
+      const current = getCurrentEntries();
+      entries = entries.map(entry => current.find(candidate => candidate.id === entry.id || candidate.tempId === entry.id)).filter((entry): entry is TimeEntry => !!entry);
       if (entries.length < 2) {
         toast.error("Need at least 2 entries to combine");
         return;
@@ -5387,6 +5391,7 @@ export function TimeTrackerTable({
         }
       };
 
+      for (const entry of entries) descriptionDrafts?.commit(entry.id);
       const operation = entryMutations.reserve(entries.map(entry => entry.id), submitOperation);
       void operation.completion.catch((error) => {
         releaseCombine();
@@ -5395,7 +5400,7 @@ export function TimeTrackerTable({
       });
       const timeoutId = setTimeout(submitNow, toastDuration);
     },
-    [toastDuration, timeZone, protectCombine]
+    [toastDuration, timeZone, protectCombine, getCurrentEntries, descriptionDrafts, setTimeEntries]
   );
 
   const handleConfirmCombineMultiple = React.useCallback(() => {
@@ -5414,11 +5419,14 @@ export function TimeTrackerTable({
   const handleConfirmSplit = React.useCallback(
     (offsetMinutes: number, isReverse = false) => {
       if (!entryToSplit) return;
+      const currentEntry = getCurrentEntries().find(entry => entry.id === entryToSplit.id || entry.tempId === entryToSplit.id);
+      if (!currentEntry) { toast.error("The selected entry is no longer available"); return; }
+      const splitSnapshot = currentEntry;
 
       let originalEntries: TimeEntry[] = [];
-      const isRunning = isRunningTimeEntry(entryToSplit);
-      const startTime = new Date(entryToSplit.start);
-      const endTime = isRunning ? new Date() : new Date(entryToSplit.stop!);
+      const isRunning = isRunningTimeEntry(splitSnapshot);
+      const startTime = new Date(splitSnapshot.start);
+      const endTime = isRunning ? new Date() : new Date(splitSnapshot.stop!);
       const offsetMs = offsetMinutes * 60 * 1000;
 
       // Check if this is a negative split (extending beyond the end)
@@ -5427,7 +5435,7 @@ export function TimeTrackerTable({
       // Generate temp ID for the second entry
       const tempId = -Date.now();
       const shouldTransferSelectedCell =
-        selectedCellEntryIdRef.current === entryToSplit.id;
+        selectedCellEntryIdRef.current === splitSnapshot.id;
 
       // Optimistically create the split entries
       const splitEntries: TimeEntry[] = [];
@@ -5441,7 +5449,7 @@ export function TimeTrackerTable({
         // Create new entry starting at end time and extending forward
         const extensionMs = Math.abs(offsetMs); // Make it positive
         const secondEntry: TimeEntry = {
-          ...entryToSplit,
+          ...splitSnapshot,
           id: tempId,
           tempId: tempId,
           start: new Date(splitPoint).toISOString(),
@@ -5459,7 +5467,7 @@ export function TimeTrackerTable({
 
         // Update the first entry (original, ending at split point)
         const firstEntry: TimeEntry = {
-          ...entryToSplit,
+          ...splitSnapshot,
           stop: new Date(splitPoint).toISOString(),
           duration: Math.floor((splitPoint - startTime.getTime()) / 1000),
         };
@@ -5467,7 +5475,7 @@ export function TimeTrackerTable({
 
         // Create second entry (from split point to original end or running)
         const secondEntry: TimeEntry = {
-          ...entryToSplit,
+          ...splitSnapshot,
           id: tempId,
           tempId: tempId,
           start: new Date(splitPoint).toISOString(),
@@ -5494,7 +5502,7 @@ export function TimeTrackerTable({
         } else {
           // For normal splits: replace original entry with split entries
           const entriesWithoutOriginal = currentEntries.filter(
-            (entry) => entry.id !== entryToSplit.id
+            (entry) => entry.id !== splitSnapshot.id
           );
 
           // Insert split entries in the correct position (sorted by start time)
@@ -5519,9 +5527,9 @@ export function TimeTrackerTable({
       setEntrySyncStatus((prev) => new Map(prev).set(tempId, "pending"));
 
       const restoreSplit = () => {
-        const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
+        const sourceId = syncQueueRef.current.getRealId(splitSnapshot.id) ?? splitSnapshot.id;
         setTimeEntries(entries => entries.filter(entry => entry.id !== tempId).map(entry =>
-          entry.id === sourceId ? { ...entryToSplit, id: sourceId } : entry
+          entry.id === sourceId ? { ...splitSnapshot, id: sourceId } : entry
         ));
         setEntrySyncStatus(previous => {
           const next = new Map(previous);
@@ -5535,11 +5543,12 @@ export function TimeTrackerTable({
 
       const sessionToken = localStorage.getItem("toggl_session_token");
 
-      const releaseSplit = protectCombine([entryToSplit.id, tempId]);
+      const releaseSplit = protectCombine([splitSnapshot.id, tempId]);
       let splitStarted = false;
-      const operation = entryMutations.reserve([entryToSplit.id, tempId], async () => {
+      descriptionDrafts?.commit(splitSnapshot.id);
+      const operation = entryMutations.reserve([splitSnapshot.id, tempId], async () => {
         splitStarted = true;
-        const sourceId = syncQueueRef.current.getRealId(entryToSplit.id) ?? entryToSplit.id;
+        const sourceId = syncQueueRef.current.getRealId(splitSnapshot.id) ?? splitSnapshot.id;
         if (sourceId < 0) throw new Error("Wait for this entry to finish creating before splitting");
         return apiFetch("/api/time-entries/split", {
           method: "POST",
@@ -5604,7 +5613,7 @@ export function TimeTrackerTable({
                     } as TimeEntry;
                   }
                   // Also update the original entry if it was modified (non-negative split)
-                  if (!isNegativeSplit && entry.id === entryToSplit.id && updatedEntry) {
+                  if (!isNegativeSplit && entry.id === splitSnapshot.id && updatedEntry) {
                     return {
                       ...updatedEntry,
                       ...entry,
@@ -5684,13 +5693,13 @@ export function TimeTrackerTable({
           console.error("Failed to split time entry:", error);
           if (!(error instanceof TogglRateLimitError)) toast.error("Failed to split entry. Reverting changes.");
           if (selectedCellEntryIdRef.current === tempId) {
-            selectedCellEntryIdRef.current = entryToSplit.id;
+            selectedCellEntryIdRef.current = splitSnapshot.id;
           }
           if (splitStarted) setTimeEntries(originalEntries);
           else setTimeEntries(entries => entries.filter(entry => entry.id !== tempId));
         }).finally(releaseSplit);
     },
-    [entryToSplit, toastDuration, encryption, publishActiveEditorState, protectCombine]
+    [entryToSplit, getCurrentEntries, descriptionDrafts, toastDuration, encryption, publishActiveEditorState, protectCombine, setTimeEntries]
   );
 
   const handleCombine = React.useCallback(
@@ -5726,6 +5735,7 @@ export function TimeTrackerTable({
   const handleConfirmCombine = React.useCallback(() => {
     if (!entryToCombine) return;
 
+    const timeEntries = getCurrentEntries();
     const syncQueue = syncQueueRef.current;
     const resolveEntryId = (entryId: number) =>
       syncQueue.getRealId(entryId) ?? entryId;
@@ -5932,6 +5942,8 @@ export function TimeTrackerTable({
       }
       await executeCombine(finalCurrentId, finalOlderId);
     };
+    descriptionDrafts?.commit(currentEntry.id);
+    descriptionDrafts?.commit(olderEntry.id);
     const operation = entryMutations.reserve([currentEntry.id, olderEntry.id], performCombine);
     const submitNow = () => {
       if (undone || submitted) return;
@@ -5961,7 +5973,7 @@ export function TimeTrackerTable({
       if (!(error instanceof TogglRateLimitError)) toast.error("Combine failed. Dependent changes were stopped; refresh before trying again.");
     });
 
-  }, [entryToCombine, timeEntries, toastDuration, isReverseCombineSingle, protectCombine]);
+  }, [entryToCombine, getCurrentEntries, descriptionDrafts, toastDuration, isReverseCombineSingle, protectCombine, setTimeEntries]);
 
   const startNewTimeEntry = React.useCallback(
     (
@@ -6324,11 +6336,14 @@ export function TimeTrackerTable({
       encryption,
       isFullscreen,
       beginClientMutation,
+      setTimeEntries,
+      timeEntriesRef,
     ]
   );
 
   const handleCopyAndStartEntry = React.useCallback(
     (entry: TimeEntry) => {
+      entry = getCurrentEntries().find(current => current.id === entry.id || current.tempId === entry.id) ?? entry;
       // Decrypt description if it's encrypted (due to React.memo caching stale entry objects)
       let description = entry.description;
 
@@ -6358,10 +6373,11 @@ export function TimeTrackerTable({
         entry.tags || []
       );
     },
-    [startNewTimeEntry, encryption]
+    [startNewTimeEntry, encryption, getCurrentEntries]
   );
 
   const handleStopTimer = React.useCallback(async (entry: TimeEntry) => {
+    entry = getCurrentEntries().find(current => current.id === entry.id || current.tempId === entry.id) ?? entry;
     const now = new Date();
     const start = new Date(entry.start);
     const durationInSeconds = Math.floor(
@@ -6414,7 +6430,7 @@ export function TimeTrackerTable({
       console.error("Error stopping timer:", error);
       if (!(error instanceof TogglRateLimitError)) toast.error("Failed to stop timer");
     }
-  }, [handleUpdateWithQueue]);
+  }, [handleUpdateWithQueue, getCurrentEntries, setTimeEntries]);
 
   // Add a ref to track last fetch time for global debouncing
   const lastFetchTimeRef = React.useRef(0);
@@ -6727,7 +6743,7 @@ export function TimeTrackerTable({
         }
       }
     },
-    [date, timeZone, setProfileTimeZone]
+    [date, timeZone, setProfileTimeZone, setTimeEntries, timeEntriesRef]
   );
 
   // Load more function for infinite scrolling
@@ -6868,7 +6884,7 @@ export function TimeTrackerTable({
         }
       });
     },
-    [isFullscreen] // Need isFullscreen to determine column mapping
+    [isFullscreen, timeEntriesRef] // Need isFullscreen to determine column mapping
   );
 
   const navigateFromDescription = React.useCallback(
@@ -6936,7 +6952,7 @@ export function TimeTrackerTable({
         setTimeout(() => activateCell(targetRowIndex, targetCellIndex), 0);
       }
     },
-    [activateCell]
+    [activateCell, timeEntriesRef]
   );
 
   const navigateToPrevCell = React.useCallback(() => {
@@ -7014,7 +7030,7 @@ export function TimeTrackerTable({
         return targetCell;
       });
     },
-    [activateCell]
+    [activateCell, timeEntriesRef]
   );
 
   React.useEffect(() => {
@@ -7392,7 +7408,7 @@ export function TimeTrackerTable({
         }, 5000);
       }
     },
-    [entryAiSummaryStatus]
+    [entryAiSummaryStatus, setTimeEntries]
   );
 
   const handleDeleteSelected = React.useCallback(() => {
@@ -8769,6 +8785,7 @@ export function TimeTrackerTable({
     multiSelectMenuOpen,
     setShowPinnedEntriesValue,
     timeZone,
+    timeEntriesRef,
   ]);
 
   // Clear selection if selected cell is out of bounds after data changes
@@ -8834,7 +8851,7 @@ export function TimeTrackerTable({
     };
     window.addEventListener("deeplog-description-navigate", navigate);
     return () => window.removeEventListener("deeplog-description-navigate", navigate);
-  }, [timeZone, handleDateChange]);
+  }, [timeZone, handleDateChange, timeEntriesRef]);
 
   React.useEffect(() => {
     if (descriptionReviewTarget === null || loading || isLoadingMore) return;
