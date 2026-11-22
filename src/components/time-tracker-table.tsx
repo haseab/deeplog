@@ -8,6 +8,7 @@ import { projectSelection } from "@/lib/project-selection";
 import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { useOptimisticEntries } from "@/hooks/use-optimistic-entries";
 import { entryMutations } from "@/lib/entry-mutations";
+import { createRowEditorState, updateRowEditorState } from "@/lib/row-editor-state";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
 import { recordSyncDiagnostic } from "@/lib/sync-diagnostics";
@@ -687,7 +688,7 @@ const MemoizedDurationCell = React.memo(
           onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
             onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
           }
-          onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
+          onEditingChange={(editing) => setIsEditingCell(entry.id, editing, "duration")}
           onNavigateVertical={navigateToAdjacentRow}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
@@ -1527,7 +1528,7 @@ const MemoizedTableRow = React.memo(
     availableTags: Tag[];
     onProjectCreated: (project: Project) => void;
     onTagCreated: (tag: Tag) => void;
-    setIsEditingCell: (entryId: number, editing: boolean) => void;
+    setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
     setIsProjectSelectorOpen: (entryId: number, open: boolean) => void;
     setIsTagSelectorOpen: (entryId: number, open: boolean) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
@@ -1747,7 +1748,7 @@ const MemoizedTableRow = React.memo(
                         onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
                       }
                       onEditingChange={(editing) =>
-                        setIsEditingCell(entry.id, editing)
+                        setIsEditingCell(entry.id, editing, "duration")
                       }
                       onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
@@ -2686,12 +2687,7 @@ export function TimeTrackerTable({
   const pendingCreateCommitCallbacksRef = React.useRef<
     Map<number, Set<() => void>>
   >(new Map());
-  const activeEditorEntryIdsRef = React.useRef({
-    descriptionOrDuration: new Set<number>(),
-    project: new Set<number>(),
-    tags: new Set<number>(),
-    time: new Set<number>(),
-  });
+  const activeEditorEntryIdsRef = React.useRef(createRowEditorState());
   const justClosedDescriptionEntryIdRef = React.useRef<number | null>(null);
   const projectSelectorOpenersRef = React.useRef(
     new Map<number, () => void>()
@@ -2728,7 +2724,7 @@ export function TimeTrackerTable({
 
   const publishActiveEditorState = React.useCallback(() => {
     const activeEditors = activeEditorEntryIdsRef.current;
-    setIsEditingCell(activeEditors.descriptionOrDuration.size > 0);
+    setIsEditingCell(activeEditors.description.size > 0 || activeEditors.duration.size > 0);
     setIsProjectSelectorOpen(activeEditors.project.size > 0);
     setIsTagSelectorOpen(activeEditors.tags.size > 0);
     setIsTimeEditorOpen(activeEditors.time.size > 0);
@@ -2756,59 +2752,30 @@ export function TimeTrackerTable({
       editorType: keyof typeof activeEditorEntryIdsRef.current,
       open: boolean
     ) => {
-      const activeEntryIds = activeEditorEntryIdsRef.current[editorType];
-      const wasOpen = activeEntryIds.has(entryId);
-
-      if (open) {
-        // Row editors are mutually exclusive. Starting a new one is also a
-        // recovery point: discard any orphaned registration left by an older
-        // row before registering the editor the user can actually see.
-        const replacedEntryIds = new Set<number>();
-        Object.values(activeEditorEntryIdsRef.current).forEach((entryIds) => {
-          entryIds.forEach((activeEntryId) => {
-            if (activeEntryId !== entryId) {
-              replacedEntryIds.add(activeEntryId);
-            }
-          });
-          entryIds.clear();
-        });
-        activeEntryIds.add(entryId);
-        replacedEntryIds.forEach((replacedEntryId) => {
-          pendingEntryToastFactoriesRef.current.get(replacedEntryId)?.();
-        });
-      } else {
-        activeEntryIds.delete(entryId);
-      }
+      const transition = updateRowEditorState(
+        activeEditorEntryIdsRef.current, entryId, editorType, open
+      );
+      if (!transition) return;
 
       publishActiveEditorState();
-
-      // Ignore initial/duplicate notifications from mounted controls. Only a
-      // real transition should pause or restart that entry's transaction.
-      if (open === wasOpen) return;
+      transition.replacedEntryIds.forEach((replacedEntryId) => {
+        pendingEntryToastFactoriesRef.current.get(replacedEntryId)?.();
+      });
 
       if (open) {
         pendingEntryToastControllersRef.current.get(entryId)?.cancel();
-      } else {
-        const entryStillHasAnOpenEditor = Object.values(
-          activeEditorEntryIdsRef.current
-        ).some((entryIds) => entryIds.has(entryId));
-
-        // A direct editor-to-editor transition can report the new editor as
-        // open before the old one closes. Keep the transaction paused until
-        // the entry truly has no editor left open, regardless of event order.
-        if (!entryStillHasAnOpenEditor) {
-          pendingEntryToastFactoriesRef.current.get(entryId)?.();
-        }
+      } else if (!transition.entryHasOpenEditor) {
+        pendingEntryToastFactoriesRef.current.get(entryId)?.();
       }
     },
     [publishActiveEditorState]
   );
 
   const handleDescriptionOrDurationEditorChange = React.useCallback(
-    (entryId: number, open: boolean) => {
-      const wasOpen =
-        activeEditorEntryIdsRef.current.descriptionOrDuration.has(entryId);
-      handleRowEditorStateChange(entryId, "descriptionOrDuration", open);
+    (entryId: number, open: boolean, editorType: "description" | "duration" = "description") => {
+      const wasOpen = activeEditorEntryIdsRef.current[editorType].has(entryId);
+      handleRowEditorStateChange(entryId, editorType, open);
+      if (editorType !== "description") return;
 
       if (open && !wasOpen) {
         const entry = timeEntriesRef.current.find(e => e.id === entryId);
@@ -7741,7 +7708,8 @@ export function TimeTrackerTable({
       ) {
         const target = e.target instanceof HTMLElement ? e.target : null;
         if (
-          activeEditorEntryIdsRef.current.descriptionOrDuration.size > 0 ||
+          activeEditorEntryIdsRef.current.description.size > 0 ||
+          activeEditorEntryIdsRef.current.duration.size > 0 ||
           target?.closest('input, textarea, [contenteditable="true"], [role="textbox"]')
         ) return;
 
@@ -7947,7 +7915,8 @@ export function TimeTrackerTable({
         !e.altKey &&
         !e.defaultPrevented &&
         !isInInput &&
-        activeEditorEntryIdsRef.current.descriptionOrDuration.size === 0 &&
+        activeEditorEntryIdsRef.current.description.size === 0 &&
+        activeEditorEntryIdsRef.current.duration.size === 0 &&
         triggerUndo()
       ) {
         e.preventDefault();

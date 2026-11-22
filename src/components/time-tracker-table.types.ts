@@ -45,7 +45,7 @@ export interface MemoizedDescriptionCellProps {
   isFullscreen: boolean;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean, undoDescription?: string) => void;
-  setIsEditingCell: (entryId: number, editing: boolean) => void;
+  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   projects: Project[];
@@ -118,7 +118,7 @@ export interface MemoizedDurationCellProps {
   onDurationChangeWithStartTimeAdjustmentAndForcePush: (
     entryId: number
   ) => (newDuration: number) => void;
-  setIsEditingCell: (entryId: number, editing: boolean) => void;
+  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
