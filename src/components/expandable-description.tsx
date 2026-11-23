@@ -1,5 +1,6 @@
 "use client";
 
+import { recordToastDiagnostic } from "@/lib/toast-diagnostics";
 import { useDescriptionDrafts } from "@/contexts/description-drafts-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +70,10 @@ export function ExpandableDescription({
   const description = entryId === undefined ? serverDescription : drafts?.getDescription(entryId, serverDescription) ?? serverDescription;
   const autosaveRef = React.useRef(onSave);
   autosaveRef.current = onSave;
+  React.useEffect(() => {
+    recordToastDiagnostic({ event: "editor.mounted", entryId, editor: "description" });
+    return () => recordToastDiagnostic({ event: "editor.unmounted", entryId, editor: "description" });
+  }, [entryId]);
   const offlineDrafting = !!entryId && entryId > 0 && !!drafts;
   const [isEditing, setIsEditing] = React.useState(false);
   const [showLinkDialog, setShowLinkDialog] = React.useState(false);
@@ -480,6 +485,7 @@ export function ExpandableDescription({
         !isApplyingExternalContentRef.current
       ) {
         hasLocalEditsRef.current = true;
+        recordToastDiagnostic({ event: "description.edit", entryId });
         if (offlineDrafting) autosaveRef.current?.(getMarkdownContent());
       }
       updateCharCount();

@@ -249,6 +249,18 @@ mutations, timers and saved drafts are unchanged.
 
 ## Optimistic entry actions
 
+Editor and Undo-toast lifecycle diagnostics are batched to production logs as
+`[deeplog-toast-client]` via `/api/diagnostics/toast`. Match `pageId`, event
+`sequence`, and page-local `entry`/`toast` aliases to trace typing, repeated editor
+reports, mutation queueing, toast creation, pause/re-arm attempts, Undo and save
+completion. Client `at` is event time; hosting timestamps may reflect buffering.
+Aliases reset on reload and cannot be joined to real entry IDs. Payloads exclude
+descriptions, toast text, account IDs, URLs, credentials and exception messages.
+Batches contain at most 64 events every two seconds, report dropped events, and
+are never retried. The server strictly validates payloads, bounds streamed bodies,
+rejects cross-origin reports and rate-limits intake. These best-effort, untrusted
+client diagnostics do not establish that a toast painted or a user saw it.
+
 Entry actions read the current local snapshot, including unsynced description
 drafts and empty descriptions. Split and combine save earlier description edits
 before their dependent server writes. Split confirmation accepts one submission
