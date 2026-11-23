@@ -84,8 +84,11 @@ export async function discover(ledger: Ledger, providers: Providers, options: {
   if (!scan) {
     const lastEnd = scans.filter(item => item.kind === "rolling" && item.status === "completed")
       .reduce((latest, item) => Math.max(latest, Date.parse(item.end)), 0);
-    const start = options.startDate ?? new Date(lastEnd ? Math.min(now - 7 * DAY, lastEnd - DAY) : now - 7 * DAY).toISOString();
+    const start = options.startDate ?? new Date(lastEnd || now - 7 * DAY).toISOString();
     const end = options.endDate ?? new Date(now).toISOString();
+    if (kind === "rolling" && lastEnd === now) {
+      return scans.find(item => item.kind === "rolling" && item.status === "completed" && Date.parse(item.end) === lastEnd)!;
+    }
     if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || Date.parse(start) >= Date.parse(end)) {
       throw new Error("Invalid scan date range");
     }
@@ -96,13 +99,18 @@ export async function discover(ledger: Ledger, providers: Providers, options: {
   for (let count = 0; count < (options.maxPages ?? 8) && scan.status !== "completed"; count++) {
     if (Date.now() >= (options.deadline ?? Infinity)) break;
     const end = new Date(Math.min(Date.parse(scan.windowStart) + DAY, Date.parse(scan.end))).toISOString();
-    // Include preceding lifelogs so recordings crossing a window boundary are revisited.
-    const start = new Date(Date.parse(scan.windowStart) - DAY).toISOString();
+    // Append-only discovery resumes exactly at saved coverage, without a rolling overlap.
+    const start = scan.windowStart;
     const page = await providers.page(start, end, scan.cursor);
     if (page.nextCursor && (scan.seenCursors.includes(page.nextCursor) || page.transcripts.length === 0)) {
       throw new Error("Invalid Limitless pagination; scan remains incomplete");
     }
-    for (const transcript of page.transcripts) await ingest(ledger, transcript);
+    for (const transcript of page.transcripts) {
+      if (typeof transcript.id !== "string" || !transcript.id) throw new Error("Invalid transcript identity; discovery remains incomplete");
+      // Inclusive source boundaries can repeat an ID. Existing records are immutable
+      // during automatic discovery; manual reprocessing remains a separate operation.
+      if (!(await ledger.record(transcript.id))) await ingest(ledger, transcript);
+    }
     scan.pages++;
     scan.cursor = page.nextCursor;
     if (page.nextCursor) scan.seenCursors.push(page.nextCursor);

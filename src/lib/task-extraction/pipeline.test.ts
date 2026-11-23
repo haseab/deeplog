@@ -46,12 +46,12 @@ test('failed fetch retains its page; default runs resume unfinished backfills', 
   assert.equal(scan.status, 'completed');
 }));
 
-test('rolling scan revisits seven days and catches outages longer than seven days', () => fixture(async ledger => {
+test('rolling scan resumes saved coverage without rescanning and catches the entire outage', () => fixture(async ledger => {
   const now = Date.parse('2026-11-04T00:00:00Z');
   const first = await discover(ledger, providers(), { now, maxPages: 20 });
   assert.equal(first.start, '2026-10-28T00:00:00.000Z');
   const next = await discover(ledger, providers(), { now: now + 12 * 86400000, maxPages: 1 });
-  assert.equal(next.start, '2026-11-03T00:00:00.000Z');
+  assert.equal(next.start, '2026-11-04T00:00:00.000Z');
 }));
 
 test('invalid/repeated pagination never marks a scan complete', () => fixture(async ledger => {
@@ -284,4 +284,19 @@ test('deadline between enumeration and review defers delivery until a later revi
   assert.equal(deferred.status, 'pending'); assert.equal(deferred.tasks.length, 0);
   await processRecording(ledger, deferred, providers({ extract: async () => { assert.fail('must reuse enumeration'); } }));
   assert.equal((await record(ledger)).status, 'completed');
+}));
+
+test('incremental discovery queries only missing ranges and deduplicates inclusive boundaries', () => fixture(async ledger => {
+  const ranges: string[][] = [];
+  const p = providers({ page: async (start, end) => { ranges.push([start,end]); return {transcripts:[transcript()],nextCursor:null}; } });
+  const now=Date.parse('2026-11-04T00:00:00Z');
+  await discover(ledger,p,{now,maxPages:20});
+  const before=(await record(ledger)).events.length;
+  ranges.length=0;
+  await discover(new Ledger(ledger.directory),p,{now:now+3600000});
+  assert.deepEqual(ranges,[['2026-11-04T00:00:00.000Z','2026-11-04T01:00:00.000Z']]);
+  assert.equal((await record(ledger)).events.length,before);
+  ranges.length=0;
+  await discover(ledger,p,{now:now+3600000});
+  assert.equal(ranges.length,0);
 }));
