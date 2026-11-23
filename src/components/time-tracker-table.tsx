@@ -12,6 +12,7 @@ import { createRowEditorState, updateRowEditorState } from "@/lib/row-editor-sta
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
 import { recordSyncDiagnostic } from "@/lib/sync-diagnostics";
+import { recordToastDiagnostic } from "@/lib/toast-diagnostics";
 import { formatTimeEntryRangeLabel } from "@/lib/time-entry-range-label";
 import { useEncryptionContext } from "@/contexts/encryption-context";
 import { usePinnedEntries } from "@/hooks/use-pinned-entries";
@@ -2738,6 +2739,7 @@ export function TimeTrackerTable({
       entryIds.clear();
     });
     publishActiveEditorState();
+    recordToastDiagnostic({ event: "editor.clear", count: affectedEntryIds.size });
 
     // Clearing a real editor must preserve the normal delayed-commit flow.
     // Orphaned registrations simply have no matching factory and are ignored.
@@ -2755,6 +2757,9 @@ export function TimeTrackerTable({
       const transition = updateRowEditorState(
         activeEditorEntryIdsRef.current, entryId, editorType, open
       );
+      recordToastDiagnostic({ event: "editor.report", entryId, editor: editorType, open,
+        changed: !!transition, active: Object.values(activeEditorEntryIdsRef.current).some(ids => ids.has(entryId)),
+        pending: pendingEntryToastFactoriesRef.current.has(entryId) });
       if (!transition) return;
 
       publishActiveEditorState();
@@ -2983,6 +2988,8 @@ export function TimeTrackerTable({
       let toastDismissed = false;
       const state = { apiCallStarted: false };
       const submitNow = () => {
+        recordToastDiagnostic({ event: "toast.submit", entryId, toastId,
+          reason: toastDismissed || state.apiCallStarted ? "too-late" : "ready" });
         if (toastDismissed || state.apiCallStarted) return true;
         clearTimeout(timeoutId);
         void operation.run().catch(() => {});
@@ -2992,7 +2999,9 @@ export function TimeTrackerTable({
         action: {
           label: "Undo (⌘Z)",
           onClick: () => {
-            if (!operation.cancel()) return;
+            const cancelled = operation.cancel();
+            recordToastDiagnostic({ event: "toast.undo", entryId, toastId, reason: cancelled ? "cancelled" : "too-late" });
+            if (!cancelled) return;
             toastDismissed = true;
             // Clear retry function since user is undoing
             entryRetryFunctions.current.delete(entryId);
@@ -3003,6 +3012,8 @@ export function TimeTrackerTable({
         submitAction: submitNow,
       });
 
+      recordToastDiagnostic({ event: "toast.created", entryId, toastId });
+
       // Use setTimeout instead of onAutoClose to ensure it runs regardless of tab visibility
       const submitOperation = async () => {
         if (toastDismissed) {
@@ -3011,6 +3022,7 @@ export function TimeTrackerTable({
 
         // Mark that API call has started - toast can no longer be cancelled
         state.apiCallStarted = true;
+        recordToastDiagnostic({ event: "mutation.started", entryId, toastId });
 
         // Mark as syncing
         setEntrySyncStatus((prev) => {
@@ -3022,6 +3034,7 @@ export function TimeTrackerTable({
 
         try {
           await apiCall();
+          recordToastDiagnostic({ event: "mutation.succeeded", entryId, toastId });
 
           // Usage ranking is part of the mutation transaction. Only publish
           // it after the server accepts the change, and never if Undo was
@@ -3058,6 +3071,7 @@ export function TimeTrackerTable({
             });
           }, 2000);
         } catch (error) {
+          recordToastDiagnostic({ event: "mutation.failed", entryId, toastId });
           console.error("API call failed:", error);
           const errorMessage =
             error instanceof Error && error.message
@@ -3089,7 +3103,9 @@ export function TimeTrackerTable({
       });
       const timeoutId = setTimeout(submitNow, toastDuration);
       const cancel = () => {
-        if (toastDismissed || state.apiCallStarted || !operation.cancel()) return false;
+        const cancelled = !toastDismissed && !state.apiCallStarted && operation.cancel();
+        recordToastDiagnostic({ event: "toast.cancel", entryId, toastId, reason: cancelled ? "cancelled" : "too-late" });
+        if (!cancelled) return false;
         toastDismissed = true;
         clearTimeout(timeoutId);
         if (toastId !== undefined) {
@@ -3127,6 +3143,7 @@ export function TimeTrackerTable({
       // same entry transaction; repeated edits to one field are coalesced.
       transaction.message = message;
       transaction.operations.set(operationKey, { apiCall, onCommit });
+      recordToastDiagnostic({ event: "mutation.queue", entryId, count: transaction.operations.size });
 
       // The optimistic row is intentionally ahead of Toggl until the quiet
       // period expires, so expose that state immediately and keep it visible
@@ -3148,11 +3165,16 @@ export function TimeTrackerTable({
 
       const armToast = () => {
         const currentTransaction = pendingEntryMutationsRef.current.get(entryId);
-        if (!currentTransaction) return;
+        if (!currentTransaction) {
+          recordToastDiagnostic({ event: "toast.arm", entryId, reason: "no-transaction" });
+          return;
+        }
 
         const entryHasOpenEditor = Object.values(
           activeEditorEntryIdsRef.current
         ).some((entryIds) => entryIds.has(entryId));
+        recordToastDiagnostic({ event: "toast.arm", entryId, active: entryHasOpenEditor,
+          reason: entryHasOpenEditor ? "active-editor" : "ready" });
         if (entryHasOpenEditor) return;
 
         pendingEntryToastControllersRef.current.get(entryId)?.cancel();
@@ -3336,6 +3358,7 @@ export function TimeTrackerTable({
       if (wasQueued) return;
 
       const entry = timeEntriesRef.current.find(e => e.id === entryId);
+      recordToastDiagnostic({ event: "description.submit", entryId, notify });
       recordSyncDiagnostic({ event: "ui.description-submit", entryId, fields: { notify, entryFound: !!entry },
         texts: { storedBaseline: descriptionBasesRef.current.get(entryId), rowDescription: entry?.description, submitted: newDescription } });
       if (entry) void saveDraftRef.current?.(entryId, descriptionBasesRef.current.get(entryId) ?? entry.description ?? "", newDescription, notify, undoDescription, entry.start);

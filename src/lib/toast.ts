@@ -1,5 +1,6 @@
 import React from "react";
 import { toast as sonnerToast } from "sonner";
+import { recordToastDiagnostic } from "./toast-diagnostics";
 
 // Simple global deduplication for toasts
 let lastToast: { message: string; timestamp: number } | null = null;
@@ -98,6 +99,7 @@ export const toast = (
     const originalOnAutoClose = toastOptions.onAutoClose;
 
     toastOptions.onDismiss = (toast) => {
+      recordToastDiagnostic({ event: "toast.dismissed", toastId, reason: "user-dismiss" });
       activeToastActions.delete(toastId);
       if (currentToastId === toastId) refreshCurrentToastId();
       runSubmitAction();
@@ -105,6 +107,7 @@ export const toast = (
     };
 
     toastOptions.onAutoClose = (toast) => {
+      recordToastDiagnostic({ event: "toast.dismissed", toastId, reason: "auto-close" });
       shouldSubmitOnDismiss = false;
       activeToastActions.delete(toastId);
       if (currentToastId === toastId) refreshCurrentToastId();
@@ -113,6 +116,7 @@ export const toast = (
   }
 
   const toastId: ToastId = sonnerToast(message, toastOptions);
+  recordToastDiagnostic({ event: "toast.rendered", toastId, active: isActionableToast });
   if (wrappedUndoAction || ownedSubmitAction) {
     activeToastActions.set(toastId, {
       undo: wrappedUndoAction,
@@ -172,6 +176,7 @@ toast.info = sonnerToast.info;
 toast.warning = sonnerToast.warning;
 toast.loading = sonnerToast.loading;
 toast.dismiss = (toastId?: ToastId) => {
+  recordToastDiagnostic({ event: "toast.dismissed", toastId, reason: "programmatic" });
   // Programmatic dismissal (including the end of an undo window) must also
   // retire its keyboard actions. Sonner doesn't call onDismiss for this path.
   if (toastId === undefined) activeToastActions.clear();
