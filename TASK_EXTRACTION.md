@@ -41,8 +41,8 @@ The local development server remains `http://localhost:3020` (`npm run dev`).
 
 `data/processed-tasks.json` is now legacy reference only. It is neither read nor
 updated. Its timestamp is not evidence that individual recordings succeeded.
-The new ledger initially scans the last seven days (plus one preceding day for
-boundary context). It does not automatically process the entire historical archive.
+The new ledger initially scans the last seven days once. It does not automatically
+process the entire historical archive.
 
 Existing Todoist tasks from the old extractor have no reliable source mapping.
 They cannot be safely deduplicated automatically. Before enabling the regular
@@ -93,23 +93,27 @@ Preview IDs are scoped to the source account. Tests expire after 24 hours (expir
 temporary folders are removed when a new test starts) and may disappear on a server
 replacement. They are test results, not durable processing history.
 
-Boundary context is included just as in production: a recording can start on the
-preceding day. Inspect the displayed timestamps when judging range coverage.
+Previews fetch the selected range without preceding-day overlap.
 An exhausted discovery scan is distinct from successful extraction; recordings
 without available speech are counted separately, and failures remain visible.
 
 ## Normal catch-up
 
-Send `{}` to POST. A completed scan's end time helps choose the next discovery
-range; it is **not** a processing-completion flag. Each new rolling scan covers
-at least seven days. After a longer outage, it begins at the earlier of seven
-days ago and one day before the last completed rolling scan's end.
+Send `{}` to POST. Discovery and processing have independent checkpoints. The first
+scan bootstraps the last seven days once. Subsequent rolling scans start exactly
+at the last completed rolling scan's end, fetch only uncovered time ranges, and
+resume an unfinished page after failure or restart. There is no seven-day rolling
+rescan or preceding-day overlap. During an outage, the entire missing interval
+remains uncovered and is fetched on recovery.
 
-Discovery splits the range into daily windows, includes a preceding day for
-recordings near boundaries, and follows every pagination cursor. Each page's
-recordings are saved before its cursor advances. A failed page is retried, not
-marked covered. Duplicate pages are harmless because source IDs and content
-hashes identify recordings. Invalid pages and repeated cursors fail the scan.
+Discovery treats transcripts as append-only. Source IDs are durably deduplicated,
+including an ID repeated at an inclusive time boundary. Existing saved transcripts
+are not overwritten by ordinary discovery. Explicit historical backfills and
+manual reprocessing remain separate operator actions. Each page's new transcripts
+are saved before its pagination cursor advances. Invalid pages and repeated
+cursors leave coverage incomplete. Extraction failures retry from saved local
+transcripts, independently of discovery coverage and without source downloads.
+
 Content requests use 20-record pages. Live comparison found that 50/100-record
 pages can return metadata with empty content arrays despite speech being available
 for the same recordings on smaller pages.
@@ -185,15 +189,12 @@ reopen one, use the existing `reprocessRecordingId` operation.
 A fixed range is resumable. Repeat the same body until its scan is completed and
 its recordings have been processed. `endDate` is optional; the first request
 captures a fixed end and subsequent requests with the same start resume it.
-Backfills include preceding-day context, so discovery can include recordings
-starting before the requested start. Backfills are additive and do not reset
+Backfills fetch their requested range without preceding-day overlap. Backfills are
+additive and do not reset
 existing delivery history. Pending work from other ranges can also be processed.
 After migration review, use `{}` to resume automatic delivery.
 
-Seven-day rescanning is a bounded recovery policy: recordings arriving late or
-changing outside that window need an explicit backfill/reconciliation scan.
-Only history still exposed by Limitless can be recovered. A successful AI call
-cannot guarantee that every intended task was recognized.
+Responses include `X-Extraction-Discovery: incremental-v2` for deployment verification.
 
 ## Ledger and status
 

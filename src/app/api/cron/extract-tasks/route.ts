@@ -7,7 +7,7 @@ import { createProviders } from "@/lib/task-extraction/providers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const json = (body: unknown, code = 200) => Response.json(body, { status: code, headers: { "Cache-Control": "no-store" } });
+const json = (body: unknown, code = 200) => Response.json(body, { status: code, headers: { "Cache-Control": "no-store", "X-Extraction-Discovery": "incremental-v2" } });
 const authorized = (request: NextRequest) => Boolean(process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`);
 const failure = (error: unknown) => json({ success: false, error: error instanceof Error ? error.message : String(error) }, (error instanceof LedgerBusyError || error instanceof BacklogConflictError) ? 409 : 500);
 
