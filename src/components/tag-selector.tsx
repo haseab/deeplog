@@ -20,7 +20,7 @@ interface TagSelectorProps {
   currentTags: string[];
   onTagsChange?: (newTags: string[]) => void;
   availableTags: Tag[];
-  onOpenChange?: (isOpen: boolean) => void;
+  onOpenChange?: (isOpen: boolean, instanceId: string) => void;
   isOpen?: boolean; // Optional controlled open state
   closeOnSelect?: boolean; // Close the selector when a tag is selected
   onNavigateNext?: () => void;
@@ -43,6 +43,7 @@ export function TagSelector({
   onTagCreated,
   "data-testid": dataTestId,
 }: TagSelectorProps) {
+  const editorInstanceId = React.useId();
   const [searchTerm, setSearchTerm] = React.useState("");
   const [internalIsOpen, setInternalIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
@@ -60,15 +61,15 @@ export function TagSelector({
     if (controlledIsOpen === undefined) {
       setInternalIsOpen(newValue);
     }
-    onOpenChange?.(newValue);
+    onOpenChange?.(newValue, editorInstanceId);
   };
 
   // Notify parent of open state changes (for backward compatibility)
   React.useEffect(() => {
     if (controlledIsOpen === undefined) {
-      onOpenChange?.(internalIsOpen);
+      onOpenChange?.(internalIsOpen, editorInstanceId);
     }
-  }, [internalIsOpen, onOpenChange, controlledIsOpen]);
+  }, [internalIsOpen, onOpenChange, controlledIsOpen, editorInstanceId]);
 
   const onOpenChangeRef = React.useRef(onOpenChange);
   React.useEffect(() => {
@@ -76,9 +77,9 @@ export function TagSelector({
   }, [onOpenChange]);
   React.useEffect(
     () => () => {
-      onOpenChangeRef.current?.(false);
+      onOpenChangeRef.current?.(false, editorInstanceId);
     },
-    []
+    [editorInstanceId]
   );
 
   // Create options array (selected tags first, then filtered available tags)

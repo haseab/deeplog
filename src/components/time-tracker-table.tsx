@@ -8,7 +8,7 @@ import { projectSelection } from "@/lib/project-selection";
 import { parseContextEntryIds } from "@/lib/entry-context-link";
 import { useOptimisticEntries } from "@/hooks/use-optimistic-entries";
 import { entryMutations } from "@/lib/entry-mutations";
-import { createRowEditorState, updateRowEditorState } from "@/lib/row-editor-state";
+import { createRowEditorState, updateRowEditorState, remapRowEditorEntry } from "@/lib/row-editor-state";
 import { getCombineEntryPair } from "@/lib/combine-entry-pair";
 import { parseTimeEntryRange } from "@/lib/time-entry-range";
 import { recordSyncDiagnostic } from "@/lib/sync-diagnostics";
@@ -268,7 +268,7 @@ const MemoizedProjectCell = React.memo(
             onProjectChange(entry.id)(newProject)
           }
           projects={projects}
-          onOpenChange={(open) => setIsProjectSelectorOpen(entry.id, open)}
+          onOpenChange={(open, instanceId) => setIsProjectSelectorOpen(entry.id, open, instanceId)}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
           onNavigateVertical={navigateToAdjacentRow}
@@ -335,7 +335,7 @@ const MemoizedTagCell = React.memo(
           currentTags={entry.tags || []}
           onTagsChange={(newTags) => onTagsChange(entry.id)(newTags)}
           availableTags={availableTags}
-          onOpenChange={(open) => setIsTagSelectorOpen(entry.id, open)}
+          onOpenChange={(open, instanceId) => setIsTagSelectorOpen(entry.id, open, instanceId)}
           onNavigateNext={navigateToNextCell}
           onNavigatePrev={navigateToPrevCell}
           onNavigateVertical={navigateToAdjacentRow}
@@ -405,7 +405,7 @@ const MemoizedDescriptionCell = React.memo(
           onSave={(newDescription, notify, undoDescription) =>
             onDescriptionSave(entry.id)(newDescription, notify, undoDescription)
           }
-          onEditingChange={(editing) => setIsEditingCell(entry.id, editing)}
+          onEditingChange={(editing, instanceId) => setIsEditingCell(entry.id, editing, "description", instanceId)}
           onNavigateNext={navigateToNextCell}
           onNavigateVertical={navigateToAdjacentRow}
           projects={projects}
@@ -613,7 +613,7 @@ const MemoizedTimeCell = React.memo(
           onSaveWithForcePush={(startTime, endTime, direction) =>
             onTimeChangeWithForcePush(entry.id)(startTime, endTime, direction)
           }
-          onEditingChange={(open) => setIsTimeEditorOpen(entry.id, open)}
+          onEditingChange={(open, instanceId) => setIsTimeEditorOpen(entry.id, open, instanceId)}
           onNavigateNext={navigateToNextCell}
           onNavigateVertical={navigateToAdjacentRow}
           onNavigatePrev={navigateToPrevCell}
@@ -689,7 +689,7 @@ const MemoizedDurationCell = React.memo(
           onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
             onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
           }
-          onEditingChange={(editing) => setIsEditingCell(entry.id, editing, "duration")}
+          onEditingChange={(editing, instanceId) => setIsEditingCell(entry.id, editing, "duration", instanceId)}
           onNavigateVertical={navigateToAdjacentRow}
           prevEntryEnd={prevEntryEnd}
           nextEntryStart={nextEntryStart}
@@ -1529,11 +1529,11 @@ const MemoizedTableRow = React.memo(
     availableTags: Tag[];
     onProjectCreated: (project: Project) => void;
     onTagCreated: (tag: Tag) => void;
-    setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
-    setIsProjectSelectorOpen: (entryId: number, open: boolean) => void;
-    setIsTagSelectorOpen: (entryId: number, open: boolean) => void;
+    setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration", instanceId?: string) => void;
+    setIsProjectSelectorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
+    setIsTagSelectorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
     setIsActionsMenuOpen: (open: boolean) => void;
-    setIsTimeEditorOpen: (entryId: number, open: boolean) => void;
+    setIsTimeEditorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
     navigateToNextCell: () => void;
     navigateToPrevCell: () => void;
     navigateToAdjacentRow: (
@@ -1625,8 +1625,8 @@ const MemoizedTableRow = React.memo(
                     onSave={(newDescription, notify, undoDescription) =>
                       onDescriptionSave(entry.id)(newDescription, notify, undoDescription)
                     }
-                    onEditingChange={(editing) =>
-                      setIsEditingCell(entry.id, editing)
+                    onEditingChange={(editing, instanceId) =>
+                      setIsEditingCell(entry.id, editing, "description", instanceId)
                     }
                     onNavigateNext={() =>
                       navigateFromDescription(entry.id, rowIndex)
@@ -1672,8 +1672,8 @@ const MemoizedTableRow = React.memo(
                         onProjectChange(entry.id)(newProject)
                       }
                       projects={projects}
-                      onOpenChange={(open) =>
-                        setIsProjectSelectorOpen(entry.id, open)
+                      onOpenChange={(open, instanceId) =>
+                        setIsProjectSelectorOpen(entry.id, open, instanceId)
                       }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
@@ -1696,8 +1696,8 @@ const MemoizedTableRow = React.memo(
                           direction
                         )
                       }
-                      onEditingChange={(open) =>
-                        setIsTimeEditorOpen(entry.id, open)
+                      onEditingChange={(open, instanceId) =>
+                        setIsTimeEditorOpen(entry.id, open, instanceId)
                       }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
@@ -1719,8 +1719,8 @@ const MemoizedTableRow = React.memo(
                         onTagsChange(entry.id)(newTags)
                       }
                       availableTags={availableTags}
-                      onOpenChange={(open) =>
-                        setIsTagSelectorOpen(entry.id, open)
+                      onOpenChange={(open, instanceId) =>
+                        setIsTagSelectorOpen(entry.id, open, instanceId)
                       }
                       onNavigateNext={navigateToNextCell}
                       onNavigatePrev={navigateToPrevCell}
@@ -1748,8 +1748,8 @@ const MemoizedTableRow = React.memo(
                       onSaveWithStartTimeAdjustmentAndForcePush={(newDuration) =>
                         onDurationChangeWithStartTimeAdjustmentAndForcePush(entry.id)(newDuration)
                       }
-                      onEditingChange={(editing) =>
-                        setIsEditingCell(entry.id, editing, "duration")
+                      onEditingChange={(editing, instanceId) =>
+                        setIsEditingCell(entry.id, editing, "duration", instanceId)
                       }
                       onNavigateVertical={navigateToAdjacentRow}
                       prevEntryEnd={prevEntryEnd}
@@ -2735,7 +2735,7 @@ export function TimeTrackerTable({
     const affectedEntryIds = new Set<number>();
 
     Object.values(activeEditorEntryIdsRef.current).forEach((entryIds) => {
-      entryIds.forEach((entryId) => affectedEntryIds.add(entryId));
+      entryIds.forEach((_instances, entryId) => affectedEntryIds.add(entryId));
       entryIds.clear();
     });
     publishActiveEditorState();
@@ -2752,15 +2752,16 @@ export function TimeTrackerTable({
     (
       entryId: number,
       editorType: keyof typeof activeEditorEntryIdsRef.current,
-      open: boolean
+      open: boolean,
+      instanceId?: string
     ) => {
       const transition = updateRowEditorState(
-        activeEditorEntryIdsRef.current, entryId, editorType, open
+        activeEditorEntryIdsRef.current, entryId, editorType, open, instanceId
       );
+      if (!transition) return;
       recordToastDiagnostic({ event: "editor.report", entryId, editor: editorType, open,
         changed: !!transition, active: Object.values(activeEditorEntryIdsRef.current).some(ids => ids.has(entryId)),
         pending: pendingEntryToastFactoriesRef.current.has(entryId) });
-      if (!transition) return;
 
       publishActiveEditorState();
       transition.replacedEntryIds.forEach((replacedEntryId) => {
@@ -2777,12 +2778,13 @@ export function TimeTrackerTable({
   );
 
   const handleDescriptionOrDurationEditorChange = React.useCallback(
-    (entryId: number, open: boolean, editorType: "description" | "duration" = "description") => {
+    (entryId: number, open: boolean, editorType: "description" | "duration" = "description", instanceId?: string) => {
       const wasOpen = activeEditorEntryIdsRef.current[editorType].has(entryId);
-      handleRowEditorStateChange(entryId, editorType, open);
+      handleRowEditorStateChange(entryId, editorType, open, instanceId);
       if (editorType !== "description") return;
+      const isOpen = activeEditorEntryIdsRef.current.description.has(entryId);
 
-      if (open && !wasOpen) {
+      if (isOpen && !wasOpen) {
         const entry = timeEntriesRef.current.find(e => e.id === entryId);
         if (entry) {
           recordSyncDiagnostic({ event: "editor.baseline-captured", entryId,
@@ -2790,7 +2792,7 @@ export function TimeTrackerTable({
           descriptionBasesRef.current.set(entryId, entry.description || "");
         }
       }
-      if (open) {
+      if (isOpen) {
         justClosedDescriptionEntryIdRef.current = null;
       } else if (wasOpen) {
         justClosedDescriptionEntryIdRef.current = entryId;
@@ -2799,18 +2801,18 @@ export function TimeTrackerTable({
     [handleRowEditorStateChange, timeEntriesRef]
   );
   const handleProjectEditorChange = React.useCallback(
-    (entryId: number, open: boolean) =>
-      handleRowEditorStateChange(entryId, "project", open),
+    (entryId: number, open: boolean, instanceId?: string) =>
+      handleRowEditorStateChange(entryId, "project", open, instanceId),
     [handleRowEditorStateChange]
   );
   const handleTagEditorChange = React.useCallback(
-    (entryId: number, open: boolean) =>
-      handleRowEditorStateChange(entryId, "tags", open),
+    (entryId: number, open: boolean, instanceId?: string) =>
+      handleRowEditorStateChange(entryId, "tags", open, instanceId),
     [handleRowEditorStateChange]
   );
   const handleTimeEditorChange = React.useCallback(
-    (entryId: number, open: boolean) =>
-      handleRowEditorStateChange(entryId, "time", open),
+    (entryId: number, open: boolean, instanceId?: string) =>
+      handleRowEditorStateChange(entryId, "time", open, instanceId),
     [handleRowEditorStateChange]
   );
 
@@ -5578,13 +5580,7 @@ export function TimeTrackerTable({
               // The user can open an editor on the optimistic split row before
               // the request finishes. Keep that registration attached to the
               // row when its temporary ID is replaced by the server ID.
-              Object.values(activeEditorEntryIdsRef.current).forEach(
-                (activeEntryIds) => {
-                  if (activeEntryIds.delete(tempId)) {
-                    activeEntryIds.add(realId);
-                  }
-                }
-              );
+              remapRowEditorEntry(activeEditorEntryIdsRef.current, tempId, realId);
               publishActiveEditorState();
 
               // Swap temp ID with real ID in encrypted entries tracking
@@ -6163,13 +6159,7 @@ export function TimeTrackerTable({
             // Editor registrations are keyed by entry ID. Reconcile them at
             // the same time as the optimistic entry so a temp ID can never
             // remain in the sets and keep global shortcuts disabled forever.
-            Object.values(activeEditorEntryIdsRef.current).forEach(
-              (activeEntryIds) => {
-                if (activeEntryIds.delete(tempId)) {
-                  activeEntryIds.add(realId);
-                }
-              }
-            );
+            remapRowEditorEntry(activeEditorEntryIdsRef.current, tempId, realId);
 
             // Swap temp ID with real ID in encrypted entries tracking
             encryption.swapEncryptedEntryId(tempId, realId);

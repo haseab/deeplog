@@ -32,7 +32,7 @@ interface TimeEditorProps {
     endTime: string | null,
     direction: "next" | "previous" | "both"
   ) => void;
-  onEditingChange?: (isEditing: boolean) => void;
+  onEditingChange?: (isEditing: boolean, instanceId: string) => void;
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
   onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
@@ -56,6 +56,7 @@ export function TimeEditor({
   timeZone,
   "data-testid": dataTestId,
 }: TimeEditorProps) {
+  const editorInstanceId = React.useId();
   const [isOpen, setIsOpen] = React.useState(false);
   const [startDateValue, setStartDateValue] = React.useState("");
   const [startTimeHours, setStartTimeHours] = React.useState("");
@@ -91,8 +92,8 @@ export function TimeEditor({
 
   // Notify parent of editing state changes
   React.useEffect(() => {
-    onEditingChange?.(isOpen);
-  }, [isOpen, onEditingChange]);
+    onEditingChange?.(isOpen, editorInstanceId);
+  }, [isOpen, onEditingChange, editorInstanceId]);
 
   const onEditingChangeRef = React.useRef(onEditingChange);
   React.useEffect(() => {
@@ -100,9 +101,9 @@ export function TimeEditor({
   }, [onEditingChange]);
   React.useEffect(
     () => () => {
-      onEditingChangeRef.current?.(false);
+      onEditingChangeRef.current?.(false, editorInstanceId);
     },
-    []
+    [editorInstanceId]
   );
 
   // Initialize values when opening

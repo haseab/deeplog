@@ -21,7 +21,7 @@ interface ProjectSelectorProps {
   currentProjectColor?: string;
   onProjectChange?: (newProject: string) => void;
   projects: Project[];
-  onOpenChange?: (isOpen: boolean) => void;
+  onOpenChange?: (isOpen: boolean, instanceId: string) => void;
   isOpen?: boolean; // Optional controlled open state
   onNavigateNext?: () => void;
   onNavigatePrev?: () => void;
@@ -59,6 +59,7 @@ export const ProjectSelector = React.forwardRef<
   },
   ref
 ) {
+  const editorInstanceId = React.useId();
   const [searchTerm, setSearchTerm] = React.useState("");
   const [internalIsOpen, setInternalIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
@@ -76,17 +77,17 @@ export const ProjectSelector = React.forwardRef<
       if (controlledIsOpen === undefined) {
         setInternalIsOpen(newValue);
       }
-      onOpenChange?.(newValue);
+      onOpenChange?.(newValue, editorInstanceId);
     },
-    [controlledIsOpen, isOpen, onOpenChange]
+    [controlledIsOpen, isOpen, onOpenChange, editorInstanceId]
   );
 
   // Notify parent of open state changes
   React.useEffect(() => {
     if (controlledIsOpen === undefined) {
-      onOpenChange?.(internalIsOpen);
+      onOpenChange?.(internalIsOpen, editorInstanceId);
     }
-  }, [internalIsOpen, onOpenChange, controlledIsOpen]);
+  }, [internalIsOpen, onOpenChange, controlledIsOpen, editorInstanceId]);
 
   const onOpenChangeRef = React.useRef(onOpenChange);
   React.useEffect(() => {
@@ -94,9 +95,9 @@ export const ProjectSelector = React.forwardRef<
   }, [onOpenChange]);
   React.useEffect(
     () => () => {
-      onOpenChangeRef.current?.(false);
+      onOpenChangeRef.current?.(false, editorInstanceId);
     },
-    []
+    [editorInstanceId]
   );
 
   // Create options array (filtered projects + No Project at bottom)

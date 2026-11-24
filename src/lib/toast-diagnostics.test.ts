@@ -8,7 +8,7 @@ test("rapid typing is batched, bounded, ordered and correlated without real iden
   const timers: (() => void)[] = [];
   const record = createToastDiagnostics(report => reports.push(report), flush => { timers.push(flush); });
   record({ event: "toast.created", entryId: 987654321, toastId: "private-toast-content" });
-  for (let i = 0; i < 100; i++) record({ event: "editor.report", entryId: 987654321, editor: "description", open: true, changed: false });
+  for (let i = 0; i < 100; i++) record({ event: "description.edit", entryId: 987654321 });
   assert.equal(reports.length, 0);
   assert.equal(timers.length, 1);
   timers.shift()!();
@@ -25,6 +25,19 @@ test("rapid typing is batched, bounded, ordered and correlated without real iden
   assert.equal(reports[1].dropped, 0);
   assert.equal(reports[1].events[0].toast, 1);
   assert.equal(reports[1].events[0].sequence, 102);
+});
+
+test("unchanged responsive editor reports cannot crowd out toast lifecycle events", () => {
+  const reports: ToastDiagnosticReport[] = [];
+  const timers: (() => void)[] = [];
+  const record = createToastDiagnostics(report => reports.push(report), flush => { timers.push(flush); });
+  for (let i = 0; i < 10000; i++) record({ event: "editor.report", entryId: 1, open: false, changed: false });
+  assert.equal(timers.length, 0);
+  record({ event: "editor.report", entryId: 1, open: true, changed: true });
+  record({ event: "toast.cancel", entryId: 1, toastId: 1, reason: "cancelled" });
+  timers.shift()!();
+  assert.deepEqual(reports[0].events.map(e => e.event), ["editor.report", "toast.cancel"]);
+  assert.equal(reports[0].dropped, 0);
 });
 
 test("transport failures are dropped without retries or affecting later edits", () => {

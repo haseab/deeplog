@@ -8,6 +8,7 @@ export default defineConfig({
       "description-worker.test.ts",
       "optimistic-entries.test.ts",
       "split-entry-dialog.test.ts",
+      "responsive-editors.test.ts",
     ],
   },
 });

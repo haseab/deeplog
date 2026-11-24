@@ -13,7 +13,7 @@ interface DurationEditorProps {
   onSaveWithStartTimeAdjustment?: (duration: number) => void;
   onSaveWithForcePush?: (duration: number) => void; // Align next entry's start to this entry's end
   onSaveWithStartTimeAdjustmentAndForcePush?: (duration: number) => void; // Align previous entry's end to this entry's start
-  onEditingChange?: (isEditing: boolean) => void;
+  onEditingChange?: (isEditing: boolean, instanceId: string) => void;
   onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null; // End time of the previous entry (chronologically before)
   nextEntryStart?: string | null; // Start time of the next entry (chronologically after)
@@ -34,6 +34,7 @@ export function DurationEditor({
   nextEntryStart,
   "data-testid": dataTestId,
 }: DurationEditorProps) {
+  const editorInstanceId = React.useId();
   const [isEditing, setIsEditing] = React.useState(false);
   const [hours, setHours] = React.useState("");
   const [minutes, setMinutes] = React.useState("");
@@ -104,8 +105,8 @@ export function DurationEditor({
 
   // Notify parent of editing state changes
   React.useEffect(() => {
-    onEditingChange?.(isEditing);
-  }, [isEditing, onEditingChange]);
+    onEditingChange?.(isEditing, editorInstanceId);
+  }, [isEditing, onEditingChange, editorInstanceId]);
 
   const onEditingChangeRef = React.useRef(onEditingChange);
   React.useEffect(() => {
@@ -113,9 +114,9 @@ export function DurationEditor({
   }, [onEditingChange]);
   React.useEffect(
     () => () => {
-      onEditingChangeRef.current?.(false);
+      onEditingChangeRef.current?.(false, editorInstanceId);
     },
-    []
+    [editorInstanceId]
   );
 
   const handleActivate = () => {
