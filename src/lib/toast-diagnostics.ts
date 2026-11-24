@@ -23,6 +23,9 @@ export function createToastDiagnostics(
     return map.get(key);
   };
   return (input: Input) => {
+    // Responsive siblings can re-report unchanged state on every row render.
+    // Keep the bounded buffer available for actual transitions and mutations.
+    if (input.event === "editor.report" && input.changed === false) return;
     try {
       pageId ??= crypto.randomUUID();
       const event: ToastDiagnosticEvent = {

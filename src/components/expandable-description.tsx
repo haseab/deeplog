@@ -41,7 +41,7 @@ interface ExpandableDescriptionProps {
   entryId?: number;
   description: string;
   onSave?: (newDescription: string, notify?: boolean, undoDescription?: string) => void;
-  onEditingChange?: (isEditing: boolean) => void;
+  onEditingChange?: (isEditing: boolean, instanceId: string) => void;
   onNavigateNext?: () => void;
   onNavigateVertical?: (direction: "up" | "down" | "left" | "right") => void;
   projects?: Project[];
@@ -75,6 +75,7 @@ export function ExpandableDescription({
     return () => recordToastDiagnostic({ event: "editor.unmounted", entryId, editor: "description" });
   }, [entryId]);
   const offlineDrafting = !!entryId && entryId > 0 && !!drafts;
+  const editorInstanceId = React.useId();
   const [isEditing, setIsEditing] = React.useState(false);
   const [showLinkDialog, setShowLinkDialog] = React.useState(false);
   const [linkUrl, setLinkUrl] = React.useState("");
@@ -121,8 +122,8 @@ export function ExpandableDescription({
   // Notify parent of editing state changes
   React.useEffect(() => {
     isEditingRef.current = isEditing;
-    onEditingChange?.(isEditing);
-  }, [isEditing, onEditingChange]);
+    onEditingChange?.(isEditing, editorInstanceId);
+  }, [isEditing, onEditingChange, editorInstanceId]);
 
   // The row can disappear without going through the normal close path (for
   // example, while an optimistic entry is reconciled). Always release the
@@ -133,9 +134,9 @@ export function ExpandableDescription({
   }, [onEditingChange]);
   React.useEffect(
     () => () => {
-      onEditingChangeRef.current?.(false);
+      onEditingChangeRef.current?.(false, editorInstanceId);
     },
-    []
+    [editorInstanceId]
   );
 
   // Handle click outside to save and close editor
@@ -633,7 +634,7 @@ export function ExpandableDescription({
           isEditingRef.current = false;
           hasLocalEditsRef.current = false;
           setIsEditing(false);
-          onEditingChange?.(false);
+          onEditingChange?.(false, editorInstanceId);
         });
       } else {
         isEditingRef.current = false;

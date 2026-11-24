@@ -15,7 +15,7 @@ export interface MemoizedProjectCellProps {
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onProjectChange: (entryId: number) => (newProject: string) => void;
   projects: Project[];
-  setIsProjectSelectorOpen: (entryId: number, open: boolean) => void;
+  setIsProjectSelectorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
@@ -31,7 +31,7 @@ export interface MemoizedTagCellProps {
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onTagsChange: (entryId: number) => (newTags: string[]) => void;
   availableTags: Tag[];
-  setIsTagSelectorOpen: (entryId: number, open: boolean) => void;
+  setIsTagSelectorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
   navigateToNextCell: () => void;
   navigateToPrevCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
@@ -45,7 +45,7 @@ export interface MemoizedDescriptionCellProps {
   isFullscreen: boolean;
   onSelectCell: (rowIndex: number, cellIndex: number) => void;
   onDescriptionSave: (entryId: number) => (newDescription: string, notify?: boolean, undoDescription?: string) => void;
-  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
+  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration", instanceId?: string) => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   projects: Project[];
@@ -94,7 +94,7 @@ export interface MemoizedTimeCellProps {
     endTime: string | null,
     direction: "next" | "previous" | "both"
   ) => void;
-  setIsTimeEditorOpen: (entryId: number, open: boolean) => void;
+  setIsTimeEditorOpen: (entryId: number, open: boolean, instanceId?: string) => void;
   navigateToNextCell: () => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   navigateToPrevCell: () => void;
@@ -118,7 +118,7 @@ export interface MemoizedDurationCellProps {
   onDurationChangeWithStartTimeAdjustmentAndForcePush: (
     entryId: number
   ) => (newDuration: number) => void;
-  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration") => void;
+  setIsEditingCell: (entryId: number, editing: boolean, editorType?: "description" | "duration", instanceId?: string) => void;
   navigateToAdjacentRow: (direction: "up" | "down" | "left" | "right") => void;
   prevEntryEnd?: string | null;
   nextEntryStart?: string | null;
