@@ -5,6 +5,8 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ExpandableDescription } from "./src/components/expandable-description";
 import { DurationEditor } from "./src/components/duration-editor";
 import { createRowEditorState, updateRowEditorState } from "./src/lib/row-editor-state";
+import * as descriptionDrafts from "./src/contexts/description-drafts-context";
+import type { Editor } from "@tiptap/react";
 
 vi.mock("./src/lib/toast-diagnostics", () => ({ recordToastDiagnostic: vi.fn() }));
 
@@ -16,6 +18,59 @@ beforeAll(() => {
 afterAll(() => {
   Reflect.deleteProperty(Range.prototype, "getClientRects");
   Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+});
+
+it("description: resumes the caret during its pending toast, then opens at the end after submission", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+  vi.useFakeTimers();
+  let description = "An example description";
+  let pending = false;
+  const spy = vi.spyOn(descriptionDrafts, "useDescriptionDrafts").mockReturnValue({
+    getDescription: () => description,
+    hasPendingDescriptionToast: () => pending,
+  } as unknown as NonNullable<ReturnType<typeof descriptionDrafts.useDescriptionDrafts>>);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = async () => {
+    await React.act(async () => host.querySelector('[data-testid="description"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await React.act(async () => { vi.advanceTimersByTime(200); });
+    return (host.querySelector(".tiptap") as HTMLElement & { editor: Editor }).editor;
+  };
+  const close = async () => {
+    await React.act(async () => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+  };
+  const render = () => root.render(React.createElement(ExpandableDescription, {
+      entryId: 1,
+      description,
+      "data-testid": "description",
+      onSave: (text, notify) => { description = text; if (notify) pending = true; },
+    }));
+  try {
+    await React.act(async () => render());
+    const editor = await open();
+    expect(editor.state.selection.from).toBe(editor.state.doc.content.size - 1);
+    await React.act(async () => { editor.chain().setTextSelection(5).insertContent("X").run(); });
+    await close();
+    expect(pending).toBe(true);
+    expect((await open()).state.selection.from).toBe(6);
+    await close();
+    pending = false;
+    expect((await open()).state.selection.from).toBe(editor.state.doc.content.size - 1);
+    await close();
+    pending = true;
+    description = "Externally replaced text";
+    await React.act(async () => render());
+    expect((await open()).state.selection.from).toBe(editor.state.doc.content.size - 1);
+  } finally {
+    await React.act(async () => root.unmount());
+    await React.act(async () => { vi.runOnlyPendingTimers(); });
+    spy.mockRestore();
+    host.remove();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 for (const kind of ["description", "duration"] as const) {

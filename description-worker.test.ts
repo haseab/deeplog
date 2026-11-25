@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { entryMutations } from "./src/lib/entry-mutations";
 import type { DescriptionDraft } from "./src/lib/description-sync";
+import { toast } from "./src/lib/toast";
 
 const memory = vi.hoisted(() => ({
   drafts: new Map<string, DescriptionDraft>(),
@@ -386,6 +387,50 @@ it("uses an empty optimistic description before local persistence or server ackn
   });
   expect(context!.getDescription(3, "original")).toBe("");
   expect(writes).toBe(0);
+});
+
+it("tracks each description toast from before persistence until submission, expiry, dismissal or undo", async () => {
+  let context: ReturnType<typeof useDescriptionDrafts>;
+  function Probe() {
+    context = useDescriptionDrafts();
+    return null;
+  }
+  await mount();
+  await React.act(async () => {
+    root.render(React.createElement(DescriptionDraftsProvider, null, React.createElement(Probe)));
+  });
+  await React.act(async () => {
+    await vi.waitFor(() => expect(context?.ready).toBe(true));
+  });
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+  const save = async (text: string) => {
+    await React.act(async () => {
+      const saving = context!.save(3, "original", text, true);
+      expect(context!.hasPendingDescriptionToast(3)).toBe(true);
+      expect(context!.hasPendingDescriptionToast(4)).toBe(false);
+      await saving;
+    });
+    return vi.mocked(toast).mock.calls.at(-1)![1]!;
+  };
+  const old = await save("first edit");
+  const current = await save("second edit");
+  old.onAutoClose?.({} as never);
+  expect(context!.hasPendingDescriptionToast(3)).toBe(true);
+  current.submitAction?.();
+  expect(context!.hasPendingDescriptionToast(3)).toBe(false);
+  const expired = await save("third edit");
+  expired.onAutoClose?.({} as never);
+  expect(context!.hasPendingDescriptionToast(3)).toBe(false);
+  const dismissed = await save("fourth edit");
+  dismissed.onDismiss?.({} as never);
+  expect(context!.hasPendingDescriptionToast(3)).toBe(false);
+  const undone = await save("fifth edit");
+  await React.act(async () => {
+    if (undone.action && typeof undone.action === "object" && "onClick" in undone.action) {
+      undone.action.onClick({} as never);
+    }
+  });
+  expect(context!.hasPendingDescriptionToast(3)).toBe(false);
 });
 
 it("keeps the newest description when an older local save completes", async () => {
