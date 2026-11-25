@@ -112,12 +112,25 @@ export function ExpandableDescription({
   const hasLocalEditsRef = React.useRef(false);
   const editStartDescriptionRef = React.useRef(description);
   const isApplyingExternalContentRef = React.useRef(false);
+  const closedSelectionRef = React.useRef<{
+    entryId: number | undefined;
+    description: string;
+    from: number;
+    to: number;
+  } | null>(null);
 
   const getMarkdownContent = React.useCallback(() => {
     if (!editorRef.current) return "";
     const html = editorRef.current.getHTML();
     return descriptionHtmlToMarkdown(html);
   }, []);
+
+  const rememberSelection = React.useCallback(() => {
+    const currentEditor = editorRef.current;
+    if (!currentEditor) return;
+    const { from, to } = currentEditor.state.selection;
+    closedSelectionRef.current = { entryId, description: getMarkdownContent(), from, to };
+  }, [entryId, getMarkdownContent]);
 
   // Notify parent of editing state changes
   React.useEffect(() => {
@@ -160,6 +173,7 @@ export function ExpandableDescription({
         }
 
         // Save and close
+        rememberSelection();
         const newContent = getMarkdownContent();
         if (newContent !== description || (hasLocalEditsRef.current && newContent !== editStartDescriptionRef.current)) {
           onSave?.(newContent, true, editStartDescriptionRef.current);
@@ -174,7 +188,7 @@ export function ExpandableDescription({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isEditing, description, getMarkdownContent, onSave]);
+  }, [isEditing, description, getMarkdownContent, onSave, rememberSelection]);
 
   // Update character count when editor content changes
   const updateCharCount = React.useCallback(() => {
@@ -590,6 +604,13 @@ export function ExpandableDescription({
     }
 
     if (!isEditing) {
+      const previousSelection = closedSelectionRef.current;
+      const resumeSelection = entryId !== undefined &&
+        drafts?.hasPendingDescriptionToast(entryId) &&
+        previousSelection?.entryId === entryId &&
+        previousSelection.description === description
+          ? previousSelection
+          : null;
       const currentContent = getMarkdownContent();
       if (editor && currentContent !== description) {
         isApplyingExternalContentRef.current = true;
@@ -611,7 +632,11 @@ export function ExpandableDescription({
       // Focus the editor after a short delay to ensure it's rendered
       setTimeout(() => {
         if (document.activeElement?.closest('[role="dialog"]')) return;
-        editor?.commands.focus("end");
+        if (resumeSelection && editor) {
+          editor.chain().setTextSelection({ from: resumeSelection.from, to: resumeSelection.to }).focus().run();
+        } else {
+          editor?.commands.focus("end");
+        }
         updateCharCount();
         if (editor) updateCaretLine(editor);
       }, 100);
@@ -620,6 +645,7 @@ export function ExpandableDescription({
 
   const saveAndExit = async (synchronous = false) => {
     if (editor) {
+      rememberSelection();
       const currentContent = getMarkdownContent();
 
       // Only save if content has actually changed
@@ -645,6 +671,7 @@ export function ExpandableDescription({
   };
 
   const cancelEditing = () => {
+    closedSelectionRef.current = null;
     console.debug("[ExpandableDescription] Cancelling editor and dropdown", {
       isEditing,
       showRecentTimers,

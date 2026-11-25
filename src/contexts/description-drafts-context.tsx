@@ -24,6 +24,7 @@ type DraftContext = {
   save: (id: number, base: string, text: string, notify?: boolean, undoDescription?: string, start?: string) => Promise<void>;
   decode: (text: string, id: number) => string;
   getDescription: (id: number, fallback: string) => string;
+  hasPendingDescriptionToast: (id: number) => boolean;
   commit: (id: number) => void;
   open: (id: number) => void;
   ready: boolean;
@@ -37,6 +38,10 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   const [drafts, setDrafts] = React.useState(new Map<number, DescriptionDraft>());
   // Reads must see keystrokes before IndexedDB finishes persisting them.
   const savingDescriptions = React.useRef(new Map<number, { text: string; persisted?: Promise<unknown> }>());
+  // Toast lifetime is independent of background upload status. Register before
+  // persistence so immediately reopening the editor also resumes its caret.
+  const pendingDescriptionToasts = React.useRef(new Map<number, symbol>());
+  const hasPendingDescriptionToast = React.useCallback((id: number) => pendingDescriptionToasts.current.has(id), []);
   const draftsRef = React.useRef(drafts);
   draftsRef.current = drafts;
   const [syncing, setSyncing] = React.useState(new Set<number>());
@@ -97,6 +102,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         timelineReady.current = false;
         accountRef.current = "";
         savingDescriptions.current.clear();
+        pendingDescriptionToasts.current.clear();
         draftsRef.current = new Map();
         setAccount(""); setDrafts(new Map()); setSelected(null); setHistory(null);
       }
@@ -303,6 +309,13 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
 
   const save = React.useCallback(async (entryId: number, base: string, text: string, notify = false, undoDescription?: string, start?: string) => {
     const active = accountRef.current;
+    const toastSession = notify ? Symbol() : undefined;
+    if (toastSession) pendingDescriptionToasts.current.set(entryId, toastSession);
+    const finishToast = () => {
+      if (pendingDescriptionToasts.current.get(entryId) === toastSession) {
+        pendingDescriptionToasts.current.delete(entryId);
+      }
+    };
     recordSyncDiagnostic({ event: "edit.requested", account: active, entryId,
       fields: { tabId: owner.current, notify, encryptionEnabled: encryptionRef.current.isE2EEEnabled, inputMatchesBase: base === text }, texts: { suppliedBase: base, input: text } });
     const saving: { text: string; persisted?: Promise<unknown> } = { text };
@@ -327,6 +340,8 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         toast("Description updated.", {
           id: `description-submit-${entryId}`,
           duration: Number.isFinite(configuredDuration) && configuredDuration > 0 ? configuredDuration : 4000,
+          onDismiss: finishToast,
+          onAutoClose: finishToast,
           submitAction: () => {
             if (accountRef.current !== active || localStorage.getItem("toggl_session_token") !== tokenRef.current) {
               toast.error("Account changed. Reopen the entry before syncing.");
@@ -334,12 +349,14 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             }
             // Use the same immediate-submit action as the other Undo toasts.
             // The worker preserves offline drafts and skips already-synced ones.
+            finishToast();
             void work.current();
             return true;
           },
           action: {
             label: "Undo (⌘Z)",
             onClick: () => {
+              finishToast();
               void (async () => {
                 try {
                   if (accountRef.current !== active || localStorage.getItem("toggl_session_token") !== tokenRef.current) {
@@ -367,8 +384,11 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             },
           },
         });
+      } else if (notify) {
+        finishToast();
       }
     } catch (error) {
+      finishToast();
       const message = error instanceof Error ? error.message : "Local storage is unavailable";
       const failed: DescriptionDraft = { key: `${active}:${entryId}`, account: active, entryId, base, local: text, start, revision: 0, updatedAt: Date.now(), status: "error", error: `NOT SAVED LOCALLY: ${message}` };
       failedDrafts.current.set(entryId, failed);
@@ -524,7 +544,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not resolve conflict"); }
     finally { await publish(); setBusy(false); }
   };
-  return <Context.Provider value={{ drafts, syncing, save, decode, getDescription, commit, open: id => { void openDraft(id); }, ready: !!account }}>
+  return <Context.Provider value={{ drafts, syncing, save, decode, getDescription, hasPendingDescriptionToast, commit, open: id => { void openDraft(id); }, ready: !!account }}>
     {children}
     <div role="group" aria-label="Pending description drafts" className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
