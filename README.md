@@ -55,21 +55,74 @@ range in the calendar switches back to whole days. The main
 
 ### Search time entries
 
+Use the **Search time entries** button beside Analytics and Fullscreen to reveal
+a search bar and project/tag filters in the existing toolbar row. The sync badge
+fades out to make room; the table stays in place. Advanced rules open in a popover.
+The date picker stays separate. Enter submits the search; Option+D/P/T opens the date/project/tag
+filters. Close search to return to the normal timeline without leaving the page.
+Submitted search criteria are remembered in this tab for five minutes, scoped to
+the authenticated account. Returning within that window restores the criteria without running the search;
+returning after expiry opens fresh search controls. Open results are not cleared
+when the window expires.
+Search descriptions using contains, does not contain, starts with, ends with,
+exact, not exact, empty, or not empty. Add description rules and choose **Match all
+criteria (AND)** or **Match any criterion (OR)** to combine them with project and
+tag selections. Project selections match any selected project; a tag selection
+requires every selected tag. The inclusive date range always applies. Advanced
+rules and the combination mode are included in the five-minute search recall.
+The results reuse the timeline's editable table. Select loaded results for project,
+tag, description, find-and-replace, or delete actions. Find-and-replace is literal
+and case-sensitive and previews affected entries before applying. Combining is
+unavailable in search results. Encrypted descriptions cannot be searched upstream.
+
+Selecting multiple entries reveals a floating **Bulk edit** button. Changes are
+previewed immediately and sent only when their 30-second Undo toast closes. The
+window pauses while reviewing bulk history. Undo individual entries, a batch, or
+all uncommitted batches there. Saved field edits can be restored through a new
+preview; committed deletions cannot be restored. Pending deletions remain visible
+until saved. Conflicts and failures retain results and recovery snapshots;
+uncertain writes require a read-only status check before undo or retry. History
+is kept in the current view only. Leaving with pending changes prompts a warning.
+
+Results stay visible while editing. After changing entries, finish syncing and
+search again before loading additional matches, so report pagination cannot skip
+entries when a description changes or an entry is deleted.
+
+Each result's **Open in timeline** action opens `/?context=<entry-id>` in a new tab,
+showing the entry and up to five neighbors on each side. Scroll toward either edge
+to load more, or use the newer/older buttons. The context is independent of search
+filters and preserves the visible position when newer entries are prepended.
+
 `GET /api/time-entries/search?q=planning&from_date=2026-10-01&to_date=2026-10-31`
 
 Send the Toggl session key in the `x-toggl-session-token` header, as with the
 other time-entry endpoints. No API key is required. The route uses the Analytics
 query endpoint observed in Toggl Track's Detailed report in Chrome, with its
-`description contains` filter, scoped to the authenticated user and workspace.
+description, project, and tag filters, scoped to the authenticated user and workspace.
 
-`q`, `from_date`, and `to_date` are required. Dates are inclusive `YYYY-MM-DD`
+`from_date` and `to_date` are required; omit `q` for date-only searches. Dates are inclusive `YYYY-MM-DD`
 calendar dates in the Toggl profile timezone. Optional `page` is zero-based
 (default `0`); `limit` is `1`–`100` (default `100`). Results are newest first.
+Optional `match` accepts `phrase` (default), `not-contains`, `starts-with`,
+`ends-with`, `exact`, `not-exact`, `empty`, or `not-empty`. Empty operators need no
+`q`; other nondefault operators require it. `conditions` is a JSON array of up to
+eight additional `{ "match": "phrase", "text": "planning" }` description rules.
+Use `combine=or` to match any criterion; the default is `and`. Account scope and
+date range always apply outside this group. `projects` is a comma-separated
+list of project IDs (or `none`); `tags` lists tag IDs, all of which must match.
+All criteria are sent to Toggl before pagination. Project lists match any selected
+project. No project uses `empty`, combined with an OR group when other projects
+are also selected. Each selected tag adds its own array
+condition so every tag must match, grouped together when using OR. Description
+rules use Toggl's corresponding operators upstream, before pagination and counts.
 
 The response contains `timeEntries` (the app's usual entry shape, with UTC
 timestamps and duration in seconds), `profileTimeZone`, and
-`pagination: { page, limit, hasMore }`. A full page sets `hasMore: true`; the
-final request may return an empty page. This is a historical report search;
+`pagination: { page, limit, hasMore, total? }`. A full first page uses Toggl's
+count aggregation with the same filters to establish the total. Short pages
+already establish the end and need no count request. The results view retains
+the count across loaded pages. If the optional count is unavailable, pagination
+falls back to page size and may need one final empty request. This is a historical report search;
 running timers and recent changes may not yet appear in Toggl Analytics.
 
 Invalid input or a missing session returns `400`; an expired session returns

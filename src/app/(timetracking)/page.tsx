@@ -7,8 +7,10 @@ import { EncryptionProvider } from "@/contexts/encryption-context";
 import { DescriptionDraftsProvider } from "@/contexts/description-drafts-context";
 import Image from "next/image";
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = React.useState(false);
   const [hasCredentials, setHasCredentials] = React.useState<boolean>(false);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
@@ -120,9 +122,13 @@ export default function Home() {
           </div>
         )}
 
-        <DescriptionDraftsProvider><TimeTrackerTable onFullscreenChange={handleFullscreenChange} /></DescriptionDraftsProvider>
+        <DescriptionDraftsProvider><TimeTrackerTable key={searchParams.get("context") ?? "timeline"} onFullscreenChange={handleFullscreenChange} /></DescriptionDraftsProvider>
       </div>
     </main>
     </EncryptionProvider>
   );
+}
+
+export default function Home() {
+  return <React.Suspense fallback={null}><HomeContent /></React.Suspense>;
 }

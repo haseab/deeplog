@@ -9,7 +9,9 @@ import {
 import { cn } from "@/lib/utils";
 import { MoreVertical, Pin } from "lucide-react";
 import * as React from "react";
+import { EntryViewContext } from "./entry-view-context";
 interface ActionsMenuProps {
+  entryId?: number;
   onPin?: () => void;
   onUnpin?: () => void;
   isPinned?: boolean;
@@ -27,6 +29,7 @@ interface ActionsMenuProps {
 }
 
 export function ActionsMenu({
+  entryId,
   onPin,
   onUnpin,
   isPinned = false,
@@ -42,6 +45,7 @@ export function ActionsMenu({
   isRunning = false,
   "data-testid": dataTestId,
 }: ActionsMenuProps) {
+  const { search } = React.useContext(EntryViewContext);
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPersistent, setIsPersistent] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
@@ -50,10 +54,13 @@ export function ActionsMenu({
 
   // Menu options array for easier navigation
   const menuOptions = [
+    ...(search && entryId && entryId > 0 ? [{ label: "↗ Open in timeline", action: () => window.open(`/?context=${entryId}`, "_blank", "noopener,noreferrer"), shortcut: "" }] : []),
     { label: "🗑️ Delete", action: onDelete || (() => {}), isDestructive: true, shortcut: "D" },
     { label: "✂️ Split", action: onSplit || (() => {}), shortcut: "X" },
-    { label: "🔗 Combine into older row", action: onCombine || (() => {}), shortcut: "C" },
-    { label: "🔗 Combine into newer row", action: onCombineReverse || (() => {}), shortcut: "⌥C" },
+    ...(!search ? [
+      { label: "🔗 Combine into older row", action: onCombine || (() => {}), shortcut: "C" },
+      { label: "🔗 Combine into newer row", action: onCombineReverse || (() => {}), shortcut: "⌥C" },
+    ] : []),
     isPinned
       ? { label: "📌 Unpin", action: onUnpin || (() => {}), shortcut: "P" }
       : { label: "📌 Pin", action: onPin || (() => {}), shortcut: "P" },

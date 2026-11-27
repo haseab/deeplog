@@ -5,6 +5,8 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     include: [
+      "entry-search-ui.test.ts",
+      "bulk-transactions-ui.test.ts",
       "description-worker.test.ts",
       "optimistic-entries.test.ts",
       "split-entry-dialog.test.ts",

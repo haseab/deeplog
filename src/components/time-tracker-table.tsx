@@ -1,6 +1,16 @@
 "use client";
 import { openBbAnalytics } from "@/lib/bb-analytics";
 
+import { useBulkTransactions } from "@/hooks/use-bulk-transactions";
+import { BulkTransactionHistory } from "./bulk-transaction-history";
+import type { BulkPatch, BulkTransactions } from "@/lib/bulk-transactions";
+import { rememberEntrySearch, recallEntrySearch } from "@/lib/recent-entry-search";
+import { EntrySearchControls } from "./entry-search-controls";
+import { TimelineSearchButton } from "./timeline-search-button";
+import { SearchBulkEditDialog, type SearchEntryEdit } from "./search-bulk-edit-dialog";
+import { EntryViewContext } from "./entry-view-context";
+import { searchParamsForEntries, compareEntryOrder, type EntrySearch } from "@/lib/entry-search";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { apiFetch } from "@/lib/api-fetch";
 import { TogglRateLimitError } from "@/lib/toggl-rate-limit";
 
@@ -215,6 +225,7 @@ const MemoizedDurationEditor = React.memo(
 
 const MemoizedActionsMenu = React.memo(ActionsMenu, (prevProps, nextProps) => {
   return (
+    prevProps.entryId === nextProps.entryId &&
     prevProps.isPinned === nextProps.isPinned &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isRunning === nextProps.isRunning &&
@@ -755,6 +766,7 @@ const MemoizedActionsCell = React.memo(
         onClick={() => onSelectCell(rowIndex, cellIndex)}
       >
         <MemoizedActionsMenu
+          entryId={entry.id}
           onPin={() => onPin(entry)}
           onUnpin={() => onUnpin(entry.id.toString())}
           isPinned={isPinned}
@@ -922,6 +934,7 @@ const MemoizedDatePickerRow = React.memo(
     exactRangeLabel,
     exactRangeTitle,
     setDate,
+    onResetDate,
     syncStatus,
     lastSyncTime,
     handleReauthenticate,
@@ -934,16 +947,19 @@ const MemoizedDatePickerRow = React.memo(
     isTransitioning,
     handleFullscreenToggle,
     handleNewEntryClick,
+    handleSearchClick,
+    searchControls,
+    searchOpen,
   }: MemoizedDatePickerRowProps) {
     const { draftRange, handleDayClick } =
       useAlternatingDateRangeSelection(date, setDate);
 
     return (
       <div
-        className="hidden md:flex items-center justify-between mt-6"
+        className="relative hidden md:flex items-center justify-between gap-3 mt-6"
         style={{ minHeight: "36px" }}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -991,7 +1007,7 @@ const MemoizedDatePickerRow = React.memo(
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.location.href = '/'}
+                  onClick={onResetDate ?? (() => { window.location.href = '/'; })}
                   className="w-full text-xs hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
                 >
                   <RotateCcw className="mr-2 h-3 w-3" />
@@ -1000,6 +1016,8 @@ const MemoizedDatePickerRow = React.memo(
               </div>
             </PopoverContent>
           </Popover>
+          <div className="relative min-w-0 flex-1">
+          <div aria-hidden={searchOpen || undefined} inert={searchOpen || undefined} className={cn("flex items-center gap-3 transition-opacity duration-200 motion-reduce:transition-none", searchOpen && "pointer-events-none opacity-0")}>
           <SyncStatusBadge
             status={syncStatus || "synced"}
             lastSyncTime={lastSyncTime}
@@ -1014,7 +1032,11 @@ const MemoizedDatePickerRow = React.memo(
             onUnlock={handleUnlockEncryption}
           />
         </div>
-        <div className="flex items-center gap-3">
+        {searchOpen && <div className="absolute inset-0 flex items-center animate-in fade-in duration-200 motion-reduce:animate-none">{searchControls}</div>}
+        </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <TimelineSearchButton active={searchOpen} onClick={handleSearchClick} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1075,14 +1097,16 @@ const MemoizedDatePickerRow = React.memo(
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
       prevProps.exactRangeLabel === nextProps.exactRangeLabel &&
-      prevProps.exactRangeTitle === nextProps.exactRangeTitle &&
+      prevProps.exactRangeTitle === nextProps.exactRangeTitle && prevProps.setDate === nextProps.setDate && prevProps.onResetDate === nextProps.onResetDate &&
       prevProps.syncStatus === nextProps.syncStatus &&
       prevProps.lastSyncTime?.getTime() === nextProps.lastSyncTime?.getTime() &&
       prevProps.encryption.isE2EEEnabled ===
         nextProps.encryption.isE2EEEnabled &&
       prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
       prevProps.isFullscreen === nextProps.isFullscreen &&
-      prevProps.isTransitioning === nextProps.isTransitioning
+      prevProps.isTransitioning === nextProps.isTransitioning &&
+      prevProps.handleSearchClick === nextProps.handleSearchClick &&
+      prevProps.searchOpen === nextProps.searchOpen && prevProps.searchControls === nextProps.searchControls
     );
   }
 );
@@ -1093,12 +1117,13 @@ const MemoizedMobileDatePickerRow = React.memo(
     exactRangeLabel,
     exactRangeTitle,
     setDate,
+    onResetDate,
   }: MemoizedMobileDatePickerRowProps) {
     const { draftRange, handleDayClick } =
       useAlternatingDateRangeSelection(date, setDate);
 
     return (
-      <div className="flex items-center">
+      <div className="relative flex min-h-9 items-center">
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -1143,7 +1168,7 @@ const MemoizedMobileDatePickerRow = React.memo(
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.location.href = '/'}
+                onClick={onResetDate ?? (() => { window.location.href = '/'; })}
                 className="w-full text-xs hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
               >
                 <RotateCcw className="mr-2 h-3 w-3" />
@@ -1163,7 +1188,7 @@ const MemoizedMobileDatePickerRow = React.memo(
       prevProps.date?.from?.getTime() === nextProps.date?.from?.getTime() &&
       prevProps.date?.to?.getTime() === nextProps.date?.to?.getTime() &&
       prevProps.exactRangeLabel === nextProps.exactRangeLabel &&
-      prevProps.exactRangeTitle === nextProps.exactRangeTitle
+      prevProps.exactRangeTitle === nextProps.exactRangeTitle && prevProps.setDate === nextProps.setDate && prevProps.onResetDate === nextProps.onResetDate
     );
   }
 );
@@ -1182,10 +1207,13 @@ const MemoizedMobileButtonsRow = React.memo(
     isTransitioning,
     handleFullscreenToggle,
     handleNewEntryClick,
+    handleSearchClick,
+    searchOpen,
+    searchControls,
   }: MemoizedMobileButtonsRowProps) {
     return (
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <div className="relative flex min-h-9 items-center justify-between gap-2">
+        <div aria-hidden={searchOpen || undefined} inert={searchOpen || undefined} className={cn("flex items-center gap-2 transition-opacity duration-200", searchOpen && "pointer-events-none opacity-0")}>
           <SyncStatusBadge
             status={syncStatus || "synced"}
             lastSyncTime={lastSyncTime}
@@ -1201,6 +1229,8 @@ const MemoizedMobileButtonsRow = React.memo(
           />
         </div>
         <div className="flex items-center gap-2">
+          <div className={searchOpen ? "absolute right-0 z-10" : undefined}><TimelineSearchButton active={searchOpen} onClick={handleSearchClick} /></div>
+          <div aria-hidden={searchOpen || undefined} inert={searchOpen || undefined} className={cn("flex items-center gap-2 transition-opacity duration-200", searchOpen && "pointer-events-none opacity-0")}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1249,7 +1279,9 @@ const MemoizedMobileButtonsRow = React.memo(
             </TooltipTrigger>
             <TooltipContent>New (N)</TooltipContent>
           </Tooltip>
+          </div>
         </div>
+        {searchOpen && <div className="absolute inset-y-0 left-0 right-12 flex items-center animate-in fade-in duration-200">{searchControls}</div>}
       </div>
     );
   },
@@ -1264,7 +1296,8 @@ const MemoizedMobileButtonsRow = React.memo(
         nextProps.encryption.isE2EEEnabled &&
       prevProps.encryption.isUnlocked === nextProps.encryption.isUnlocked &&
       prevProps.isFullscreen === nextProps.isFullscreen &&
-      prevProps.isTransitioning === nextProps.isTransitioning
+      prevProps.isTransitioning === nextProps.isTransitioning &&
+      prevProps.handleSearchClick === nextProps.handleSearchClick && prevProps.searchOpen === nextProps.searchOpen && prevProps.searchControls === nextProps.searchControls
     );
   }
 );
@@ -1573,14 +1606,23 @@ const MemoizedTableRow = React.memo(
     const shouldShowCheckbox =
       selectedRows.size > 0 || hoveredRowIndex === rowIndex;
 
+    const reviewPending = (event: React.SyntheticEvent) => {
+      if (!entry.bulkLocked || (event.target as HTMLElement).closest('input[type="checkbox"], [data-bulk-status], td:nth-child(2)')) return;
+      event.preventDefault(); event.stopPropagation(); onRetrySync(entry.id);
+    };
     return (
       <>
         {/* Mobile View */}
         <TableRow
           key={`${stableEntryKey}-mobile`}
           data-entry-id={entry.id}
+          onClickCapture={reviewPending}
+          onDoubleClickCapture={reviewPending}
+          onKeyDownCapture={reviewPending}
+          title={entry.bulkPendingDelete ? "Pending deletion. Review bulk edits to undo." : entry.bulkLocked ? "Pending bulk edit. Click to review." : undefined}
           className={cn(
             "md:hidden hover:bg-accent/20 border-border/40 group",
+            entry.bulkPendingDelete && "opacity-50 [&_td]:line-through",
             isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
             isInSelectedRange &&
               "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
@@ -1590,7 +1632,7 @@ const MemoizedTableRow = React.memo(
         >
           <TableCell colSpan={8} className="p-3 max-w-0">
             <div className="flex items-start gap-2">
-              <DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} />
+              <span data-bulk-status><DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} /></span>
               <div
                 className={cn(
                   "h-4 w-4 mt-1 flex-shrink-0 cursor-pointer",
@@ -1757,6 +1799,7 @@ const MemoizedTableRow = React.memo(
                       data-testid="duration-editor"
                     />
                     <MemoizedActionsMenu
+                      entryId={entry.id}
                       onPin={() => onPin(entry)}
                       onUnpin={() => onUnpin(entry.id.toString())}
                       isPinned={isPinned}
@@ -1807,8 +1850,13 @@ const MemoizedTableRow = React.memo(
         <TableRow
           key={stableEntryKey}
           data-entry-id={entry.id}
+          onClickCapture={reviewPending}
+          onDoubleClickCapture={reviewPending}
+          onKeyDownCapture={reviewPending}
+          title={entry.bulkPendingDelete ? "Pending deletion. Review bulk edits to undo." : entry.bulkLocked ? "Pending bulk edit. Click to review." : undefined}
           className={cn(
             "hidden md:table-row hover:bg-accent/20 border-border/40 group hover:shadow-sm",
+            entry.bulkPendingDelete && "opacity-50 [&_td]:line-through",
             isNewlyLoaded && "bg-blue-100 dark:bg-blue-900/50",
             isInSelectedRange &&
               "bg-blue-200/50 dark:bg-blue-800/30 ring-2 ring-blue-500/50"
@@ -1817,7 +1865,7 @@ const MemoizedTableRow = React.memo(
           onMouseLeave={onRowMouseLeave}
         >
           <TableCell className="px-2 w-8 md:table-cell hidden">
-            <DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} />
+            <span data-bulk-status><DescriptionDraftIcon entryId={entry.id} rowStatus={syncStatus} onRetry={onRetrySync} /></span>
             {aiSummaryStatus === "processing" && (
               <Loader2
                 className="w-4 h-4 animate-spin text-violet-500"
@@ -2080,6 +2128,8 @@ const MemoizedTableRow = React.memo(
       prevEntry.stop === nextEntry.stop &&
       prevEntry.duration === nextEntry.duration &&
       prevEntry.syncStatus === nextEntry.syncStatus &&
+      prevEntry.bulkLocked === nextEntry.bulkLocked &&
+      prevEntry.bulkPendingDelete === nextEntry.bulkPendingDelete &&
       (prevEntry.tags?.length || 0) === (nextEntry.tags?.length || 0) &&
       (prevEntry.tags || []).every((tag, i) => tag === (nextEntry.tags || [])[i]) &&
       (prevEntry.tag_ids?.length || 0) === (nextEntry.tag_ids?.length || 0) &&
@@ -2231,6 +2281,29 @@ export function TimeTrackerTable({
 }: { onFullscreenChange?: (isFullscreen: boolean) => void } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [searchOpen, setSearchOpen] = React.useState(searchParams.get("view") === "search");
+  const [searchDate, setSearchDate] = React.useState<TimeEntryDateRange | undefined>(undefined);
+  const [recalledSearch, setRecalledSearch] = React.useState<EntrySearch | null>(null);
+  const [appliedSearch, setAppliedSearch] = React.useState<EntrySearch | null>(null);
+  const searchMode = searchOpen && appliedSearch !== null;
+  const contextId = /^[1-9]\d{0,15}$/.test(searchParams.get("context") ?? "") ? searchParams.get("context") : null;
+  const specialMode = searchMode || !!contextId;
+  const [searchTotal, setSearchTotal] = React.useState<number | null>(null);
+  const searchTotalRef = React.useRef<number | null>(null);
+  const [searchReady, setSearchReady] = React.useState(false);
+  const [searchNeedsRefresh, setSearchNeedsRefresh] = React.useState(false);
+  const [searchBulkOpen, setSearchBulkOpen] = React.useState(false);
+  const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
+  const [bulkHistoryOpen, setBulkHistoryOpen] = React.useState(false);
+  const [bulkAccount, setBulkAccount] = React.useState("");
+  const bulkStoreRef = React.useRef<BulkTransactions | null>(null);
+  const stageBulkRef = React.useRef<(changes: SearchEntryEdit[]) => boolean>(() => false);
+  const [contextScrollEnabled, setContextScrollEnabled] = React.useState(false);
+  const [hasNewerContext, setHasNewerContext] = React.useState(false);
+  const entryView = React.useMemo(() => ({ search: searchMode }), [searchMode]);
+  const [contextBusy, setContextBusy] = React.useState(false);
+  const contextBusyRef = React.useRef(false);
+  const specialInitializedRef = React.useRef(false);
   const { pinnedEntries, pinEntry, unpinEntry, isPinned } = usePinnedEntries();
   const encryption = useEncryptionContext();
   const descriptionDrafts = useDescriptionDrafts();
@@ -2333,6 +2406,7 @@ export function TimeTrackerTable({
 
   const handleDateChange = React.useCallback(
     (nextDate: DateRange | undefined) => {
+      if (bulkStoreRef.current?.hasUnsettled()) { toast.info("Finish or undo pending bulk edits before changing the range."); return; }
       setIsRollingDateRange(false);
       setDate(nextDate);
     },
@@ -2371,6 +2445,7 @@ export function TimeTrackerTable({
 
   // Watch for URL changes and update date range accordingly
   React.useEffect(() => {
+    if (bulkStoreRef.current?.hasUnsettled()) return;
     const urlDateRange = getDateRangeFromSearchParams(searchParams, timeZone);
 
     if (!urlDateRange) {
@@ -2396,11 +2471,12 @@ export function TimeTrackerTable({
   // Keep the default range rolling while the page remains open. React state
   // does not otherwise change when the selected timezone crosses midnight.
   React.useEffect(() => {
-    if (!isRollingDateRange) return;
+    if (!isRollingDateRange || specialMode) return;
 
     let midnightTimer: ReturnType<typeof setTimeout>;
 
     const refreshRollingRange = () => {
+      if (bulkStoreRef.current?.hasUnsettled()) return;
       const nextDate = getDefaultDateRange(timeZone);
       setDate((currentDate) =>
         dateRangesMatch(currentDate, nextDate) ? currentDate : nextDate
@@ -2433,9 +2509,40 @@ export function TimeTrackerTable({
     scheduleNextMidnight();
 
     return () => clearTimeout(midnightTimer);
-  }, [isRollingDateRange, timeZone]);
+  }, [isRollingDateRange, timeZone, specialMode]);
 
   const [timeEntries, setTimeEntries, timeEntriesRef] = useOptimisticEntries<TimeEntry>();
+  const bulk = useBulkTransactions({
+    account: bulkAccount, reviewing: bulkHistoryOpen || searchBulkOpen || multiSelectMenuOpen,
+    current: () => timeEntriesRef.current,
+    applied: (row, remote) => {
+      beginClientMutation();
+      const previous = timeEntriesRef.current;
+      const deleted = row.delete && !remote;
+      const patch: BulkPatch = { ...(remote ?? row.patch) };
+      if (remote?.project_id !== undefined) {
+        const project = projectsRef.current.find(project => project.id === remote.project_id);
+        patch.project_name = remote.project_id === null ? "" : project?.name ?? "Project";
+        patch.project_color = project?.color ?? "#6b7280";
+      }
+      if (remote?.tag_ids) patch.tags = remote.tag_ids.map(id => availableTagsRef.current.find(tag => tag.id === Number(id))?.name ?? `Tag_${id}`);
+      if (patch.description !== undefined) descriptionBasesRef.current.set(row.id, patch.description);
+      setTimeEntries(entries => deleted ? entries.filter(entry => entry.id !== row.id) : entries.map(entry => entry.id === row.id ? { ...entry, ...patch } : entry));
+      if (deleted) {
+        const next = timeEntriesRef.current;
+        setSelectedRows(current => {
+          const ids = new Set([...current].map(index => previous[index]?.id));
+          return new Set(next.flatMap((entry, index) => ids.has(entry.id) ? [index] : []));
+        });
+        setSelectedCell(current => {
+          if (!current) return null;
+          const index = next.findIndex(entry => entry.id === previous[current.rowIndex]?.id);
+          return index >= 0 ? { ...current, rowIndex: index } : null;
+        });
+      }
+    },
+  });
+  bulkStoreRef.current = bulk.store;
   const refreshTimingRef = React.useRef<RefreshTiming | null>(null);
   React.useLayoutEffect(() => {
     const timing = refreshTimingRef.current;
@@ -2470,7 +2577,8 @@ export function TimeTrackerTable({
 
   // Decrypt entries when E2EE is enabled and unlocked
   const getCurrentEntries = React.useCallback(() => {
-    const timeEntries = timeEntriesRef.current.map(entry => {
+    const timeEntries = bulk.store.overlay(timeEntriesRef.current).map(entry => {
+      if (entry.bulkLocked) return entry;
       const description = descriptionDrafts?.getDescription(entry.id, entry.description) ?? entry.description;
       return description === entry.description ? entry : { ...entry, description };
     });
@@ -2485,7 +2593,7 @@ export function TimeTrackerTable({
 
     // Create a hash of relevant properties to detect changes
     const createHash = (entry: TimeEntry) =>
-      `${entry.id}:${entry.description}:${entry.start}:${entry.stop}:${entry.duration}:${entry.project_id}:${entry.syncStatus}`;
+      `${entry.id}:${entry.description}:${entry.start}:${entry.stop}:${entry.duration}:${entry.project_id}:${entry.syncStatus}:${entry.bulkLocked}:${entry.bulkPendingDelete}:${JSON.stringify(entry.tags)}:${JSON.stringify(entry.tag_ids)}`;
 
     // Map entries, reusing cached decrypted versions when possible
     const newDecryptedEntries = timeEntries.map((entry) => {
@@ -2534,10 +2642,10 @@ export function TimeTrackerTable({
     }
 
     return newDecryptedEntries;
-  }, [encryption, descriptionDrafts, timeEntriesRef]);
+  }, [encryption, descriptionDrafts, timeEntriesRef, bulk.store]);
   // The snapshot ref changes synchronously; the published state invalidates this render cache.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const decryptedEntries = React.useMemo(() => getCurrentEntries(), [timeEntries, getCurrentEntries]);
+  const decryptedEntries = React.useMemo(() => getCurrentEntries(), [timeEntries, getCurrentEntries, bulk.batches]);
 
   const [projects, setProjects] = React.useState<Project[]>([]);
   const projectsRef = React.useRef<Project[]>([]);
@@ -2711,7 +2819,6 @@ export function TimeTrackerTable({
     projectSelectorOpenersRef.current.get(entryId)?.();
   }, []);
 
-  const [multiSelectMenuOpen, setMultiSelectMenuOpen] = React.useState(false);
   const lastErrorToastRef = React.useRef<number>(0);
 
   const [isEditingCell, setIsEditingCell] = React.useState(false);
@@ -3129,6 +3236,7 @@ export function TimeTrackerTable({
       onCommit?: () => void,
       operationKey: string = message
     ) => {
+      setSearchNeedsRefresh(true);
       let transaction = pendingEntryMutationsRef.current.get(entryId);
 
       if (!transaction) {
@@ -3240,6 +3348,7 @@ export function TimeTrackerTable({
       optimisticUpdate: (entry: TimeEntry) => Partial<TimeEntry>,
       apiCall: (realId: number, sessionToken: string) => Promise<Response>
     ): boolean => {
+      if (bulkStoreRef.current?.isLocked(entryId)) { toast.info("Review or undo the pending bulk edit before editing this entry."); return true; }
       const syncQueue = syncQueueRef.current;
       const isTempId = syncQueue.isTempId(entryId);
 
@@ -3321,6 +3430,7 @@ export function TimeTrackerTable({
 
   const handleDescriptionSave = React.useCallback(
     (entryId: number) => (newDescription: string, notify = false, undoDescription?: string) => {
+      if (timeEntriesRef.current.find(entry => entry.id === entryId)?.description !== newDescription) setSearchNeedsRefresh(true);
       // Try to queue if temp ID
       const wasQueued = handleUpdateWithQueue(
         entryId,
@@ -3592,6 +3702,7 @@ export function TimeTrackerTable({
         },
         onCommit?: () => void
       ) => {
+        if (bulkStoreRef.current?.isLocked(entryId)) { toast.info("Review or undo the pending bulk edit first."); return; }
         let hasCommitted = false;
         const commitOnce = () => {
           if (hasCommitted) return;
@@ -3908,6 +4019,7 @@ export function TimeTrackerTable({
       newValues: { startTime?: string; endTime?: string | null; duration?: number },
       alignmentDirection: "next" | "previous" | "both" | "overlap" = "overlap"
     ) => {
+      if (bulkStoreRef.current?.isLocked(entryId)) { toast.info("Review or undo the pending bulk edit first."); return; }
       setTimeEntries((currentEntries) => {
         const originalEntries = [...currentEntries];
 
@@ -4499,6 +4611,7 @@ export function TimeTrackerTable({
 
   const handleDelete = React.useCallback(
     (entryToDelete: TimeEntry) => {
+      if (bulkStoreRef.current?.isLocked(entryToDelete.id)) { toast.info("Review or undo the pending bulk edit first."); return; }
       // Find the index of the entry being deleted
       const deletedIndex = timeEntries.findIndex(
         (e) => e.id === entryToDelete.id
@@ -4579,157 +4692,9 @@ export function TimeTrackerTable({
     [queueEntryMutation, selectedCell, timeEntries, setTimeEntries]
   );
 
-  const handleDeleteMultiple = React.useCallback(
-    (entriesToDelete: TimeEntry[]) => {
-      if (entriesToDelete.length === 0) return;
-
-      // Store original entries for undo
-      const originalEntries = [...timeEntries];
-      const entryIdsToDelete = new Set(entriesToDelete.map((e) => e.id));
-
-      // Remove entries from state immediately
-      setTimeEntries((currentEntries) => {
-        return currentEntries.filter(
-          (entry) => !entryIdsToDelete.has(entry.id)
-        );
-      });
-
-      // Clear selected rows
-      setSelectedRows(new Set());
-      lastSelectionDirectionRef.current = null; // Reset direction state
-
-      // Show toast with undo functionality
-      let toastDismissed = false;
-      const state = { apiCallStarted: false };
-      const submitNow = () => {
-        if (toastDismissed || state.apiCallStarted) return;
-        clearTimeout(timeoutId);
-        void submitOperation();
-      };
-      const toastId: string | number | undefined = toast(
-        `Deleted ${entriesToDelete.length} time ${
-          entriesToDelete.length === 1 ? "entry" : "entries"
-        }`,
-        {
-          action: {
-            label: "Undo (⌘Z)",
-            onClick: () => {
-              toastDismissed = true;
-              // Restore all entries
-              setTimeEntries(originalEntries);
-              // Restore selected rows
-              const restoredIndices = new Set<number>();
-              entriesToDelete.forEach((entry) => {
-                const index = originalEntries.findIndex(
-                  (e) => e.id === entry.id
-                );
-                if (index !== -1) {
-                  restoredIndices.add(index);
-                }
-              });
-              setSelectedRows(restoredIndices);
-            },
-          },
-          duration: Infinity, // Keep toast until API completes
-          submitAction: submitNow,
-        }
-      );
-
-      // Queue all delete API calls with rate limiting
-      const submitOperation = async () => {
-        if (toastDismissed) {
-          return;
-        }
-
-        state.apiCallStarted = true;
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const errors: string[] = [];
-
-        // Execute API calls sequentially with delay to avoid rate limiting
-        for (let i = 0; i < entriesToDelete.length; i++) {
-          const entry = entriesToDelete[i];
-
-          try {
-            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
-              method: "DELETE",
-              headers: {
-                "x-toggl-session-token": sessionToken || "",
-              },
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error(`[handleDeleteMultiple] ❌ DELETE FAILED:`, {
-                status: response.status,
-                errorText,
-                entryId: entry.id,
-              });
-              errors.push(`Failed to delete entry ${entry.id}`);
-            }
-          } catch (error) {
-            console.error(
-              `[handleDeleteMultiple] Error deleting entry ${entry.id}:`,
-              error
-            );
-            errors.push(`Error deleting entry ${entry.id}`);
-          }
-
-          // Add delay between requests to avoid rate limiting (except after last request)
-          if (i < entriesToDelete.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-        }
-
-        // Dismiss the toast now that API calls are complete
-        if (toastId !== undefined) {
-          toast.dismiss(toastId);
-        }
-
-        // Show error if any failed
-        if (errors.length > 0) {
-          toast.error(
-            `Failed to delete ${errors.length} of ${entriesToDelete.length} entries`
-          );
-        }
-      };
-
-      const timeoutId = setTimeout(submitNow, toastDuration);
-
-      // Adjust selector position if needed
-      if (selectedCell) {
-        const deletedIndices = entriesToDelete
-          .map((entry) => timeEntries.findIndex((e) => e.id === entry.id))
-          .filter((idx) => idx !== -1)
-          .sort((a, b) => a - b);
-
-        if (deletedIndices.length > 0) {
-          const minDeletedIndex = Math.min(...deletedIndices);
-          const maxDeletedIndex = Math.max(...deletedIndices);
-
-          if (
-            selectedCell.rowIndex >= minDeletedIndex &&
-            selectedCell.rowIndex <= maxDeletedIndex
-          ) {
-            // Selected row was deleted, move to previous row or first row
-            const newRowIndex = Math.max(0, minDeletedIndex - 1);
-            setTimeout(() => {
-              setSelectedCell({
-                rowIndex: newRowIndex,
-                cellIndex: selectedCell.cellIndex,
-              });
-            }, 50);
-          } else if (selectedCell.rowIndex > maxDeletedIndex) {
-            // Selected row is below deleted rows, shift up by number of deleted rows
-            setSelectedCell({
-              rowIndex: selectedCell.rowIndex - deletedIndices.length,
-              cellIndex: selectedCell.cellIndex,
-            });
-          }
-        }
-      }
-    },
-    [selectedCell, timeEntries, toastDuration, setTimeEntries]
-  );
+  const handleDeleteMultiple = React.useCallback((entries: TimeEntry[]) => {
+    stageBulkRef.current(entries.map(entry => ({ id: entry.id, delete: true })));
+  }, []);
 
   const handleDeleteSelectedClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
@@ -4743,228 +4708,16 @@ export function TimeTrackerTable({
   }, [selectedRows.size, getSelectedEntries]);
 
   const handleConfirmDeleteMultiple = React.useCallback(() => {
+    setSearchNeedsRefresh(true);
     if (entriesToDelete.length > 0) {
       handleDeleteMultiple(entriesToDelete);
       setEntriesToDelete([]);
     }
   }, [entriesToDelete, handleDeleteMultiple]);
 
-  const handleAddTagsToMultiple = React.useCallback(
-    (entriesToUpdate: TimeEntry[], tagsToAdd: string[]) => {
-      if (entriesToUpdate.length === 0 || tagsToAdd.length === 0) return;
-
-      const resolvedTags = tagsToAdd.map((tagName) => ({
-        name: tagName,
-        id: availableTagsRef.current.find((tag) => tag.name === tagName)?.id,
-      }));
-      const unresolvedTag = resolvedTags.find((tag) => tag.id === undefined);
-      if (unresolvedTag) {
-        toast.error(`Could not find tag "${unresolvedTag.name}". Please try again.`);
-        return;
-      }
-      const tagIdsToAdd = resolvedTags.map((tag) => tag.id as number);
-
-      // Store original entries for undo
-      const originalEntries = [...timeEntries];
-      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
-      const originalSyncStatuses = new Map(entrySyncStatusRef.current);
-
-      const setBulkEntrySyncStatus = (
-        entryId: number,
-        status?: SyncStatus
-      ) => {
-        setEntrySyncStatus((previousStatuses) => {
-          const nextStatuses = new Map(previousStatuses);
-          if (status) {
-            nextStatuses.set(entryId, status);
-          } else {
-            nextStatuses.delete(entryId);
-          }
-          entrySyncStatusRef.current = nextStatuses;
-          return nextStatuses;
-        });
-      };
-
-      // Update entries with new tags immediately
-      setTimeEntries((currentEntries) => {
-        return currentEntries.map((entry) => {
-          if (entryIdsToUpdate.has(entry.id)) {
-            const currentTags = entry.tags || [];
-            const newTags = Array.from(new Set([...currentTags, ...tagsToAdd]));
-            const newTagIds = Array.from(
-              new Set([...(entry.tag_ids || []), ...tagIdsToAdd])
-            );
-            return { ...entry, tags: newTags, tag_ids: newTagIds };
-          }
-          return entry;
-        });
-      });
-
-      // Keep every affected row visibly pending throughout the undo window.
-      setEntrySyncStatus((previousStatuses) => {
-        const nextStatuses = new Map(previousStatuses);
-        entryIdsToUpdate.forEach((entryId) => {
-          nextStatuses.set(entryId, "pending");
-        });
-        entrySyncStatusRef.current = nextStatuses;
-        return nextStatuses;
-      });
-
-      // Clear selected rows
-      setSelectedRows(new Set());
-      lastSelectionDirectionRef.current = null; // Reset direction state
-
-      // Show toast with undo functionality
-      let toastDismissed = false;
-      const state = { apiCallStarted: false };
-      const submitNow = () => {
-        if (toastDismissed || state.apiCallStarted) return;
-        clearTimeout(timeoutId);
-        void submitOperation();
-      };
-      const tagText =
-        tagsToAdd.length === 1
-          ? `tag "${tagsToAdd[0]}"`
-          : `${tagsToAdd.length} tags`;
-      const toastId: string | number | undefined = toast(
-        `Added ${tagText} to ${entriesToUpdate.length} ${
-          entriesToUpdate.length === 1 ? "entry" : "entries"
-        }`,
-        {
-          action: {
-            label: "Undo (⌘Z)",
-            onClick: () => {
-              // Once submission begins, the API requests cannot be cancelled.
-              if (state.apiCallStarted) return;
-              toastDismissed = true;
-              // Restore all entries
-              setTimeEntries(originalEntries);
-              // Restore selected rows
-              const restoredIndices = new Set<number>();
-              entriesToUpdate.forEach((entry) => {
-                const index = originalEntries.findIndex(
-                  (e) => e.id === entry.id
-                );
-                if (index !== -1) {
-                  restoredIndices.add(index);
-                }
-              });
-              setSelectedRows(restoredIndices);
-              setEntrySyncStatus((previousStatuses) => {
-                const nextStatuses = new Map(previousStatuses);
-                entryIdsToUpdate.forEach((entryId) => {
-                  const originalStatus = originalSyncStatuses.get(entryId);
-                  if (originalStatus) {
-                    nextStatuses.set(entryId, originalStatus);
-                  } else {
-                    nextStatuses.delete(entryId);
-                  }
-                });
-                entrySyncStatusRef.current = nextStatuses;
-                return nextStatuses;
-              });
-            },
-          },
-          duration: Infinity,
-          submitAction: submitNow,
-        }
-      );
-
-      // Queue all tag update API calls with rate limiting
-      const submitOperation = async () => {
-        if (toastDismissed) {
-          return;
-        }
-
-        state.apiCallStarted = true;
-        // The undo window has ended. Dismissing the actionable toast also
-        // prevents an in-flight request from being visually "undone" locally.
-        if (toastId !== undefined) {
-          toast.dismiss(toastId);
-        }
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const errors: string[] = [];
-
-        // Execute API calls sequentially with delay to avoid rate limiting
-        for (let i = 0; i < entriesToUpdate.length; i++) {
-          const entry = entriesToUpdate[i];
-
-          const updateEntryTags = async () => {
-            const resolvedExistingTagIds = (entry.tags || [])
-              .map(
-                (tagName) =>
-                  availableTagsRef.current.find((tag) => tag.name === tagName)
-                    ?.id
-              )
-              .filter((id): id is number => id !== undefined);
-            const newTagIds = Array.from(
-              new Set([
-                ...(entry.tag_ids || []),
-                ...resolvedExistingTagIds,
-                ...tagIdsToAdd,
-              ])
-            );
-
-            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify({ tag_ids: newTagIds }),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error(`[handleAddTagsToMultiple] ❌ UPDATE FAILED:`, {
-                status: response.status,
-                errorText,
-                entryId: entry.id,
-              });
-              throw new Error(`Failed to update entry ${entry.id}`);
-            }
-          };
-
-          entryRetryFunctions.current.set(entry.id, updateEntryTags);
-          setBulkEntrySyncStatus(entry.id, "syncing");
-
-          try {
-            await updateEntryTags();
-            entryRetryFunctions.current.delete(entry.id);
-            setBulkEntrySyncStatus(entry.id, "synced");
-
-            setTimeout(() => {
-              if (entrySyncStatusRef.current.get(entry.id) === "synced") {
-                setBulkEntrySyncStatus(entry.id);
-              }
-            }, 2000);
-          } catch (error) {
-            console.error(
-              `[handleAddTagsToMultiple] Error updating entry ${entry.id}:`,
-              error
-            );
-            setBulkEntrySyncStatus(entry.id, "error");
-            errors.push(`Error updating entry ${entry.id}`);
-          }
-
-          // Add delay between requests to avoid rate limiting (except after last request)
-          if (i < entriesToUpdate.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-        }
-
-        // Show error if any failed
-        if (errors.length > 0) {
-          toast.error(
-            `Failed to add tags to ${errors.length} of ${entriesToUpdate.length} entries`
-          );
-        }
-      };
-
-      const timeoutId = setTimeout(submitNow, toastDuration);
-    },
-    [timeEntries, toastDuration, setTimeEntries]
-  );
+  const handleAddTagsToMultiple = React.useCallback((entries: TimeEntry[], tags: string[]) => {
+    stageBulkRef.current(entries.map(entry => ({ id: entry.id, tags: [...new Set([...entry.tags, ...tags])] })));
+  }, []);
 
   const handleAddTagClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
@@ -4987,135 +4740,11 @@ export function TimeTrackerTable({
     [entriesToTag, handleAddTagsToMultiple]
   );
 
-  const handleSetProjectToMultiple = React.useCallback(
-    (entriesToUpdate: TimeEntry[], projectName: string) => {
-      if (entriesToUpdate.length === 0 || !projectName) return;
-
-      // Store original entries for undo
-      const originalEntries = [...timeEntries];
-      const entryIdsToUpdate = new Set(entriesToUpdate.map((e) => e.id));
-      const project = projects.find((p) => p.name === projectName);
-
-      // Update entries with new project immediately
-      setTimeEntries((currentEntries) => {
-        return currentEntries.map((entry) => {
-          if (entryIdsToUpdate.has(entry.id)) {
-            return {
-              ...entry,
-              project_name: projectName,
-              project_color: project?.color || entry.project_color,
-              project_id: project?.id ?? null,
-            } as TimeEntry;
-          }
-          return entry;
-        });
-      });
-
-      // Clear selected rows
-      setSelectedRows(new Set());
-      lastSelectionDirectionRef.current = null; // Reset direction state
-
-      // Show toast with undo functionality
-      let toastDismissed = false;
-      const state = { apiCallStarted: false };
-      const submitNow = () => {
-        if (toastDismissed || state.apiCallStarted) return;
-        clearTimeout(timeoutId);
-        void submitOperation();
-      };
-      const toastId: string | number | undefined = toast(
-        `Set project "${projectName}" for ${entriesToUpdate.length} ${
-          entriesToUpdate.length === 1 ? "entry" : "entries"
-        }`,
-        {
-          action: {
-            label: "Undo (⌘Z)",
-            onClick: () => {
-              toastDismissed = true;
-              // Restore all entries
-              setTimeEntries(originalEntries);
-              // Restore selected rows
-              const restoredIndices = new Set<number>();
-              entriesToUpdate.forEach((entry) => {
-                const index = originalEntries.findIndex(
-                  (e) => e.id === entry.id
-                );
-                if (index !== -1) {
-                  restoredIndices.add(index);
-                }
-              });
-              setSelectedRows(restoredIndices);
-            },
-          },
-          duration: Infinity,
-          submitAction: submitNow,
-        }
-      );
-
-      // Queue all project update API calls with rate limiting
-      const submitOperation = async () => {
-        if (toastDismissed) {
-          return;
-        }
-
-        state.apiCallStarted = true;
-        const sessionToken = localStorage.getItem("toggl_session_token");
-        const errors: string[] = [];
-
-        // Execute API calls sequentially with delay to avoid rate limiting
-        for (let i = 0; i < entriesToUpdate.length; i++) {
-          const entry = entriesToUpdate[i];
-
-          try {
-            const response = await apiFetch(`/api/time-entries/${entry.id}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-toggl-session-token": sessionToken || "",
-              },
-              body: JSON.stringify(projectSelection(projectName, projectsRef.current)),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error(`[handleSetProjectToMultiple] ❌ UPDATE FAILED:`, {
-                status: response.status,
-                errorText,
-                entryId: entry.id,
-              });
-              errors.push(`Failed to update entry ${entry.id}`);
-            }
-          } catch (error) {
-            console.error(
-              `[handleSetProjectToMultiple] Error updating entry ${entry.id}:`,
-              error
-            );
-            errors.push(`Error updating entry ${entry.id}`);
-          }
-
-          // Add delay between requests to avoid rate limiting (except after last request)
-          if (i < entriesToUpdate.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-        }
-
-        // Dismiss the toast now that API calls are complete
-        if (toastId !== undefined) {
-          toast.dismiss(toastId);
-        }
-
-        // Show error if any failed
-        if (errors.length > 0) {
-          toast.error(
-            `Failed to set project for ${errors.length} of ${entriesToUpdate.length} entries`
-          );
-        }
-      };
-
-      const timeoutId = setTimeout(submitNow, toastDuration);
-    },
-    [timeEntries, projects, toastDuration, setTimeEntries]
-  );
+  const handleSetProjectToMultiple = React.useCallback((entries: TimeEntry[], name: string) => {
+    const selection = projectSelection(name, projectsRef.current);
+    if (!("project_id" in selection)) { toast.error("Choose an existing project before bulk editing."); return; }
+    stageBulkRef.current(entries.map(entry => ({ id: entry.id, project_id: selection.project_id })));
+  }, []);
 
   const handleSetProjectClick = React.useCallback(() => {
     if (selectedRows.size === 0) return;
@@ -5139,6 +4768,7 @@ export function TimeTrackerTable({
   );
 
   const handleCombineClick = React.useCallback((reverse = false) => {
+    if (searchMode) return;
     if (selectedRows.size < 2) {
       toast.error("Please select at least 2 entries to combine");
       return;
@@ -5149,11 +4779,12 @@ export function TimeTrackerTable({
     setEntriesToCombineMultiple(selectedEntries);
     setIsReverseCombine(reverse);
     setCombineMultipleDialogOpen(true);
-  }, [selectedRows.size, getSelectedEntries]);
+  }, [selectedRows.size, getSelectedEntries, searchMode]);
 
   const handleCombineMultiple = React.useCallback(
     (entries: TimeEntry[], reverse = false) => {
       const current = getCurrentEntries();
+      if (entries.some(entry => bulkStoreRef.current?.isLocked(entry.id))) { toast.info("Finish or undo pending bulk edits before combining."); return; }
       entries = entries.map(entry => current.find(candidate => candidate.id === entry.id || candidate.tempId === entry.id)).filter((entry): entry is TimeEntry => !!entry);
       if (entries.length < 2) {
         toast.error("Need at least 2 entries to combine");
@@ -5691,7 +5322,10 @@ export function TimeTrackerTable({
 
   const handleCombine = React.useCallback(
     (entry: TimeEntry) => {
-      if (!getCombineEntryPair(timeEntries, entry.id)) {
+      if (searchMode) return;
+      const pair = getCombineEntryPair(timeEntries, entry.id);
+      if (pair && Object.values(pair).some(candidate => bulkStoreRef.current?.isLocked(candidate.id))) { toast.info("Finish or undo pending bulk edits before combining."); return; }
+      if (!pair) {
         toast.error("No older row below to combine into");
         return;
       }
@@ -5701,12 +5335,15 @@ export function TimeTrackerTable({
       combineDialogOpenRef.current = true;
       setCombineDialogOpen(true);
     },
-    [timeEntries]
+    [timeEntries, searchMode]
   );
 
   const handleCombineReverse = React.useCallback(
     (entry: TimeEntry) => {
-      if (!getCombineEntryPair(timeEntries, entry.id, true)) {
+      if (searchMode) return;
+      const pair = getCombineEntryPair(timeEntries, entry.id, true);
+      if (pair && Object.values(pair).some(candidate => bulkStoreRef.current?.isLocked(candidate.id))) { toast.info("Finish or undo pending bulk edits before combining."); return; }
+      if (!pair) {
         toast.error("No newer row above to combine into");
         return;
       }
@@ -5716,7 +5353,7 @@ export function TimeTrackerTable({
       combineDialogOpenRef.current = true;
       setCombineDialogOpen(true);
     },
-    [timeEntries]
+    [timeEntries, searchMode]
   );
 
   const handleConfirmCombine = React.useCallback(() => {
@@ -5746,6 +5383,7 @@ export function TimeTrackerTable({
     }
 
     const pair = getCombineEntryPair(timeEntries, selectedEntry.id, isReverseCombineSingle);
+    if (pair && Object.values(pair).some(candidate => bulkStoreRef.current?.isLocked(candidate.id))) { toast.info("Finish or undo pending bulk edits before combining."); return; }
     if (!pair) {
       toast.error(isReverseCombineSingle ? "No newer row above to combine into" : "No older row below to combine into");
       return;
@@ -6424,11 +6062,132 @@ export function TimeTrackerTable({
 
     activeSyncAbortControllerRef.current = null;
     controller.abort();
+    contextBusyRef.current = false;
+    setContextBusy(false);
     setSyncStatus("synced");
     setLoading(false);
     setIsLoadingMore(false);
     return true;
   }, []);
+
+  React.useEffect(() => () => activeSyncAbortControllerRef.current?.abort(), []);
+
+  const loadSpecialData = React.useCallback(async (reset: boolean, direction: "older" | "newer" = "older") => {
+    if (contextBusyRef.current || (searchMode && !appliedSearch)) return;
+    if (reset && bulkStoreRef.current?.hasUnsettled()) { toast.info("Finish or undo pending bulk edits before reloading."); return; }
+    if (reset && [...entrySyncStatusRef.current.values()].some(status => status === "pending" || status === "syncing" || status === "error")) {
+      toast("Finish, undo, or retry pending changes before reloading."); return;
+    }
+    contextBusyRef.current = true;
+    setContextBusy(true);
+    if (reset) setLoading(true);
+    const controller = new AbortController();
+    activeSyncAbortControllerRef.current?.abort();
+    activeSyncAbortControllerRef.current = controller;
+    const generation = clientMutationGenerationRef.current;
+    const visibleRow = (id: string | number) => Array.from(
+      tableRef.current?.querySelectorAll<HTMLElement>(`[data-entry-id="${id}"]`) ?? []
+    ).find(element => element.offsetParent !== null);
+    try {
+      setSyncStatus("syncing");
+      const edge = direction === "newer" ? timeEntriesRef.current[0] : timeEntriesRef.current.at(-1);
+      const url = searchMode
+        ? `/api/time-entries/search?${searchParamsForEntries(appliedSearch!, reset ? 0 : currentPageRef.current + 1)}`
+        : `/api/time-entries/context?${new URLSearchParams({ entry: reset ? contextId! : String(edge?.id ?? contextId), direction: reset ? "around" : direction })}`;
+      const response = await apiFetch(url, { headers: { "x-toggl-session-token": localStorage.getItem("toggl_session_token") || "" }, signal: controller.signal, cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not load entries");
+      }
+      const data = await response.json();
+      if (controller.signal.aborted || generation !== clientMutationGenerationRef.current) return;
+      const anchorElement = !reset && direction === "newer" && edge ? visibleRow(edge.id) : null;
+      const anchorTop = anchorElement?.getBoundingClientRect().top;
+      const previousEntries = timeEntriesRef.current;
+      setTimeEntries(current => {
+        if (reset) return data.timeEntries;
+        const byId = new Map(current.map(entry => [entry.id, entry]));
+        for (const entry of data.timeEntries as TimeEntry[]) if (!byId.has(entry.id)) byId.set(entry.id, entry);
+        return [...byId.values()].sort(compareEntryOrder);
+      });
+      if (!reset) {
+        const nextEntries = timeEntriesRef.current;
+        setSelectedRows(current => {
+          const ids = new Set([...current].map(index => previousEntries[index]?.id));
+          return new Set(nextEntries.flatMap((entry, index) => ids.has(entry.id) ? [index] : []));
+        });
+        setSelectedCell(current => {
+          if (!current) return null;
+          const id = previousEntries[current.rowIndex]?.id;
+          const rowIndex = nextEntries.findIndex(entry => entry.id === id);
+          return rowIndex >= 0 ? { ...current, rowIndex } : null;
+        });
+      }
+      if (searchMode) {
+        currentPageRef.current = reset ? 0 : currentPageRef.current + 1;
+        const total = Number.isSafeInteger(data.pagination.total) && data.pagination.total >= 0
+          ? data.pagination.total : reset ? null : searchTotalRef.current;
+        searchTotalRef.current = total;
+        setSearchTotal(total);
+        setHasMore(total !== null ? (data.pagination.page + 1) * data.pagination.limit < total : data.pagination.hasMore);
+      } else {
+        if (reset || direction === "older") setHasMore(data.hasOlder);
+        if (reset || direction === "newer") setHasNewerContext(data.hasNewer);
+        if (reset) {
+          const index = (data.timeEntries as TimeEntry[]).findIndex(entry => String(entry.id) === contextId);
+          setSelectedCell(index >= 0 ? { rowIndex: index, cellIndex: isFullscreen ? 2 : 1 } : null);
+          requestAnimationFrame(() => visibleRow(contextId!)?.scrollIntoView({ block: "center" }));
+        }
+        if (anchorElement && anchorTop !== undefined) requestAnimationFrame(() => {
+          const container = tableRef.current;
+          if (container && anchorElement.isConnected) container.scrollTop += anchorElement.getBoundingClientRect().top - anchorTop;
+        });
+      }
+      specialInitializedRef.current = true;
+      window.dispatchEvent(new Event("deeplog-timeline-ready"));
+      if (typeof data.profileTimeZone === "string") setProfileTimeZone(data.profileTimeZone);
+      setSyncStatus("synced");
+      setLastSyncTime(new Date());
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (reset) { setHasMore(false); setHasNewerContext(false); }
+      setSyncStatus(error instanceof Error && error.message.includes("Session expired") ? "session_expired" : "error");
+      if (!(error instanceof TogglRateLimitError)) toast.error(error instanceof Error ? error.message : "Could not load entries");
+      if (!reset) throw error;
+    } finally {
+      if (activeSyncAbortControllerRef.current === controller) {
+        activeSyncAbortControllerRef.current = null;
+        contextBusyRef.current = false;
+        setContextBusy(false);
+        setLoading(false);
+      }
+    }
+  }, [searchMode, appliedSearch, contextId, isFullscreen, setTimeEntries, timeEntriesRef, setProfileTimeZone]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    void apiFetch(searchOpen || contextId ? "/api/time-entries/search/options" : "/api/time-entries/search/options?account_only=1", {
+      headers: { "x-toggl-session-token": localStorage.getItem("toggl_session_token") || "" }, signal: controller.signal,
+    }).then(async response => {
+      if (!response.ok) throw new Error("Could not load projects and tags. Reload to retry.");
+      const data = await response.json();
+      if (controller.signal.aborted) return;
+      setBulkAccount(data.account ?? "");
+      if (searchOpen && data.account) {
+        const recent = recallEntrySearch(sessionStorage, data.account);
+        setRecalledSearch(recent);
+        if (recent) setSearchDate(getDateRangeFromSearchParams(new URLSearchParams({ from: recent.from, to: recent.to }), timeZone) ?? undefined);
+      }
+      setSearchReady(true);
+      if (searchOpen || contextId) {
+        setProjects(data.projects); projectsRef.current = data.projects;
+        setAvailableTags(data.tags); availableTagsRef.current = data.tags;
+        setProfileTimeZone(data.profileTimeZone);
+      }
+    }).catch(error => { if (!controller.signal.aborted) { setSearchReady(true); if (!(error instanceof TogglRateLimitError)) toast.error(error.message); } });
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen, contextId, setProfileTimeZone]);
 
   const fetchData = React.useCallback(
     async (
@@ -6436,6 +6195,12 @@ export function TimeTrackerTable({
       resetData = true,
       preservePagination = false
     ) => {
+      if (resetData && bulkStoreRef.current?.hasUnsettled()) { if (showLoadingState) toast.info("Finish or undo pending bulk edits before reloading."); return; }
+      if (specialMode) {
+        if (!showLoadingState && resetData) return;
+        await loadSpecialData(resetData);
+        return;
+      }
       if (!date?.from || !date?.to) return;
 
       // Focus/visibility refreshes must not keep aborting a slow initial load.
@@ -6724,16 +6489,16 @@ export function TimeTrackerTable({
         }
       }
     },
-    [date, timeZone, setProfileTimeZone, setTimeEntries, timeEntriesRef]
+    [date, timeZone, setProfileTimeZone, setTimeEntries, timeEntriesRef, specialMode, loadSpecialData]
   );
 
   // Load more function for infinite scrolling
   const loadMore = React.useCallback(async () => {
-    if (!hasMore || loading || isLoadingMore) return;
+    if (!hasMore || loading || isLoadingMore || (searchMode && searchNeedsRefresh)) return;
 
     setIsLoadingMore(true);
     try { await fetchData(false, false); } finally { setIsLoadingMore(false); }
-  }, [hasMore, loading, isLoadingMore, fetchData]);
+  }, [hasMore, loading, isLoadingMore, fetchData, searchMode, searchNeedsRefresh]);
 
   // Optimized activateCell using React.useCallback to prevent recreation
   const activateCell = React.useCallback(
@@ -7023,18 +6788,27 @@ export function TimeTrackerTable({
   }, [availableTags]);
 
   React.useEffect(() => {
+    if (specialMode) return;
     currentPageRef.current = 0;
     setHasMore(true);
-    // Use fetchData instead of duplicating the logic
-    if (date?.from && date?.to) {
-      fetchData(true, true); // Show loading, reset data
-    }
+    if (date?.from && date?.to) void fetchData(true, true);
+    // fetchData includes selection/editor callbacks; only date changes reset the timeline.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, timeZone]); // Note: fetchData is intentionally not in deps to avoid infinite loop
+  }, [date, timeZone, specialMode]);
+
+  React.useEffect(() => {
+    if (!specialMode) return;
+    currentPageRef.current = 0;
+    if (searchMode && !appliedSearch) { setHasMore(false); return; }
+    setHasMore(true);
+    void loadSpecialData(true);
+    // Only a submitted query or a new context target resets this view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedSearch, searchMode, specialMode, contextId]);
 
   // Update URL query params when date range changes
   React.useEffect(() => {
-    if (!isRollingDateRange && date?.from && date?.to) {
+    if (!specialMode && !isRollingDateRange && date?.from && date?.to) {
       const params = new URLSearchParams(window.location.search);
       const fromStr = date.fromValue ?? format(date.from, "yyyy-MM-dd");
       const toStr = date.toValue ?? format(date.to, "yyyy-MM-dd");
@@ -7047,7 +6821,7 @@ export function TimeTrackerTable({
         window.history.replaceState({}, "", newUrl);
       }
     }
-  }, [date, isRollingDateRange]);
+  }, [date, isRollingDateRange, specialMode]);
 
   // Refresh data when tab becomes visible or window gains focus (with debouncing)
   React.useEffect(() => {
@@ -7062,7 +6836,7 @@ export function TimeTrackerTable({
     }, 2000);
 
     const debouncedFetch = () => {
-      if (!isMounted) return; // Don't fetch on initial mount
+      if (!isMounted || specialMode) return; // Search membership and centered context stay stable while editing
 
       // Check live registrations before rolling the date range as well as
       // fetching. Either can replace rows and discard an open editor's draft.
@@ -7137,6 +6911,7 @@ export function TimeTrackerTable({
     };
   }, [
     fetchData,
+    specialMode,
     date,
     isRollingDateRange,
     timeZone,
@@ -7764,7 +7539,8 @@ export function TimeTrackerTable({
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.documentElement.hasAttribute("data-settings-open")) return;
+      if (document.documentElement.hasAttribute("data-settings-open") || searchBulkOpen || bulkHistoryOpen) return;
+      if ((e.target as HTMLElement | null)?.closest?.("[data-entry-search-controls]")) return;
       // Log ALL 'c' key presses to debug Option+C with comprehensive event properties
       if (e.key.toLowerCase() === 'c' || e.code === 'KeyC') {
         console.log('[Global KeyDown] Key event detected:', {
@@ -7787,6 +7563,7 @@ export function TimeTrackerTable({
       const isInInput =
         activeElement?.tagName === "INPUT" ||
         activeElement?.tagName === "TEXTAREA" ||
+        activeElement?.tagName === "SELECT" ||
         (activeElement as HTMLElement)?.contentEditable === "true" ||
         activeElement?.getAttribute("role") === "textbox";
 
@@ -7958,6 +7735,7 @@ export function TimeTrackerTable({
       ) {
         e.preventDefault();
         e.stopPropagation();
+        if (bulk.store.hasUnsettled()) { setBulkHistoryOpen(true); return; }
         router.push('/');
         return;
       }
@@ -8133,6 +7911,10 @@ export function TimeTrackerTable({
 
       // Normalize key to lowercase for case-insensitive comparison
       const key = e.key.toLowerCase();
+      if (["enter", "d", "t", "p", "c", "ç", "s", "x"].includes(key)) {
+        const ids = selectedRows.size ? [...selectedRows].map(index => timeEntries[index]?.id) : selectedCell ? [timeEntries[selectedCell.rowIndex]?.id] : [];
+        if (ids.some(id => id !== undefined && bulk.store.isLocked(id))) { e.preventDefault(); setBulkHistoryOpen(true); return; }
+      }
 
       // Helper function for Shift+Down selection (used by arrowdown and j)
       const handleShiftDownSelection = () => {
@@ -8662,6 +8444,7 @@ export function TimeTrackerTable({
         case "c":
         case "ç":  // Safari produces 'ç' when Option+C is pressed on macOS
           e.preventDefault();
+          if (searchMode) break;
           const isReverse = e.altKey || e.key === "ç";  // Detect reverse mode from altKey OR special character
           if (selectedRows.size > 1) {
             // Combine all selected entries (Option+C for reverse mode)
@@ -8786,6 +8569,10 @@ export function TimeTrackerTable({
     handleCombineClick,
     getSelectedCellEntry,
     multiSelectMenuOpen,
+    searchBulkOpen,
+    bulkHistoryOpen,
+    bulk.store,
+    searchMode,
     setShowPinnedEntriesValue,
     timeZone,
     timeEntriesRef,
@@ -9055,6 +8842,109 @@ export function TimeTrackerTable({
     };
   }, [timeEntries]);
 
+  const applySearchEdits = (changes: SearchEntryEdit[]) => {
+    try {
+      if (!bulkAccount) throw new Error("Preparing bulk editing. Please try again in a moment.");
+      const raw = timeEntriesRef.current;
+      const plan = changes.map(change => {
+        const original = raw.find(entry => entry.id === change.id);
+        if (!original) throw new Error("A selected entry is no longer loaded. Review the selection first.");
+        const draft = descriptionDrafts?.drafts.get(change.id);
+        const status = entrySyncStatusRef.current.get(change.id);
+        if (pendingEntryMutationsRef.current.has(change.id) || pendingCreateEntryIdsRef.current.has(change.id) || (draft && draft.status !== "synced") || status === "pending" || status === "syncing" || status === "error" || activeCombineEntryIdsRef.current.has(change.id)
+          || Object.values(activeEditorEntryIdsRef.current).some(ids => ids.has(change.id))) throw new Error("Finish syncing or editing the selected entries before applying a bulk edit.");
+        const patch: BulkPatch = {};
+        if (change.description !== undefined) {
+          let text = change.description;
+          if (encryption.isE2EEEnabled || (original.description?.split(":").length === 3)) {
+            const key = encryption.getSessionKey();
+            if (!encryption.isUnlocked || !key) throw new Error("Unlock encryption before changing descriptions.");
+            text = encryptDescription(text, key, change.id);
+          }
+          if (text.length > 3000) throw new Error("A description exceeds Toggl's 3000-character limit.");
+          patch.description = text;
+        }
+        if (change.tags !== undefined) {
+          patch.tags = [...new Set(change.tags)];
+          patch.tag_ids = patch.tags.map(name => {
+            const known = availableTagsRef.current.find(tag => tag.name === name)?.id;
+            const oldIndex = original.tags.indexOf(name);
+            const id = known ?? (oldIndex >= 0 ? Number(original.tag_ids[oldIndex]) : null);
+            if (!id || !Number.isSafeInteger(id)) throw new Error("A selected tag is no longer available. Review your tags first.");
+            return id;
+          });
+        }
+        if (change.project_id !== undefined) {
+          const project = projectsRef.current.find(project => project.id === change.project_id);
+          if (change.project_id !== null && !project) throw new Error("The selected project is no longer available.");
+          patch.project_id = change.project_id;
+          patch.project_name = project?.name ?? "";
+          patch.project_color = project?.color ?? "#6b7280";
+        }
+        const before = { ...original, project_id: original.project_id ?? null };
+        return { before, patch, delete: !!change.delete };
+      }).filter(change => change.delete || Object.entries(change.patch).some(([key, value]) => JSON.stringify(change.before[key as keyof TimeEntry]) !== JSON.stringify(value)));
+      if (!plan.length) throw new Error("The selected entries already have these values.");
+      beginClientMutation();
+      bulk.stage(changes.some(change => change.delete) ? "Delete entries" : changes.some(change => change.description !== undefined) ? "Change descriptions" : changes.some(change => change.tags !== undefined) ? "Change tags" : "Change projects", plan);
+      setSearchNeedsRefresh(true);
+      return true;
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not stage this bulk edit."); return false; }
+  };
+  stageBulkRef.current = applySearchEdits;
+  const restoreBulk = (batch: string, entry?: number) => {
+    try { beginClientMutation(); bulk.restore(batch, entry); setSearchNeedsRefresh(true); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Could not restore these entries."); }
+  };
+  const retryEntry = React.useCallback((id: number) => {
+    if (bulk.store.isLocked(id)) setBulkHistoryOpen(true); else handleRetrySync(id);
+  }, [bulk.store, handleRetrySync]);
+  const newerScroll = useInfiniteScroll(() => loadSpecialData(false, "newer"), { enabled: !!contextId && contextScrollEnabled && specialInitializedRef.current && hasNewerContext && !loading && !contextBusy, rootMargin: "0px" });
+  const olderScroll = useInfiniteScroll(loadMore, { enabled: specialMode && (!contextId || contextScrollEnabled) && specialInitializedRef.current && hasMore && !loading && !contextBusy && (!searchMode || !searchNeedsRefresh), rootMargin: "0px" });
+  const handleSearchToggle = React.useCallback(() => {
+    if (bulk.store.hasUnsettled()) { setBulkHistoryOpen(true); return; }
+    if (searchOpen && appliedSearch && (pendingEntryMutationsRef.current.size || pendingCreateEntryIdsRef.current.size || [...(descriptionDrafts?.drafts.values() ?? [])].some(draft => draft.status !== "synced") || [...entrySyncStatusRef.current.values()].some(status => status === "pending" || status === "syncing" || status === "error"))) {
+      toast.info("Finish, undo, or retry pending edits before closing search. Your results are retained."); return;
+    }
+    if (searchOpen) {
+      if (appliedSearch) { activeSyncAbortControllerRef.current?.abort(); setSelectedRows(new Set()); setSelectedCell(null); }
+      contextBusyRef.current = false;
+      setContextBusy(false);
+      specialInitializedRef.current = false;
+      setAppliedSearch(null);
+      setSearchNeedsRefresh(false);
+      setSearchTotal(null); searchTotalRef.current = null;
+    } else { setSearchReady(false); setSearchDate(date); }
+    setSearchOpen(open => !open);
+  }, [bulk.store, searchOpen, appliedSearch, descriptionDrafts, date]);
+  const initialSearch: EntrySearch = {
+    text: "", match: "phrase", projects: [], tags: [],
+    from: date?.from ? formatDateInTimeZone(date.from, timeZone) : formatDateInTimeZone(subDays(new Date(), 29), timeZone), to: date?.to ? formatDateInTimeZone(date.to, timeZone) : formatDateInTimeZone(new Date(), timeZone),
+  };
+
+  const toolbarDate = searchOpen ? searchDate ?? date : date;
+  const searchRange = toolbarDate?.from && toolbarDate.to ? {
+    from: format(toolbarDate.from, "yyyy-MM-dd"), to: format(toolbarDate.to, "yyyy-MM-dd"),
+  } : { from: initialSearch.from, to: initialSearch.to };
+  const handleToolbarDateChange = (range: DateRange | undefined) => {
+    if (searchOpen) setSearchDate(range); else handleDateChange(range);
+  };
+  const searchControls = searchOpen && searchReady ? <EntrySearchControls compact hideDate={!contextId} dateRange={searchRange} initial={appliedSearch ?? recalledSearch ?? initialSearch} projects={projects} tags={availableTags} busy={loading || contextBusy} encrypted={encryption.isE2EEEnabled} onSearch={search => {
+          if (bulk.store.hasUnsettled()) { toast.info("Finish or undo pending bulk edits before searching again. Your results are retained."); return; }
+          const unsettledDescriptions = [...(descriptionDrafts?.drafts.values() ?? [])].some(draft => draft.status !== "synced");
+          if (pendingEntryMutationsRef.current.size || pendingCreateEntryIdsRef.current.size || unsettledDescriptions || [...entrySyncStatusRef.current.values()].some(status => status === "pending" || status === "syncing" || status === "error")) {
+            toast("Finish, undo, or retry pending changes before searching again."); return;
+          }
+          setSearchNeedsRefresh(false);
+          searchTotalRef.current = null; setSearchTotal(null);
+          setLoading(true);
+          setSyncStatus("syncing");
+          setSelectedRows(new Set()); setSelectedCell(null); setTimeEntries([]);
+          specialInitializedRef.current = false;
+          rememberEntrySearch(sessionStorage, bulkAccount, search);
+          setAppliedSearch({ ...search });
+        }} /> : null;
+
   const combinePreview = entryToCombine
     ? getCombineEntryPair(decryptedEntries, entryToCombine.id, isReverseCombineSingle)
     : null;
@@ -9087,26 +8977,61 @@ export function TimeTrackerTable({
   // No need to show unlock dialog - it auto-unlocks from localStorage
 
   return (
+    <EntryViewContext.Provider value={entryView}>
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          "space-y-6 overflow-auto overscroll-none",
+          "overflow-auto overscroll-none",
+          specialMode ? "space-y-4" : "space-y-6",
           isFullscreen
             ? "fixed inset-0 z-50 bg-background p-4 fullscreen-mode"
-            : "h-[calc(100vh-8rem)] border rounded-xl p-6 pt-0"
+            : "h-[calc(100vh-8rem)] rounded-xl border p-6 pt-0"
         )}
         ref={tableRef}
+        onWheel={() => { if (contextId) setContextScrollEnabled(true); }}
+        onTouchMove={() => { if (contextId) setContextScrollEnabled(true); }}
+        onKeyDown={event => { if (contextId && ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) setContextScrollEnabled(true); }}
       >
-        <MemoizedPinnedEntries
+        {(!!contextId || bulk.batches.length > 0) && <div className="flex flex-wrap items-center justify-end gap-3 pt-4 text-sm">
+          {!!contextId && (searchOpen ? <div className="mr-auto min-w-0 flex-1">{searchControls}</div> : <span className="mr-auto text-xs text-muted-foreground">Entry context</span>)}
+          {bulk.batches.length > 0 && <Button variant="ghost" size="sm" className="ml-auto h-8 text-xs font-normal text-muted-foreground" onClick={() => setBulkHistoryOpen(true)}>Bulk history{bulk.store.hasUnsettled() ? " · pending" : ""}</Button>}
+          {(searchOpen || specialMode) && <div className="flex items-center gap-2">
+            {!searchOpen && <SyncStatusBadge status={syncStatus} lastSyncTime={lastSyncTime} onReauthenticate={handleReauthenticate} onRetry={() => void fetchData(true, true)} onCancelSync={handleCancelSync} />}
+            <EncryptionStatus isE2EEEnabled={encryption.isE2EEEnabled} isUnlocked={encryption.isUnlocked} onLock={handleLockEncryption} onUnlock={handleUnlockEncryption} />
+            <TimelineSearchButton active={searchOpen} onClick={handleSearchToggle} />
+            <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" aria-label="View Analytics" className="h-8 w-8 rounded-full border-border/40 shadow-none" onClick={() => window.open("https://track.toggl.com/reports/", "_blank")}><BarChart3 className="h-3.5 w-3.5" /></Button></TooltipTrigger><TooltipContent>View Analytics</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="icon" aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} className="h-8 w-8 rounded-full border-border/40 shadow-none transition-colors hover:border-border" onClick={handleFullscreenToggle}>{isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</Button>
+            </TooltipTrigger><TooltipContent>{isFullscreen ? "Exit fullscreen" : "Fullscreen"}</TooltipContent></Tooltip>
+            {contextId && <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Reload context" className="h-8 w-8 rounded-full border-border/40 shadow-none transition-colors hover:border-border" disabled={contextBusy} onClick={() => void loadSpecialData(true)}><RotateCcw className={cn("h-3.5 w-3.5", contextBusy && "animate-spin")} /></Button>
+            </TooltipTrigger><TooltipContent>Reload context</TooltipContent></Tooltip>}
+          </div>}
+        </div>}
+        {searchMode && appliedSearch && !loading && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="tabular-nums">{searchTotal !== null && searchTotal > timeEntries.length ? `${timeEntries.length} of ${searchTotal} results` : `${timeEntries.length} ${timeEntries.length === 1 ? "result" : "results"}${hasMore ? " loaded" : ""}`}</span>
+            {!!selectedRows.size && <><span className="h-3 w-px bg-border/60" /><span className="font-medium text-foreground">{selectedRows.size} selected</span></>}
+          </div>
+          {timeEntries.length > 0 && <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="h-7 rounded-md px-2 text-xs font-normal text-muted-foreground" aria-label={`Select all ${timeEntries.length} loaded results`} onClick={() => setSelectedRows(new Set(timeEntries.map((_, index) => index)))}>Select all</Button>
+            {!!selectedRows.size && <>
+              <Button variant="ghost" size="sm" className="h-7 rounded-md px-2 text-xs font-normal text-muted-foreground" onClick={() => setSelectedRows(new Set())}>Clear</Button>
+              <Button variant="outline" size="sm" className="ml-1 h-8 gap-2 rounded-lg border-border/60 px-3 text-xs font-normal shadow-none" onClick={() => setSearchBulkOpen(true)}>Bulk edit<span className="hidden text-[10px] text-muted-foreground sm:inline">⌘K</span></Button>
+            </>}
+          </div>}
+        </div>}
+        {searchMode && searchNeedsRefresh && <p className="text-xs text-muted-foreground">Search again after your edits sync to refresh matches and load more.</p>}
+        {!specialMode && <MemoizedPinnedEntries
           show={showPinnedEntries}
           pinnedEntries={decryptedPinnedEntries}
           onUnpin={handleUnpinEntry}
           onStartTimer={handleStartTimerFromPinned}
           onNewTimer={handlePinnedNewTimer}
           onNewEntry={handlePinnedNewEntry}
-        />
+        />}
         <div className="mb-4">
-          {selectedRows.size > 0 ? (
+          {selectedRows.size > 0 && !searchMode && !searchOpen ? (
             <>
               {/* Desktop selected bar */}
               <div
@@ -9147,14 +9072,15 @@ export function TimeTrackerTable({
                 </div>
               </div>
             </>
-          ) : (
+          ) : !contextId ? (
             <>
               {/* Desktop layout - single row */}
               <MemoizedDatePickerRow
-                exactRangeLabel={exactRangeLabel}
+                exactRangeLabel={searchOpen && !dateRangesMatch(toolbarDate, date) ? undefined : exactRangeLabel}
                 exactRangeTitle={exactRangeTitle}
-                date={date}
-                setDate={handleDateChange}
+                date={toolbarDate}
+                setDate={handleToolbarDateChange}
+                onResetDate={searchOpen ? () => setSearchDate(getDefaultDateRange(timeZone)) : undefined}
                 syncStatus={syncStatus}
                 lastSyncTime={lastSyncTime}
                 handleReauthenticate={handleReauthenticate}
@@ -9167,15 +9093,19 @@ export function TimeTrackerTable({
                 isTransitioning={isTransitioning}
                 handleFullscreenToggle={handleFullscreenToggle}
                 handleNewEntryClick={handleNewEntryClick}
+                handleSearchClick={handleSearchToggle}
+                searchOpen={searchOpen}
+                searchControls={searchControls}
               />
 
               {/* Mobile layout - two rows */}
               <div className="md:hidden space-y-3">
                 <MemoizedMobileDatePickerRow
-                  exactRangeLabel={exactRangeLabel}
+                  exactRangeLabel={searchOpen && !dateRangesMatch(toolbarDate, date) ? undefined : exactRangeLabel}
                   exactRangeTitle={exactRangeTitle}
-                  date={date}
-                  setDate={handleDateChange}
+                  date={toolbarDate}
+                  setDate={handleToolbarDateChange}
+                onResetDate={searchOpen ? () => setSearchDate(getDefaultDateRange(timeZone)) : undefined}
                 />
                 <MemoizedMobileButtonsRow
                   syncStatus={syncStatus}
@@ -9190,12 +9120,18 @@ export function TimeTrackerTable({
                   isTransitioning={isTransitioning}
                   handleFullscreenToggle={handleFullscreenToggle}
                   handleNewEntryClick={handleNewEntryClick}
+                  handleSearchClick={handleSearchToggle}
+                  searchOpen={searchOpen}
+                  searchControls={searchControls}
                 />
               </div>
             </>
-          )}
+          ) : null}
         </div>
-
+        {!!contextId && hasNewerContext && <div ref={newerScroll.ref} className="flex justify-center">
+          <Button variant="ghost" className="h-8 rounded-lg text-xs font-normal text-muted-foreground" disabled={loading || contextBusy} onClick={() => { newerScroll.clearError(); void loadSpecialData(false, "newer").catch(() => {}); }}>Load newer entries</Button>
+        </div>}
+        {searchMode && appliedSearch && !loading && !timeEntries.length && <p className="py-6 text-center text-sm text-muted-foreground">{!appliedSearch ? "Choose your filters and search past entries." : hasMore ? "No matches in the entries checked so far. Load more to continue searching." : "No entries match these filters."}</p>}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="flex flex-col items-center space-y-4">
@@ -9205,7 +9141,7 @@ export function TimeTrackerTable({
               </p>
             </div>
           </div>
-        ) : (
+        ) : searchMode && !appliedSearch ? null : (
           <div
             className={cn(
               "bg-card transition-opacity duration-500 rounded-lg",
@@ -9232,11 +9168,11 @@ export function TimeTrackerTable({
                   // rowIndex - 1 = newer entry (happened after current) = next chronologically
                   // rowIndex + 1 = older entry (happened before current) = previous chronologically
                   const prevEntry =
-                    rowIndex < decryptedEntries.length - 1
+                    !searchMode && rowIndex < decryptedEntries.length - 1
                       ? decryptedEntries[rowIndex + 1]
                       : null;
                   const nextEntry =
-                    rowIndex > 0 ? decryptedEntries[rowIndex - 1] : null;
+                    !searchMode && rowIndex > 0 ? decryptedEntries[rowIndex - 1] : null;
 
                   return (
                     <MemoizedTableRow
@@ -9296,9 +9232,9 @@ export function TimeTrackerTable({
                       navigateFromDescription={navigateFromDescription}
                       registerProjectSelector={registerProjectSelector}
                       isNewlyLoaded={newlyLoadedEntries.has(entry.id)}
-                      syncStatus={entrySyncStatus.get(entry.id)}
+                      syncStatus={entry.bulkLocked ? entry.syncStatus : entrySyncStatus.get(entry.id)}
                       aiSummaryStatus={entryAiSummaryStatus.get(entry.id)}
-                      onRetrySync={handleRetrySync}
+                      onRetrySync={retryEntry}
                       isFullscreen={isFullscreen}
                     />
                   );
@@ -9316,12 +9252,12 @@ export function TimeTrackerTable({
                           </div>
                         ) : (
                           <Button
-                            variant="outline"
-                            onClick={loadMore}
-                            disabled={loading || isLoadingMore}
-                            className="hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200"
+                            variant={specialMode ? "ghost" : "outline"}
+                            onClick={() => { olderScroll.clearError(); void loadMore().catch(() => {}); }}
+                            disabled={loading || isLoadingMore || (searchMode && searchNeedsRefresh)}
+                            className={cn("hover:bg-accent/60 border-border/60 hover:border-border transition-all duration-200", specialMode && "h-8 rounded-lg text-xs font-normal text-muted-foreground")}
                           >
-                            Load More Entries
+                            Load more entries
                           </Button>
                         )}
                       </div>
@@ -9333,9 +9269,10 @@ export function TimeTrackerTable({
           </div>
         )}
 
-        <div className="flex justify-center items-center gap-4">
+        {specialMode && hasMore && <div ref={olderScroll.ref} className="h-3" aria-hidden="true" />}
+        <div className={cn("flex justify-center items-center gap-4", searchMode && "hidden")}>
           <p className="text-sm text-muted-foreground">
-            Showing {timeEntries.length} entries
+            Showing {timeEntries.length} {searchMode ? "loaded matches" : "entries"}
             {hasMore && " (click to load more)"}
           </p>
         </div>
@@ -9440,14 +9377,24 @@ export function TimeTrackerTable({
           }
         />
 
+        {selectedRows.size > 1 && <div className="fixed bottom-5 left-1/2 z-40 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-full border border-border/20 bg-foreground px-4 py-2.5 text-background shadow-xl">
+          <span className="whitespace-nowrap text-xs tabular-nums">{selectedRows.size} selected</span>
+          <Button size="sm" className="h-8 rounded-full bg-background text-foreground hover:bg-background/90" onClick={() => setSearchBulkOpen(true)}>Bulk edit</Button>
+          {bulk.batches.length > 0 && <Button variant="ghost" size="sm" className="h-8 rounded-full text-background hover:bg-background/10 hover:text-background" onClick={() => setBulkHistoryOpen(true)}>Review edits</Button>}
+        </div>}
+        <BulkTransactionHistory open={bulkHistoryOpen} onOpenChange={setBulkHistoryOpen} batches={bulk.batches} store={bulk.store} restore={restoreBulk}
+          description={(text, id) => descriptionDrafts?.decode(text, id) ?? text} />
+        <SearchBulkEditDialog open={searchBulkOpen} onOpenChange={setSearchBulkOpen}
+          entries={decryptedEntries.filter((_, index) => selectedRows.has(index))} projects={projects} tags={availableTags}
+          descriptionsLocked={encryption.isE2EEEnabled && !encryption.isUnlocked} onApply={applySearchEdits} />
         {/* Multi-select menu dialog */}
         <Dialog
           open={multiSelectMenuOpen}
           onOpenChange={setMultiSelectMenuOpen}
         >
-          <DialogContent>
+          <DialogContent className={searchMode ? "rounded-2xl border-border/60 p-6 sm:max-w-sm" : undefined}>
             <DialogHeader>
-              <DialogTitle>Multi-Select Actions</DialogTitle>
+              <DialogTitle>{searchMode ? "Selected entries" : "Multi-Select Actions"}</DialogTitle>
               <DialogDescription>
                 {selectedRows.size > 0
                   ? `${selectedRows.size} entries selected`
@@ -9455,6 +9402,7 @@ export function TimeTrackerTable({
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-4">
+              {searchMode && <Button variant="outline" className="w-full" onClick={() => { setMultiSelectMenuOpen(false); setSearchBulkOpen(true); }}>Edit selected entries</Button>}
               <Button
                 variant="outline"
                 className="w-full justify-between"
@@ -9463,11 +9411,12 @@ export function TimeTrackerTable({
                   setMultiSelectMenuOpen(false);
                 }}
               >
-                <span>🗑️ Delete Selected</span>
+                <span>{searchMode ? "Delete selected entries" : "🗑️ Delete Selected"}</span>
                 <span className="text-xs text-muted-foreground ml-auto pl-4">
                   D
                 </span>
               </Button>
+              {!searchMode && <>
               <Button
                 variant="outline"
                 className="w-full justify-between"
@@ -9508,10 +9457,12 @@ export function TimeTrackerTable({
                   C
                 </span>
               </Button>
+              </>}
             </div>
           </DialogContent>
         </Dialog>
       </div>
     </TooltipProvider>
+    </EntryViewContext.Provider>
   );
 }
