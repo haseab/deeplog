@@ -147,6 +147,7 @@ export interface MemoizedDatePickerRowProps {
   exactRangeLabel?: string;
   exactRangeTitle?: string;
   setDate: (date: DateRange | undefined) => void;
+  onResetDate?: () => void;
   syncStatus?:
     | "synced"
     | "syncing"
@@ -164,13 +165,18 @@ export interface MemoizedDatePickerRowProps {
   isTransitioning: boolean;
   handleFullscreenToggle: () => void;
   handleNewEntryClick: () => void;
+  handleSearchClick: () => void;
+  searchControls?: React.ReactNode;
+  searchOpen?: boolean;
 }
 
 export interface MemoizedMobileDatePickerRowProps {
+  searchControls?: React.ReactNode;
   date: DateRange | undefined;
   exactRangeLabel?: string;
   exactRangeTitle?: string;
   setDate: (date: DateRange | undefined) => void;
+  onResetDate?: () => void;
 }
 
 export interface MemoizedMobileButtonsRowProps {
@@ -191,6 +197,9 @@ export interface MemoizedMobileButtonsRowProps {
   isTransitioning: boolean;
   handleFullscreenToggle: () => void;
   handleNewEntryClick: () => void;
+  handleSearchClick: () => void;
+  searchControls?: React.ReactNode;
+  searchOpen?: boolean;
 }
 
 export interface MemoizedTableHeaderRowProps {
