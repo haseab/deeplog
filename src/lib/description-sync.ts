@@ -17,6 +17,7 @@ export interface DescriptionDraft {
   remote?: string;
   deleted?: boolean;
   deletionConfirmed?: boolean;
+  matchingEntry?: { entryId: number; start: string };
   // Original entry time allows timeline navigation after deletion in Toggl.
   start?: string;
   error?: string;
@@ -37,6 +38,7 @@ export interface DescriptionCheck {
   remote?: string;
   deleted: boolean;
   deletionConfirmed?: boolean;
+  matchingEntry?: { entryId: number; start: string };
   start?: string;
 }
 
@@ -44,9 +46,9 @@ export interface DescriptionCheck {
 export function refreshDescriptionConflict(current: DescriptionDraft, shown: DescriptionDraft, check: DescriptionCheck): DescriptionDraft {
   if (current.revision !== shown.revision || current.local !== shown.local || current.status !== "conflict") return current;
   if (!check.deleted && check.remote !== undefined && current.local === check.remote) {
-    return { ...acknowledgeDraft(current, shown, check.remote), status: "synced", deleted: false, deletionConfirmed: false, start: check.start ?? current.start };
+    return { ...acknowledgeDraft(current, shown, check.remote), status: "synced", deleted: false, deletionConfirmed: false, matchingEntry: undefined, start: check.start ?? current.start };
   }
-  return { ...current, remote: check.remote, deleted: check.deleted, deletionConfirmed: !!check.deletionConfirmed, start: check.start ?? current.start, error: undefined };
+  return { ...current, remote: check.remote, deleted: check.deleted, deletionConfirmed: !!check.deletionConfirmed, matchingEntry: check.matchingEntry, start: check.start ?? current.start, error: undefined };
 }
 export interface DescriptionHistory {
   key: string;
@@ -88,6 +90,7 @@ export function acknowledgeDraft(current: DescriptionDraft, sent: DescriptionDra
     uncertainUploads: undefined,
     error: undefined,
     remote: !matched && current.status === "conflict" ? remote : undefined,
+    matchingEntry: matched ? undefined : current.matchingEntry,
     deleted: matched ? false : current.deleted,
     deletionConfirmed: matched ? false : current.deletionConfirmed,
   };

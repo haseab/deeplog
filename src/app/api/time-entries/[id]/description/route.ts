@@ -39,7 +39,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     base = body.base; local = body.local; reviewOnly = !!body.reviewOnly;
     const headers = { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" };
     const current = await togglFetch(`https://track.toggl.com/api/v9/me/time_entries/${id}`, { headers, cache: "no-store", signal: request.signal });
-    if (current.status === 404) return reply({ deleted: true }, 409, "entry-not-found", 404);
+    if (current.status === 404) {
+      // A combined/recreated entry has a new ID. Only suggest a unique exact
+      // time-and-text match; never transfer a draft or write to a guessed ID.
+      let matchingEntry: { entryId: number; start: string } | undefined;
+      const startMs = typeof body.start === "string" ? Date.parse(body.start) : NaN;
+      if (reviewOnly && Number.isFinite(startMs) && body.local.trim()) {
+        const range = new URL("https://track.toggl.com/api/v9/me/time_entries");
+        range.searchParams.set("start_date", new Date(startMs - 1000).toISOString());
+        range.searchParams.set("end_date", new Date(startMs + 1000).toISOString());
+        const response = await togglFetch(range, { headers, cache: "no-store", signal: request.signal });
+        if (!response.ok) return reply({ error: "Could not check for a matching Toggl entry. Your draft is retained." }, response.status, "matching-read-rejected", response.status);
+        const entries = await response.json();
+        if (!Array.isArray(entries)) throw new Error("Unexpected matching-entry response");
+        const matches = entries.filter(entry => Number.isSafeInteger(entry.id) && entry.id > 0 && String(entry.id) !== id &&
+          (entry.workspace_id ?? entry.wid) === workspaceId && (entry.user_id ?? entry.uid) === userId &&
+          !entry.server_deleted_at && Date.parse(entry.start) === startMs && entry.description === body.local);
+        if (matches.length === 1) matchingEntry = { entryId: matches[0].id, start: matches[0].start };
+      }
+      return reply({ deleted: true, ...(matchingEntry ? { matchingEntry } : {}) }, 409, matchingEntry ? "matching-entry-found" : "entry-not-found", 404);
+    }
     if (!current.ok) return reply({ error: "Could not read Toggl description" }, current.status, "read-rejected", current.status);
     const entry = await current.json();
     if ((entry.workspace_id ?? entry.wid) !== workspaceId || (entry.user_id ?? entry.uid) !== userId) return reply({ error: "Entry belongs to another account or workspace" }, 403, "entry-account-mismatch");

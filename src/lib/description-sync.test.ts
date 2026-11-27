@@ -143,3 +143,15 @@ test("repeated lost responses retain earlier upload evidence until acknowledged"
   for (let i = 0; i < 30; i++) bounded = prepareDescriptionUpload({ ...bounded, local: String(i) });
   assert.equal(bounded.uncertainUploads?.length, 16);
 });
+
+test("matching-entry suggestions stay separate from the missing draft and clear on fresh evidence", () => {
+  const shown: DescriptionDraft = { ...draft, status: "conflict", deleted: true };
+  const matchingEntry = { entryId: 4, start: "2026-01-15T10:00:00Z" };
+  const suggested = refreshDescriptionConflict(shown, shown, { deleted: true, matchingEntry });
+  assert.equal(suggested.entryId, shown.entryId);
+  assert.equal(suggested.status, "conflict");
+  assert.equal(suggested.local, shown.local);
+  assert.deepEqual(suggested.matchingEntry, matchingEntry);
+  assert.equal(refreshDescriptionConflict(suggested, suggested, { deleted: true }).matchingEntry, undefined);
+  assert.equal(refreshDescriptionConflict(suggested, suggested, { deleted: false, remote: shown.local }).matchingEntry, undefined);
+});
