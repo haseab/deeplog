@@ -493,7 +493,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
   React.useEffect(() => {
     if (selected === null || busy) return;
     // Editors can have a focus request queued for the current frame.
-    const frame = requestAnimationFrame(() => (choiceRefs.current.mine ?? reviewRef.current)?.focus());
+    const frame = requestAnimationFrame(() => (selectedDraft?.deleted ? reviewRef.current : choiceRefs.current.mine ?? reviewRef.current)?.focus());
     return () => cancelAnimationFrame(frame);
   }, [selected, selectedDraft?.status, selectedDraft?.deleted, selectedDraft?.remote, busy]);
   const safeDecode = (text: string | undefined, id: number) => { try { return decode(text ?? "", id); } catch { return "Unlock encryption to view this description."; } };
@@ -536,6 +536,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           }, { key: crypto.randomUUID(), account: shown.account, entryId: shown.entryId, local: shown.local, remote: check.remote, at: Date.now() });
           if (updated?.status === "synced") notifySynced(shown.entryId, local);
         }
+        if (choice === "complete") toast("Mismatch dismissed. Saved description kept in recovery history in this browser.");
         const remaining = pending.filter(d => d.entryId !== shown.entryId);
         if (reviewMode === "queue" && remaining.length) void openDraft(remaining[0].entryId, "queue");
         else { setSelected(null); setMerge(null); }
@@ -548,11 +549,14 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
     {children}
     <div role="group" aria-label="Pending description drafts" className="fixed bottom-16 right-4 z-40 flex max-w-[calc(100vw-2rem)] max-h-32 flex-wrap items-center gap-2 overflow-auto rounded-md border bg-background p-2 shadow-sm">
       {storageError && <span role="alert" className="max-w-xs text-xs text-destructive">Not saved: {storageError}</span>}
-      {pending.map(d => <DescriptionDraftIcon key={d.entryId} entryId={d.entryId} onOpen={() => { if (!busy) void openDraft(d.entryId, "queue"); }} />)}
+      {pending.length > 0 && <Button variant="outline" size="sm" disabled={busy} onClick={() => void openDraft(pending[0].entryId, "queue")}>
+        <AlertTriangle aria-hidden="true" className="mr-2 h-4 w-4 text-amber-500" />
+        Review {pending.length} {pending.length === 1 ? "description" : "descriptions"}
+      </Button>}
       <button aria-label="Download sync diagnostics" title="Download sync diagnostics" disabled={!account} className="p-1 text-muted-foreground" onClick={() => void downloadSyncDiagnostics(account).catch(() => toast.error("Could not export sync diagnostics"))}><Download className="h-4 w-4" /></button>
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
-    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
+    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" aria-describedby="description-review-explanation" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
       event.stopPropagation();
       if (event.key === "Escape" && !busy) { setSelected(null); navigationRevision.current++; }
       if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -569,38 +573,62 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       }
     }}>
         <button aria-label="Close review" disabled={busy} className="absolute right-4 top-4" onClick={() => { setSelected(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
-        <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.status === "conflict" ? "Choose a description" : "Local description"}</h2>
-        <p className="my-2 text-sm text-muted-foreground">Entry {selected} · {selectedDraft?.status === "synced" ? "Synced" : selectedDraft?.status === "conflict" ? "Conflict" : "Waiting to sync"}</p>
+        <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.deleted ? "Time entry not found" : selectedDraft?.status === "conflict" ? "Which description should Toggl keep?" : "Description saved on this device"}</h2>
+        <p className="my-2 text-sm text-muted-foreground">{selectedDraft?.start && <>{new Date(selectedDraft.start).toLocaleString()} · </>}Entry {selected}</p>
         <Button variant="outline" size="sm" className="mb-3" disabled={busy} onClick={() => {
           void navigateToEntry(selected, true).then(located => {
             if (located) { setSelected(current => current === selected ? null : current); setMerge(null); }
           });
-        }}>Go to time entry</Button>
+        }}>{selectedDraft?.deleted ? "Look in timeline" : "Go to time entry"}</Button>
         <Button variant="ghost" size="sm" className="mb-3 ml-2" disabled={!account} onClick={() => void downloadSyncDiagnostics(account, selected).catch(() => toast.error("Could not export sync diagnostics"))}>Download entry logs</Button>
         {reviewMode === "queue" && <div className="mb-4 flex items-center justify-between gap-2">
           <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) <= 0} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) - 1].entryId, "queue")}>Previous</Button>
-          <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} pending</span>
-          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) < 0 || pending.findIndex(d => d.entryId === selected) >= pending.length - 1} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) + 1].entryId, "queue")}>Next</Button>
+          <span className="text-xs text-muted-foreground">{Math.max(0, pending.findIndex(d => d.entryId === selected) + 1)} of {pending.length} to review</span>
+          <Button variant="outline" size="sm" disabled={busy || pending.findIndex(d => d.entryId === selected) < 0 || pending.findIndex(d => d.entryId === selected) >= pending.length - 1} onClick={() => void openDraft(pending[pending.findIndex(d => d.entryId === selected) + 1].entryId, "queue")}>Skip for now</Button>
         </div>}
         {selectedDraft && <>
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
-          {selectedDraft.deleted && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">{selectedDraft.deletionConfirmed ? "Toggl confirms this entry was deleted." : "Toggl could not find this entry ID. This does not confirm deletion; a combined or replacement entry may have a different ID."} Click the Toggl copy to mark complete. Your draft will remain in recovery history.</p>}
-          {selectedDraft.status === "conflict" && !selectedDraft.deleted && selectedDraft.remote !== undefined && <p className="mb-3 text-xs text-muted-foreground">Use arrow keys to select a copy. Press Enter to keep it.</p>}
-          <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
+          <p id="description-review-explanation" className="mb-4 text-sm text-muted-foreground">
+            {selectedDraft.deleted
+              ? selectedDraft.deletionConfirmed
+                ? "Toggl says this time entry was deleted. Your saved description is still here, but it cannot be synced to that entry."
+                : "Toggl cannot find this time entry. It may have been deleted or combined into another entry. Your saved description is still here, but there is no Toggl description to compare."
+              : selectedDraft.status === "conflict"
+                ? "The same time entry has different descriptions on this device and in Toggl. Choose the text you want to keep. The other copy stays in recovery history in this browser."
+                : "Your description is saved in this browser. It will sync to Toggl when the entry is available and you are connected."}
+          </p>
+          {selectedDraft.deleted ? <div className="space-y-4" aria-busy={busy}>
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <h3 className="mb-2 text-xs font-medium text-muted-foreground">Your saved description</h3>
+              <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{safeDecode(selectedDraft.local, selectedDraft.entryId) || "No description"}</p>
+            </div>
+            <p className="text-sm text-muted-foreground">Copy this text if you want to use it in another entry. Dismiss this mismatch when you are done. Dismissing keeps a copy in recovery history in this browser and does not change anything in Toggl.</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => {
+                void (async () => {
+                  try {
+                    await navigator.clipboard.writeText(decode(selectedDraft.local, selectedDraft.entryId));
+                    toast("Saved description copied.");
+                  } catch { toast.error("Could not copy. Select the saved description and copy it manually."); }
+                })();
+              }}>Copy saved description</Button>
+              <Button disabled={busy} onClick={() => void resolve("complete")}>{busy ? "Dismissing…" : "Dismiss mismatch"}</Button>
+            </div>
+          </div> : <div className="grid gap-3 sm:grid-cols-2" aria-busy={busy}>
             {(["mine", "toggl"] as const).map(choice => {
               const isLocal = choice === "mine";
               const available = isLocal || selectedDraft.remote !== undefined;
-              const canChoose = selectedDraft.deleted ? !isLocal : selectedDraft.status === "conflict" && selectedDraft.remote !== undefined;
-              const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : selectedDraft.deleted ? selectedDraft.deletionConfirmed ? "Entry deleted" : "Entry not found" : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
-              const label = isLocal ? "Local" : "Toggl";
+              const canChoose = selectedDraft.status === "conflict" && selectedDraft.remote !== undefined;
+              const text = isLocal ? safeDecode(selectedDraft.local, selectedDraft.entryId) : !available ? "Not fetched yet" : safeDecode(selectedDraft.remote, selectedDraft.entryId);
               const content = <>
-                <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">{label}{canChoose && selectedChoice === choice && <Check aria-hidden="true" className="h-4 w-4 text-primary" />}</span>
+                <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">{isLocal ? "Your saved description" : "Current description in Toggl"}{canChoose && selectedChoice === choice && <Check aria-hidden="true" className="h-4 w-4 text-primary" />}</span>
                 <span id={isLocal ? "local-description" : "remote-description"} className="block whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{text || <span className="italic text-muted-foreground">No description</span>}</span>
+                {canChoose && <span className="mt-auto border-t pt-3 text-sm font-medium">{isLocal ? "Save my description to Toggl" : "Use Toggl’s description"}</span>}
               </>;
               const className = "flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 text-left transition-colors";
-              return canChoose ? <button key={choice} ref={node => { choiceRefs.current[choice] = node; }} data-description-choice={choice} type="button" aria-label={isLocal ? "Keep mine" : "Keep Toggl"} aria-pressed={selectedChoice === choice} disabled={busy} onFocus={() => setSelectedChoice(choice)} onClick={() => void resolve(selectedDraft.deleted ? "complete" : choice)} className={`${className} ${selectedChoice === choice ? "border-primary bg-primary/5 ring-2 ring-primary/40" : ""} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
+              return canChoose ? <button key={choice} ref={node => { choiceRefs.current[choice] = node; }} data-description-choice={choice} type="button" aria-label={isLocal ? "Save my description to Toggl" : "Use Toggl’s description"} aria-pressed={selectedChoice === choice} disabled={busy} onFocus={() => setSelectedChoice(choice)} onClick={() => void resolve(choice)} className={`${className} ${selectedChoice === choice ? "border-primary bg-primary/5 ring-2 ring-primary/40" : ""} cursor-pointer hover:border-primary/60 hover:bg-primary/5 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50`}>{content}</button> : <div key={choice} className={`${className} select-text`}>{content}</div>;
             })}
-          </div>
+          </div>}
           {merge !== null && <div><label htmlFor="merged-description" className="text-sm font-medium">Merged description (Markdown)</label><textarea id="merged-description" autoFocus disabled={busy} value={merge} onChange={e => setMerge(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" /></div>}
           {selectedDraft.status !== "conflict" && !selectedDraft.deleted && <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => { try { setMerge(decode(selectedDraft.local, selectedDraft.entryId)); } catch (e) { toast.error((e as Error).message); } }}>Edit draft</Button>

@@ -4,23 +4,26 @@ import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { entryMutations } from "./src/lib/entry-mutations";
-import type { DescriptionDraft } from "./src/lib/description-sync";
+import type { DescriptionDraft, DescriptionHistory } from "./src/lib/description-sync";
 import { toast } from "./src/lib/toast";
 
 const memory = vi.hoisted(() => ({
   drafts: new Map<string, DescriptionDraft>(),
+  history: [] as DescriptionHistory[],
   beforeChange: undefined as undefined | (() => Promise<void>),
 }));
 vi.mock("@/lib/description-draft-store", () => ({
   listDrafts: async (account: string) =>
     [...memory.drafts.values()].filter((d) => d.account === account),
-  listHistory: async () => [],
+  listHistory: async () => memory.history,
   changeDraft: async (
     key: string,
     change: (old?: DescriptionDraft) => DescriptionDraft | undefined,
+    history?: DescriptionHistory,
   ) => {
     await memory.beforeChange?.();
     const next = change(memory.drafts.get(key));
+    if (history) memory.history.push(history);
     if (next) memory.drafts.set(key, next);
     else memory.drafts.delete(key);
     return next;
@@ -96,6 +99,7 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", storage());
   vi.stubGlobal("sessionStorage", storage());
   memory.drafts.clear();
+  memory.history = [];
   memory.beforeChange = undefined;
   localStorage.setItem("toggl_session_token", "test-session");
   remote = "my saved edit";
@@ -228,23 +232,19 @@ it("resolving a current draft and reviewing an older missing entry preserves the
     await mount();
     await React.act(async () => {
       await vi.waitFor(() =>
-        expect(
-          host
-            .querySelector('[aria-label="Pending description drafts"]')
-            ?.querySelectorAll('[aria-label="Description conflict — click to resolve"]').length,
-        ).toBe(2),
+        expect(host.querySelector('[aria-label="Pending description drafts"]')?.textContent).toContain("Review 2 descriptions"),
       );
     });
     await React.act(async () => {
       (
         host.querySelector(
-          '[aria-label="Pending description drafts"] [aria-label="Description conflict — click to resolve"]',
+          '[aria-label="Pending description drafts"] button',
         ) as HTMLButtonElement
       ).click();
     });
     expect(window.location.href).toBe(originalUrl);
     await React.act(async () => {
-      (host.querySelector('[aria-label="Keep mine"]') as HTMLButtonElement).click();
+      (host.querySelector('[aria-label="Save my description to Toggl"]') as HTMLButtonElement).click();
     });
     await React.act(async () => {
       await vi.waitFor(() =>
@@ -259,11 +259,11 @@ it("resolving a current draft and reviewing an older missing entry preserves the
       button("Previous").click();
     });
     await React.act(async () => {
-      button("Next").click();
+      button("Skip for now").click();
     });
     expect(window.location.href).toBe(originalUrl);
     await React.act(async () => {
-      button("Go to time entry").click();
+      button("Look in timeline").click();
     });
     await React.act(async () => {
       await vi.waitFor(() => expect(window.location.search).toBe("?from=2026-11-13&to=2026-11-13"));
@@ -324,20 +324,36 @@ it.each(["mine", "toggl", "complete"])(
       expect(dialog.textContent).toContain("Entry 3");
       expect(
         [...dialog.querySelectorAll("button")].some(
-          (b) => b.textContent === "Next" || b.textContent === "Previous",
+          (b) => b.textContent === "Skip for now" || b.textContent === "Previous",
         ),
       ).toBe(false);
       expect(dialog.textContent).not.toContain("pending");
+      if (choice === "complete") {
+        expect(dialog.textContent).toContain("Time entry not found");
+        expect(dialog.textContent).toContain("there is no Toggl description to compare");
+        expect(dialog.querySelector('[aria-label="Use Toggl’s description"]')).toBeNull();
+        const copy = vi.fn(async () => {});
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
+        await React.act(async () => {
+          [...dialog.querySelectorAll("button")].find(b => b.textContent === "Copy saved description")!.click();
+        });
+        expect(copy).toHaveBeenCalledWith("my saved edit");
+        expect(memory.drafts.has(key)).toBe(true);
+      }
       await React.act(async () => {
         (
-          dialog.querySelector(
-            `[aria-label="${choice === "mine" ? "Keep mine" : "Keep Toggl"}"]`,
+          choice === "complete" ? [...dialog.querySelectorAll("button")].find(b => b.textContent === "Dismiss mismatch")! : dialog.querySelector(
+            `[aria-label="${choice === "mine" ? "Save my description to Toggl" : "Use Toggl’s description"}"]`,
           ) as HTMLButtonElement
         ).click();
       });
       await React.act(async () => {
         await vi.waitFor(() => expect(host.querySelector('[role="dialog"]')).toBeNull());
       });
+      if (choice === "complete") {
+        expect(memory.history).toEqual([expect.objectContaining({ entryId: 3, local: "my saved edit" })]);
+        expect(writes).toBe(0);
+      }
       expect(navigated).toEqual([3]);
       expect(memory.drafts.get("1:2:4")?.status).toBe("conflict");
       expect(memory.drafts.get("1:2:4")?.local).toBe("another entry's draft");
@@ -345,13 +361,13 @@ it.each(["mine", "toggl", "complete"])(
       await React.act(async () => {
         (
           host.querySelector(
-            '[aria-label="Pending description drafts"] [aria-label="Description conflict — click to resolve"]',
+            '[aria-label="Pending description drafts"] button',
           ) as HTMLButtonElement
         ).click();
       });
-      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("pending");
+      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("to review");
       expect(
-        [...host.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === "Next"),
+        [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].some((b) => b.textContent === "Skip for now"),
       ).toBe(true);
     } finally {
       window.removeEventListener("deeplog-description-navigate", navigate);
@@ -520,5 +536,33 @@ it("stops dependent server changes when a description has a conflict", async () 
     );
   });
   expect(split).not.toHaveBeenCalled();
+  expect(writes).toBe(0);
+});
+
+it("refreshes the comparison instead of dismissing an entry that reappears in Toggl", async () => {
+  memory.drafts.set(key, { ...draft(), deleted: true, remote: undefined });
+  let missing = true;
+  const normalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+    if (String(url).includes("/3/description") && missing)
+      return Response.json({ deleted: true }, { status: 409 });
+    return normalFetch(url, init);
+  }));
+  remote = "restored entry description";
+  await mount();
+  await React.act(async () => {
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="entry-row"] button')).not.toBeNull());
+  });
+  await React.act(async () => {
+    (host.querySelector('[data-testid="entry-row"] button') as HTMLButtonElement).click();
+  });
+  missing = false;
+  await React.act(async () => {
+    [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(b => b.textContent === "Dismiss mismatch")!.click();
+  });
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Which description should Toggl keep?");
+  expect(memory.drafts.get(key)?.local).toBe("my saved edit");
+  expect(memory.drafts.get(key)?.deleted).toBe(false);
+  expect(memory.history).toHaveLength(0);
   expect(writes).toBe(0);
 });
