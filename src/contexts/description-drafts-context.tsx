@@ -205,7 +205,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
         const response = await apiFetch(`/api/time-entries/${draft.entryId}/description`, {
           method: "POST", headers: { "Content-Type": "application/json", "x-toggl-session-token": tokenRef.current,
             "x-deeplog-sync-request-id": requestId, "x-deeplog-tab-id": owner.current, "x-deeplog-revision": String(draft.revision ?? 0) },
-          body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly, ...(draft.uncertainUploads ? { uncertainUploads: draft.uncertainUploads } : {}) }), signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ account: draft.account, base: draft.base, local: draft.local, reviewOnly, start: draft.start, ...(draft.uncertainUploads ? { uncertainUploads: draft.uncertainUploads } : {}) }), signal: AbortSignal.timeout(20000),
         });
         responseStatus = response.status;
         const data = await response.json();
@@ -214,7 +214,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
             remoteMatchesBase: data.description === draft.base, remoteMatchesLocal: data.description === draft.local, remoteMatchesSent: typeof data.description === "string" && data.description === draft.sent },
           texts: { base: draft.base, local: draft.local, remote: typeof data.description === "string" ? data.description : undefined, sent: draft.sent } });
         if (response.status !== 409 && !response.ok) throw new Error(data.error ?? `Sync failed (${response.status})`);
-        return { requestId, conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, start: data.start as string | undefined };
+        return { requestId, conflict: response.status === 409, remote: data.description as string | undefined, deleted: !!data.deleted, deletionConfirmed: !!data.deletionConfirmed, matchingEntry: data.matchingEntry as DescriptionDraft["matchingEntry"], start: data.start as string | undefined };
       } catch (error) {
         recordSyncDiagnostic({ event: "request.failed", account: draft.account, entryId: draft.entryId, requestId,
           fields: { status: error instanceof TogglRateLimitError ? error.status : responseStatus, durationMs: Date.now() - started, errorType: error instanceof Error ? error.name : "Unknown", reviewOnly } });
@@ -556,7 +556,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       <button aria-label="Download sync diagnostics" title="Download sync diagnostics" disabled={!account} className="p-1 text-muted-foreground" onClick={() => void downloadSyncDiagnostics(account).catch(() => toast.error("Could not export sync diagnostics"))}><Download className="h-4 w-4" /></button>
       <button aria-label="Description recovery history" title="Description recovery history" className="p-1 text-muted-foreground" onClick={() => void listHistory(account).then(items => { setSelected(null); setHistoryIndex(0); setHistory(items); if (items[0]) void navigateToEntry(items[0].entryId); }).catch(() => toast.error("Could not read recovery history"))}><History className="h-4 w-4" /></button>
     </div>
-    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" aria-describedby="description-review-explanation" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
+    {selected !== null && <section ref={reviewRef} tabIndex={-1} role="dialog" aria-labelledby="description-review-title" aria-describedby="description-review-explanation" className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => {
       event.stopPropagation();
       if (event.key === "Escape" && !busy) { setSelected(null); navigationRevision.current++; }
       if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -573,7 +573,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
       }
     }}>
         <button aria-label="Close review" disabled={busy} className="absolute right-4 top-4" onClick={() => { setSelected(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
-        <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.deleted ? "Time entry not found" : selectedDraft?.status === "conflict" ? "Which description should Toggl keep?" : "Description saved on this device"}</h2>
+        <h2 id="description-review-title" className="pr-6 text-lg font-semibold">{selectedDraft?.matchingEntry && selectedDraft.deleted ? "Found a matching entry" : selectedDraft?.deleted ? "Time entry not found" : selectedDraft?.status === "conflict" ? "Which description should Toggl keep?" : "Description saved on this device"}</h2>
         <p className="my-2 text-sm text-muted-foreground">{selectedDraft?.start && <>{new Date(selectedDraft.start).toLocaleString()} · </>}Entry {selected}</p>
         <Button variant="outline" size="sm" className="mb-3" disabled={busy} onClick={() => {
           void navigateToEntry(selected, true).then(located => {
@@ -590,7 +590,9 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           {selectedDraft.error && <p role="alert" className="text-sm text-destructive">{selectedDraft.error}</p>}
           <p id="description-review-explanation" className="mb-4 text-sm text-muted-foreground">
             {selectedDraft.deleted
-              ? selectedDraft.deletionConfirmed
+              ? selectedDraft.matchingEntry
+                ? "Your saved description is already on another Toggl entry with the exact same start time. The original entry ID is unavailable; the matching entry has a different ID."
+                : selectedDraft.deletionConfirmed
                 ? "Toggl says this time entry was deleted. Your saved description is still here, but it cannot be synced to that entry."
                 : "Toggl cannot find this time entry. It may have been deleted or combined into another entry. Your saved description is still here, but there is no Toggl description to compare."
               : selectedDraft.status === "conflict"
@@ -602,7 +604,14 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
               <h3 className="mb-2 text-xs font-medium text-muted-foreground">Your saved description</h3>
               <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{safeDecode(selectedDraft.local, selectedDraft.entryId) || "No description"}</p>
             </div>
-            <p className="text-sm text-muted-foreground">Copy this text if you want to use it in another entry. Dismiss this mismatch when you are done. Dismissing keeps a copy in recovery history in this browser and does not change anything in Toggl.</p>
+            {selectedDraft.matchingEntry && <Button variant="outline" disabled={busy} onClick={() => {
+              const match = selectedDraft.matchingEntry!;
+              const event = new CustomEvent("deeplog-description-navigate", { cancelable: true, detail: { id: match.entryId, start: match.start } });
+              window.dispatchEvent(event);
+              if (event.defaultPrevented) { setSelected(null); navigationRevision.current++; }
+              else toast.error("Could not open the matching entry. Your saved description is retained.");
+            }}>View matching entry</Button>}
+            <p className="text-sm text-muted-foreground">{selectedDraft.matchingEntry ? "You can dismiss this mismatch and keep the matching entry as it is." : "Copy this text if you want to use it in another entry. Dismiss this mismatch when you are done."} Dismissing keeps a copy in recovery history in this browser and does not change anything in Toggl.</p>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => {
                 void (async () => {
@@ -636,7 +645,7 @@ export function DescriptionDraftsProvider({ children }: { children: React.ReactN
           </div>}
         </>}
     </section>}
-    {history !== null && <section role="dialog" aria-labelledby="recovery-title" className="fixed bottom-16 right-4 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { setHistory(null); navigationRevision.current++; } }}>
+    {history !== null && <section role="dialog" aria-labelledby="recovery-title" className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl max-h-[65vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-5 shadow-xl" onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { setHistory(null); navigationRevision.current++; } }}>
       <button aria-label="Close history" className="absolute right-4 top-4" onClick={() => { setHistory(null); navigationRevision.current++; }}><X className="h-4 w-4" /></button>
       <h2 id="recovery-title" className="pr-6 text-lg font-semibold">Description recovery history</h2>
       <p className="my-2 text-sm text-muted-foreground">Saved copies from resolved conflicts. Stored only in this browser.</p>

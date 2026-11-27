@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
 
-async function run(body: Record<string, unknown>, entry: Record<string, unknown> | null = { description: "base", wid: 2, uid: 1 }) {
+async function run(body: Record<string, unknown>, entry: Record<string, unknown> | null = { description: "base", wid: 2, uid: 1 }, matches: Record<string, unknown>[] = []) {
   const original = globalThis.fetch;
   const originalLog = console.info;
   const logs: Record<string, unknown>[] = [];
@@ -13,6 +13,7 @@ async function run(body: Record<string, unknown>, entry: Record<string, unknown>
     const path = String(url);
     if (path.endsWith("/me")) return Response.json({ id: 1, timezone: "UTC" });
     if (path.endsWith("/workspaces")) return Response.json([{ id: 2, organization_id: 4 }]);
+    if (new URL(path).pathname === "/api/v9/me/time_entries") return Response.json(matches);
     if (init?.method === "PUT") { const payload = JSON.parse(String(init.body)); writes.push(payload); return Response.json(payload); }
     return entry ? Response.json(entry) : new Response(null, { status: 404 });
   };
@@ -88,4 +89,36 @@ test("successful write logs can identify a later remote value as this app's earl
   assert.equal(second.fields.outcome, "remote-changed");
   assert.equal(first.texts.returned.hash, second.texts.remote.hash);
   assert.equal(first.texts.local.hash, second.texts.remote.hash);
+});
+
+const originalStart = "2026-01-15T10:00:00Z";
+const matchingEntry = { id: 4, wid: 2, uid: 1, start: originalStart, description: "mine" };
+test("review finds a unique matching entry at the exact original time without writing or changing IDs", async () => {
+  const result = await run({ reviewOnly: true, start: originalStart }, null, [matchingEntry]);
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.body, { deleted: true, matchingEntry: { entryId: 4, start: originalStart } });
+  assert.deepEqual(result.writes, []);
+});
+test("a missing-entry match is never guessed from a nearby time, a different description, or another account", async () => {
+  for (const other of [
+    { ...matchingEntry, start: "2026-01-15T10:00:01Z" },
+    { ...matchingEntry, description: "a different task" },
+    { ...matchingEntry, uid: 9 }, { ...matchingEntry, wid: 9 },
+    { ...matchingEntry, server_deleted_at: originalStart },
+    { ...matchingEntry, id: 3 },
+  ]) {
+    const result = await run({ reviewOnly: true, start: originalStart }, null, [other]);
+    assert.deepEqual(result.body, { deleted: true });
+    assert.deepEqual(result.writes, []);
+  }
+});
+test("duplicate matches are not presented as an identified replacement", async () => {
+  const result = await run({ reviewOnly: true, start: originalStart }, null, [matchingEntry, { ...matchingEntry, id: 5 }]);
+  assert.deepEqual(result.body, { deleted: true });
+  assert.deepEqual(result.writes, []);
+});
+test("upload never redirects to a matching entry", async () => {
+  const result = await run({ start: originalStart }, null, [matchingEntry]);
+  assert.deepEqual(result.body, { deleted: true });
+  assert.deepEqual(result.writes, []);
 });

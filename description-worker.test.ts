@@ -566,3 +566,38 @@ it("refreshes the comparison instead of dismissing an entry that reappears in To
   expect(memory.history).toHaveLength(0);
   expect(writes).toBe(0);
 });
+
+it("shows a matching entry separately and opens its actual ID without moving the draft", async () => {
+  const matchingEntry = { entryId: 4, start: "2026-01-15T10:00:00Z" };
+  memory.drafts.set(key, { ...draft(), deleted: true, remote: undefined, start: matchingEntry.start });
+  const normalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+    if (String(url).includes("/3/description")) {
+      const body = JSON.parse(String(init.body));
+      expect(body.start).toBe(matchingEntry.start);
+      return Response.json({ deleted: true, matchingEntry }, { status: 409 });
+    }
+    return normalFetch(url, init);
+  }));
+  const navigated: number[] = [];
+  const navigate = (event: Event) => { navigated.push((event as CustomEvent).detail.id); event.preventDefault(); };
+  window.addEventListener("deeplog-description-navigate", navigate);
+  try {
+    await mount();
+    await React.act(async () => {
+      await vi.waitFor(() => expect(host.querySelector('[data-testid="entry-row"] button')).not.toBeNull());
+    });
+    await React.act(async () => { (host.querySelector('[data-testid="entry-row"] button') as HTMLButtonElement).click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Found a matching entry");
+    expect(dialog.textContent).toContain("exact same start time");
+    expect(dialog.textContent).not.toContain("there is no Toggl description to compare");
+    await React.act(async () => {
+      [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === "View matching entry")!.click();
+    });
+    expect(navigated).toEqual([3, 4]);
+    expect(memory.drafts.get(key)?.local).toBe("my saved edit");
+    expect(memory.drafts.has("1:2:4")).toBe(false);
+    expect(writes).toBe(0);
+  } finally { window.removeEventListener("deeplog-description-navigate", navigate); }
+});
