@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { searchDescriptionItems } from "@/lib/description-completions";
 import { Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -26,6 +27,7 @@ type Tag = {
 };
 
 interface RecentTimersPopoverProps {
+  descriptionItemsOnly?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   searchQuery: string;
@@ -47,6 +49,7 @@ interface RecentTimersPopoverProps {
 
 export function RecentTimersPopover({
   open,
+  descriptionItemsOnly = false,
   onOpenChange,
   searchQuery,
   projects,
@@ -66,11 +69,13 @@ export function RecentTimersPopover({
   const refreshTimers = React.useCallback((): RecentTimerEntry[] => {
     // Re-read local storage when a keyboard ranking reset increments this revision.
     void refreshRevision;
-    const results = searchRecentTimers(searchQuery, maxResults);
+    const results = descriptionItemsOnly
+      ? searchDescriptionItems(searchQuery, maxResults)
+      : searchRecentTimers(searchQuery, maxResults);
     setRecentTimers(results);
     onTimersChange?.(results);
     return results;
-  }, [searchQuery, maxResults, onTimersChange, refreshRevision]);
+  }, [searchQuery, maxResults, onTimersChange, refreshRevision, descriptionItemsOnly]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -148,7 +153,7 @@ export function RecentTimersPopover({
         <div className="space-y-1">
           <div className="px-3 py-2 text-xs text-muted-foreground font-medium flex items-center gap-2">
             <Clock className="w-3 h-3" />
-            Recent Timers
+            {descriptionItemsOnly ? "Description items" : "Recent Timers"}
           </div>
           {recentTimers.map((timer, index) => {
             const project = getProjectById(timer.projectId);
@@ -168,6 +173,7 @@ export function RecentTimersPopover({
               >
                 <div
                   className="flex-1 min-w-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 -m-2.5 p-2.5 rounded-md active:scale-[0.98] transition-all duration-150"
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     onSelect({
                       description: timer.description,
@@ -204,7 +210,7 @@ export function RecentTimersPopover({
                     )}
                   </div>
                 </div>
-                <button
+                {!descriptionItemsOnly && <button
                   className={cn(
                     "shrink-0 w-6 h-6 rounded-md flex items-center justify-center",
                     "text-muted-foreground hover:text-foreground",
@@ -227,7 +233,7 @@ export function RecentTimersPopover({
                   aria-label="Reset recent timer ranking"
                 >
                   <X className="w-4 h-4" />
-                </button>
+                </button>}
               </div>
             );
           })}

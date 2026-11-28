@@ -1,3 +1,5 @@
+import { rememberDescriptionItems } from "./description-item-cache";
+
 export type RecentTimerEntry = {
   id: number; // Time entry ID
   description: string;
@@ -66,6 +68,7 @@ export function getRecentTimers(): RecentTimerEntry[] {
 }
 
 export function addToRecentTimers(entry: RecentTimerEntry): void {
+  rememberDescriptionItems([entry.description]);
   try {
     const description = getRecentTimerDescription(entry.description);
     if (!description) return;
@@ -133,6 +136,7 @@ export function updateRecentTimersCache(
   }>
 ): void {
   try {
+    rememberDescriptionItems(entries.map((entry) => entry.description));
     const fetchedEntriesById = new Map(entries.map((entry) => [entry.id, entry]));
     const reconciledTimers: RecentTimerEntry[] = [];
     const timerIndexBySignature = new Map<string, number>();

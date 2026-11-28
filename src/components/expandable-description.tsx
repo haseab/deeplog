@@ -22,6 +22,8 @@ import {
 } from "@/lib/description-markdown";
 import { RecentTimersPopover } from "./recent-timers-popover";
 import { resetRecentTimerRanking } from "@/lib/recent-timers-cache";
+import { recordDescriptionItemSelection } from "@/lib/description-item-cache";
+import { completionRange, descriptionItemStart } from "@/lib/description-completions";
 
 const MARKDOWN_LINK_DETECTION_REGEX = /\[[^\]]+\]\([^)]+\)/;
 const MARKDOWN_LIST_DETECTION_REGEX = /^\s*(?:[-+*]|\d+[.)])\s+/m;
@@ -84,15 +86,20 @@ export function ExpandableDescription({
   const [currentCharCount, setCurrentCharCount] = React.useState(0);
   const [isCaretOnFirstLine, setIsCaretOnFirstLine] = React.useState(true);
   const [showRecentTimers, setShowRecentTimers] = React.useState(false);
+  const [descriptionItemsOnly, setDescriptionItemsOnly] = React.useState(false);
+  const [recentTimersRevision, setRecentTimersRevision] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
-  const [recentTimersRevision, setRecentTimersRevision] = React.useState(0);
   const justSelectedTimerRef = React.useRef(false);
   const recentTimersRef = React.useRef<Array<{
     description: string;
     projectId: number | null;
     tagIds: number[];
   }>>([]);
+
+  const handleTimersChange = React.useCallback((timers: typeof recentTimersRef.current) => {
+    recentTimersRef.current = timers;
+  }, []);
 
   const handleRecentTimersOpenChange = React.useCallback((open: boolean) => {
     console.debug("[ExpandableDescription] Recent timers open changed", {
@@ -196,7 +203,16 @@ export function ExpandableDescription({
       const content = getMarkdownContent();
       setCurrentCharCount(content.length);
       // Update search query for recent timers
-      setSearchQuery(content);
+      const { $from, empty } = editorRef.current.state.selection;
+      const range = completionRange($from.parent.textBetween(0, $from.parent.content.size, "\n", "\ufffc"), $from.parentOffset);
+      const itemMode = descriptionItemStart(editorRef.current.state.doc.textBetween(0, editorRef.current.state.selection.from, "\n", "\ufffc")) !== null;
+      setDescriptionItemsOnly(itemMode);
+      const plainText = editorRef.current.getText();
+      const prefixEnd = descriptionItemStart(plainText);
+      const timerQuery = prefixEnd === null
+        ? content
+        : plainText.slice(0, prefixEnd).replace(/[ \t]+-[ \t]*$/, "");
+      setSearchQuery(itemMode ? (empty ? range.query : "") : timerQuery);
     }
   }, [getMarkdownContent]);
 
@@ -292,6 +308,7 @@ export function ExpandableDescription({
         return true;
       },
       handleKeyDown: (view, event) => {
+        if (event.isComposing || view.composing) return false;
         if (
           (event.metaKey || event.ctrlKey) &&
           !event.shiftKey &&
@@ -348,37 +365,21 @@ export function ExpandableDescription({
             event.preventDefault();
             setHighlightedIndex((prev) => Math.max(0, prev - 1));
             return true;
-          } else if (
-            event.key.toLowerCase() === "d" &&
-            (event.metaKey || event.ctrlKey) &&
-            !event.shiftKey
-          ) {
+          } else if (!descriptionItemsOnly && event.key.toLowerCase() === "d" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
             event.preventDefault();
             event.stopPropagation();
-
             const selectedTimer = recentTimersRef.current[highlightedIndex];
             if (selectedTimer) {
-              resetRecentTimerRanking(
-                selectedTimer.description,
-                selectedTimer.projectId,
-                selectedTimer.tagIds
-              );
+              resetRecentTimerRanking(selectedTimer.description, selectedTimer.projectId, selectedTimer.tagIds);
               setHighlightedIndex(0);
               setRecentTimersRevision((revision) => revision + 1);
             }
             return true;
-          } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
+          } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
             event.preventDefault();
             // Trigger selection of highlighted item
             const selectedTimer = recentTimersRef.current[highlightedIndex];
-            if (selectedTimer && onRecentTimerSelect) {
-              justSelectedTimerRef.current = true;
-              onRecentTimerSelect(selectedTimer);
-              setShowRecentTimers(false);
-              setIsEditing(false);
-              setHighlightedIndex(0);
-              // Stay in current cell, don't navigate down
-            }
+            if (selectedTimer) selectSuggestion(selectedTimer);
             return true;
           } else if (event.key === "Escape") {
             event.preventDefault();
@@ -494,6 +495,11 @@ export function ExpandableDescription({
         return false; // Not handled, let editor process normally
       },
     },
+    onSelectionUpdate: () => {
+      updateCharCount();
+      setHighlightedIndex(0);
+      setShowRecentTimers(!!editorRef.current?.state.selection.empty);
+    },
     onUpdate: () => {
       if (
         isEditingRef.current &&
@@ -504,13 +510,9 @@ export function ExpandableDescription({
         if (offlineDrafting) autosaveRef.current?.(getMarkdownContent());
       }
       updateCharCount();
-      // Show recent timers if content is empty or has only 1 character
-      if (editor && isEditing) {
-        const currentContent = getMarkdownContent();
-        if (!currentContent || currentContent.trim().length <= 1) {
-          setShowRecentTimers(true);
-          setHighlightedIndex(0);
-        }
+      if (isEditingRef.current && !isApplyingExternalContentRef.current) {
+        setShowRecentTimers(true);
+        setHighlightedIndex(0);
       }
     },
     // Remove onBlur - we handle closing via click outside detection now
@@ -697,6 +699,33 @@ export function ExpandableDescription({
     setHighlightedIndex(0);
   };
 
+  const selectSuggestion = (entry: (typeof recentTimersRef.current)[number]) => {
+    if (descriptionItemsOnly) {
+      applyCompletion(entry.description);
+    } else {
+      justSelectedTimerRef.current = true;
+      onRecentTimerSelect?.(entry);
+      setShowRecentTimers(false);
+      setIsEditing(false);
+      setHighlightedIndex(0);
+    }
+  };
+
+  const applyCompletion = (text: string) => {
+    if (!editor || !editor.state.selection.empty) return;
+    const { $from } = editor.state.selection;
+    const blockText = $from.parent.textBetween(0, $from.parent.content.size, "\n", "\ufffc");
+    const range = completionRange(blockText, $from.parentOffset);
+    const insertion = blockText[range.from - 1] === "-" ? ` ${text}` : text;
+    const inserted = editor.chain().focus().insertContentAt(
+      { from: $from.start() + range.from, to: $from.start() + range.to },
+      { type: "text", text: insertion }
+    ).run();
+    if (inserted) recordDescriptionItemSelection(text);
+    setShowRecentTimers(false);
+    setHighlightedIndex(0);
+  };
+
   const handleInsertLink = () => {
     if (!editor || !linkUrl.trim()) return;
 
@@ -765,19 +794,12 @@ export function ExpandableDescription({
         projects={projects}
         availableTags={availableTags}
         maxResults={20}
-        onSelect={(entry) => {
-          justSelectedTimerRef.current = true;
-          onRecentTimerSelect?.(entry);
-          setShowRecentTimers(false);
-          setIsEditing(false);
-          // Stay in current cell, don't navigate down
-        }}
+        descriptionItemsOnly={descriptionItemsOnly}
+        refreshRevision={recentTimersRevision}
+        onSelect={selectSuggestion}
         highlightedIndex={highlightedIndex}
         onHighlightedIndexChange={setHighlightedIndex}
-        onTimersChange={(timers) => {
-          recentTimersRef.current = timers;
-        }}
-        refreshRevision={recentTimersRevision}
+        onTimersChange={handleTimersChange}
         onEscapeKeyDown={(event) => {
           console.debug(
             "[ExpandableDescription] Received Escape from recent timers portal",
