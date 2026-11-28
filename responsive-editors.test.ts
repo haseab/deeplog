@@ -125,3 +125,100 @@ for (const kind of ["description", "duration"] as const) {
     expect(editors[kind].size).toBe(0);
   });
 }
+
+it("description: completes only the item at the caret and keeps editing", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => key === "deeplog_description_items" ? JSON.stringify(["Review navigation", "Publish report"]) : null,
+    setItem: vi.fn(),
+  });
+  const scroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  vi.useFakeTimers();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const onSave = vi.fn();
+  const onRecentTimerSelect = vi.fn();
+  try {
+    await React.act(async () => root.render(React.createElement(ExpandableDescription, {
+      description: "**Building** - Planning, Rev nav, Publish report",
+      "data-testid": "completion-editor", onSave, onRecentTimerSelect,
+    })));
+    await React.act(async () => host.querySelector('[data-testid="completion-editor"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await React.act(async () => { vi.advanceTimersByTime(200); });
+    const editor = (host.querySelector(".tiptap") as HTMLElement & { editor: Editor }).editor;
+    await React.act(async () => { editor.commands.setTextSelection(editor.getText().indexOf("nav") + 3); });
+    expect(document.body.textContent).toContain("Description items");
+    expect(document.body.textContent).toContain("Review navigation");
+    await React.act(async () => { editor.view.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(editor.getText()).toBe("Building - Planning, Review navigation, Publish report");
+    expect(editor.getHTML()).toContain("<strong>Building</strong>");
+    expect(host.querySelector(".tiptap")).not.toBeNull();
+    expect(onRecentTimerSelect).not.toHaveBeenCalled();
+    const savedItems = JSON.parse(vi.mocked(localStorage.setItem).mock.calls.find(([key]) => key === "deeplog_description_items")![1]);
+    expect(savedItems).toContainEqual(expect.objectContaining({ description: "Review navigation", usageCount: 1 }));
+    // A failed query should not prevent suggestions from reopening as typing continues.
+    await React.act(async () => { editor.commands.setTextSelection(editor.state.doc.content.size - 1); editor.commands.insertContent(", zzzzz"); });
+    await React.act(async () => { editor.commands.deleteRange({ from: editor.state.selection.from - 5, to: editor.state.selection.from }); editor.commands.insertContent("Rev"); });
+    const option = [...document.querySelectorAll(".font-medium.truncate")].find((element) => element.textContent === "Review navigation");
+    expect(option).toBeDefined();
+    await React.act(async () => { option!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(editor.getText()).toBe("Building - Planning, Review navigation, Publish report, Review navigation");
+    expect(vi.mocked(localStorage.setItem).mock.calls.filter(([key]) => key === "deeplog_description_items")).toHaveLength(2);
+    await React.act(async () => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(onSave).toHaveBeenCalledWith("**Building** - Planning, Review navigation, Publish report, Review navigation", true, "**Building** - Planning, Rev nav, Publish report");
+  } finally {
+    await React.act(async () => root.unmount());
+    await React.act(async () => { vi.runOnlyPendingTimers(); });
+    host.remove();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("description: uses the original recent timer selection before the first spaced hyphen", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const timer = { id: 1, description: "Building", projectId: 7, tagIds: [8], usageCount: 0 };
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => key === "deeplog_recent_timers" ? JSON.stringify([timer]) : JSON.stringify(["Review navigation"]),
+    setItem: vi.fn(),
+  });
+  const scroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  vi.useFakeTimers();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const onRecentTimerSelect = vi.fn();
+  try {
+    await React.act(async () => root.render(React.createElement(ExpandableDescription, {
+      description: "Build", "data-testid": "mode-editor", onRecentTimerSelect,
+    })));
+    await React.act(async () => host.querySelector('[data-testid="mode-editor"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await React.act(async () => { vi.advanceTimersByTime(200); });
+    const editor = (host.querySelector(".tiptap") as HTMLElement & { editor: Editor }).editor;
+    expect(document.body.textContent).toContain("Recent Timers");
+    expect(document.body.textContent).not.toContain("Description items");
+    await React.act(async () => { editor.commands.insertContent("ing - Rev"); });
+    expect(document.body.textContent).toContain("Description items");
+    await React.act(async () => { editor.commands.setContent("<p>Building -</p>", true); editor.commands.focus("end"); });
+    await React.act(async () => { editor.view.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(editor.getText()).toBe("Building - Review navigation");
+    expect(onRecentTimerSelect).not.toHaveBeenCalled();
+    await React.act(async () => { editor.commands.setTextSelection(4); });
+    expect(document.body.textContent).toContain("Recent Timers");
+    await React.act(async () => { editor.commands.setContent("<p>Build</p>", true); });
+    await React.act(async () => { editor.view.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(onRecentTimerSelect).toHaveBeenCalledWith({ description: "Building", projectId: 7, tagIds: [8], id: 1, usageCount: 0 });
+    expect(host.querySelector(".tiptap")).toBeNull();
+  } finally {
+    await React.act(async () => root.unmount());
+    await React.act(async () => { vi.runOnlyPendingTimers(); });
+    host.remove();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
+});
